@@ -16,17 +16,17 @@ export const resolvers = {
     // Players
     players: async (_: unknown, { limit = 20, offset = 0 }: { limit?: number; offset?: number }) => {
       await connectToDatabase();
-      return Player.find().sort({ points: -1 }).skip(offset).limit(limit);
+      return await Player.find().sort({ points: -1 }).skip(offset).limit(limit);
     },
 
     player: async (_: unknown, { id }: { id: string }) => {
       await connectToDatabase();
-      return Player.findById(id);
+      return await Player.findById(id);
     },
 
     playerByTag: async (_: unknown, { tag }: { tag: string }) => {
       await connectToDatabase();
-      return Player.findOne({ tag });
+      return await Player.findOne({ tag });
     },
 
     // Tournaments
@@ -36,30 +36,30 @@ export const resolvers = {
     ) => {
       await connectToDatabase();
       const filter = status ? { status } : {};
-      return Tournament.find(filter).sort({ startDate: -1 }).skip(offset).limit(limit);
+      return await Tournament.find(filter).sort({ startDate: -1 }).skip(offset).limit(limit);
     },
 
     tournament: async (_: unknown, { id }: { id: string }) => {
       await connectToDatabase();
-      return Tournament.findById(id);
+      return await Tournament.findById(id);
     },
 
     // Matches
     matches: async (_: unknown, { tournamentId }: { tournamentId: string }) => {
       await connectToDatabase();
-      return Match.find({ tournamentId });
+      return await Match.find({ tournamentId });
     },
 
     match: async (_: unknown, { id }: { id: string }) => {
       await connectToDatabase();
-      return Match.findById(id);
+      return await Match.findById(id);
     },
 
     // Auth
     me: async (_: unknown, __: unknown, { userId }: { userId?: string }) => {
       if (!userId) return null;
       await connectToDatabase();
-      return User.findById(userId);
+      return await User.findById(userId);
     },
   },
 
@@ -168,12 +168,12 @@ export const resolvers = {
   // ─── Field resolvers (populate references) ─────────────────────────────────
 
   User: {
-    player: (parent: { playerId: string }) => Player.findById(parent.playerId),
+    player: async (parent: { playerId: string }) => await Player.findById(parent.playerId),
   },
 
   Player: {
-    user: (parent: { userId: string }) => User.findById(parent.userId),
-    tournaments: (parent: { _id: string }) => Entrant.find({ playerId: parent._id }),
+    user: async (parent: { userId: string }) => await User.findById(parent.userId),
+    tournaments: async (parent: { _id: string }) => await Entrant.find({ playerId: parent._id }),
     winRate: (parent: { wins: number; losses: number }) => {
       const total = parent.wins + parent.losses;
       return total === 0 ? 0 : Math.round((parent.wins / total) * 100) / 100;
@@ -181,20 +181,20 @@ export const resolvers = {
   },
 
   Tournament: {
-    entrants: (parent: { _id: string }) => Entrant.find({ tournamentId: parent._id }),
-    matches: (parent: { _id: string }) => Match.find({ tournamentId: parent._id }),
+    entrants: async (parent: { _id: string }) => await Entrant.find({ tournamentId: parent._id }),
+    matches: async (parent: { _id: string }) => await Match.find({ tournamentId: parent._id }),
   },
 
   Entrant: {
-    player: (parent: { playerId: string }) => Player.findById(parent.playerId),
-    tournament: (parent: { tournamentId: string }) => Tournament.findById(parent.tournamentId),
+    player: async (parent: { playerId: string }) => await Player.findById(parent.playerId),
+    tournament: async (parent: { tournamentId: string }) => await Tournament.findById(parent.tournamentId),
   },
 
   Match: {
-    player1: (parent: { player1Id: string }) => Player.findById(parent.player1Id),
-    player2: (parent: { player2Id: string }) => Player.findById(parent.player2Id),
-    winner: (parent: { winnerId?: string }) =>
-      parent.winnerId ? Player.findById(parent.winnerId) : null,
-    tournament: (parent: { tournamentId: string }) => Tournament.findById(parent.tournamentId),
+    player1: async (parent: { player1Id: string }) => await Player.findById(parent.player1Id),
+    player2: async (parent: { player2Id: string }) => await Player.findById(parent.player2Id),
+    winner: async (parent: { winnerId?: string }) =>
+      parent.winnerId ? await Player.findById(parent.winnerId) : null,
+    tournament: async (parent: { tournamentId: string }) => await Tournament.findById(parent.tournamentId),
   },
 };
