@@ -3,11 +3,13 @@
 
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { auth } from "@/lib/auth";
+import { JoinTournamentButton } from "@/components/JoinTournamentButton";
 
 export const dynamic = "force-dynamic";
 
 const GET_TOURNAMENT = `
-  query GetTournament($id: ID!) {
+  query GetTournament($id: ID!, $playerId: ID) {
     tournament(id: $id) {
       id
       name
@@ -16,6 +18,7 @@ const GET_TOURNAMENT = `
       entrantCount
       startDate
       endDate
+      isEntered(playerId: $playerId)
       entrants {
         id
         seed
@@ -40,13 +43,13 @@ const GET_TOURNAMENT = `
   }
 `;
 
-async function getTournament(id: string) {
+async function getTournament(id: string, playerId?: string) {
   try {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
     const res = await fetch(`${baseUrl}/api/graphql`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: GET_TOURNAMENT, variables: { id } }),
+      body: JSON.stringify({ query: GET_TOURNAMENT, variables: { id, playerId } }),
       cache: "no-store",
     });
     const json = await res.json();
@@ -75,7 +78,9 @@ function statusBadge(status: string) {
 
 export default async function TournamentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const tournament = await getTournament(id);
+  const session = await auth();
+  const playerId = (session?.user as any)?.playerId ?? undefined;
+  const tournament = await getTournament(id, playerId);
   if (!tournament) notFound();
 
   // Group matches by round
@@ -98,7 +103,13 @@ export default async function TournamentDetailPage({ params }: { params: Promise
               {tournament.game} · {tournament.entrantCount} entrants · {new Date(tournament.startDate).toLocaleDateString()}
             </p>
           </div>
-          {statusBadge(tournament.status)}
+          <div className="flex items-center gap-3">
+            {statusBadge(tournament.status)}
+            <JoinTournamentButton
+              tournamentId={tournament.id}
+              isEntered={tournament.isEntered}
+            />
+          </div>
         </div>
       </div>
 

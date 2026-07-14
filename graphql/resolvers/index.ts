@@ -119,6 +119,10 @@ export const resolvers = {
       { tournamentId, playerId }: { tournamentId: string; playerId: string }
     ) => {
       await connectToDatabase();
+      const existingEntrant = await Entrant.findOne({ tournamentId, playerId });
+      if (existingEntrant) {
+        return existingEntrant;
+      }
       const entrant = await Entrant.create({ tournamentId, playerId });
       // Keep entrantCount in sync
       await Tournament.findByIdAndUpdate(tournamentId, { $inc: { entrantCount: 1 } });
@@ -183,6 +187,11 @@ export const resolvers = {
   Tournament: {
     entrants: async (parent: { _id: string }) => await Entrant.find({ tournamentId: parent._id }),
     matches: async (parent: { _id: string }) => await Match.find({ tournamentId: parent._id }),
+    isEntered: async (parent: { _id: string }, { playerId }: { playerId?: string }) => {
+      if (!playerId) return false;
+      const entrant = await Entrant.findOne({ tournamentId: parent._id, playerId });
+      return !!entrant;
+    },
   },
 
   Entrant: {
