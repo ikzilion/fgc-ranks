@@ -145,8 +145,11 @@ export const resolvers = {
 
     reportResult: async (
       _: unknown,
-      { matchId, player1Score, player2Score }: { matchId: string; player1Score: number; player2Score: number }
+      { matchId, player1Score, player2Score }: { matchId: string; player1Score: number; player2Score: number },
+      { role }: { role?: string }
     ) => {
+      if (role !== "ADMIN") throw new Error("Not authorized");
+
       await connectToDatabase();
       const match = await Match.findById(matchId);
       if (!match) throw new Error("Match not found");

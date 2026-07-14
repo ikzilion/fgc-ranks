@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { JoinTournamentButton } from "@/components/JoinTournamentButton";
+import { ReportMatchButton } from "@/components/ReportMatchButton";
 
 export const dynamic = "force-dynamic";
 
@@ -126,6 +127,9 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                 <div className="fgc-card">
                   {matches.map((match: any) => (
                     <div key={match.id} className="px-4 py-3 border-b border-[var(--border)] last:border-0">
+                      <div className="flex items-center justify-end mb-1">
+                        <ReportMatchButton match={match} />
+                      </div>
                       {/* Player 1 */}
                       <div className={`flex items-center justify-between py-1 ${match.winner?.id === match.player1.id ? "opacity-100" : "opacity-50"}`}>
                         <div className="flex items-center gap-2">
