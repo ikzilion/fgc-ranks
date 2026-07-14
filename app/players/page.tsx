@@ -3,8 +3,6 @@
 
 import Link from "next/link";
 
-export const dynamic = "force-dynamic";
-
 const GET_PLAYERS = `
   query {
     players(limit: 50) {
@@ -21,14 +19,32 @@ const GET_PLAYERS = `
 `;
 
 async function getPlayers() {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/graphql`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query: GET_PLAYERS }),
-    next: { revalidate: 60 },
-  });
-  const { data } = await res.json();
-  return data?.players ?? [];
+  try {
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+    const res = await fetch(`${baseUrl}/api/graphql`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: GET_PLAYERS }),
+      cache: "no-store",
+    });
+
+    if (!res.ok) {
+      console.error("[players] fetch failed:", res.status, await res.text());
+      return [];
+    }
+
+    const json = await res.json();
+
+    if (json.errors) {
+      console.error("[players] GraphQL errors:", JSON.stringify(json.errors, null, 2));
+      return [];
+    }
+
+    return json.data?.players ?? [];
+  } catch (err) {
+    console.error("[players] fetch error:", err);
+    return [];
+  }
 }
 
 function rankColor(rank: number) {
@@ -70,44 +86,33 @@ export default async function PlayersPage() {
               href={`/players/${player.id}`}
               className="flex items-center gap-4 px-5 py-3 border-b border-[var(--border)] last:border-0 hover:bg-[var(--navy-3)] transition-colors"
             >
-              {/* Rank */}
               <span className={`font-rajdhani text-[15px] font-bold w-6 flex-shrink-0 ${rankColor(rank)}`}>
                 {rank}
               </span>
-
-              {/* Avatar */}
               <div
                 className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 font-rajdhani text-[12px] font-bold"
                 style={{ background: "var(--blue-dim)", border: "1px solid rgba(79,142,247,0.3)", color: "var(--blue)" }}
               >
                 {player.tag.slice(0, 2).toUpperCase()}
               </div>
-
-              {/* Info */}
               <div className="flex-1 min-w-0">
                 <p className="font-rajdhani text-[16px] font-bold text-[var(--text-primary)] leading-tight">{player.tag}</p>
                 <p className="text-[12px] text-[var(--text-secondary)] truncate">
                   {player.characters.length > 0 ? player.characters.join(", ") : "No main"} · {player.region || "Unknown region"}
                 </p>
               </div>
-
-              {/* Win rate */}
               <div className="text-right mr-3 hidden sm:block">
                 <p className="font-rajdhani text-[15px] font-bold text-[var(--text-primary)]">
                   {player.winRate != null ? `${Math.round(player.winRate * 100)}%` : "—"}
                 </p>
                 <p className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">win rate</p>
               </div>
-
-              {/* Points */}
               <div className="text-right mr-3">
                 <p className="font-rajdhani text-[16px] font-bold text-[var(--text-primary)]">
                   {player.points.toLocaleString()}
                 </p>
                 <p className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">pts</p>
               </div>
-
-              {/* Badge */}
               <div className="w-20 flex justify-end">{rankBadge(rank)}</div>
             </Link>
           );
