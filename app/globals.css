@@ -1,0 +1,77 @@
+@import url("https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500&display=swap");
+@import "tailwindcss";
+
+:root {
+  --navy:        #0D0F1A;
+  --navy-2:      #13162A;
+  --navy-3:      #1B1F35;
+  --navy-4:      #252A45;
+  --blue:        #4F8EF7;
+  --blue-dim:    #1E3A6E;
+  --coral:       #FF4D4D;
+  --coral-dim:   #4A1515;
+  --gold:        #F0B429;
+  --gold-dim:    #3D2E00;
+  --green:       #22C55E;
+  --green-dim:   #0D3320;
+  --text-primary:   #F0F2FF;
+  --text-secondary: #8B8FA8;
+  --text-muted:     #4B4F68;
+  --border:         rgba(255,255,255,0.07);
+  --border-strong:  rgba(255,255,255,0.14);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  background: var(--navy);
+  color: var(--text-primary);
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  min-height: 100%;
+}
+
+.font-rajdhani { font-family: 'Rajdhani', sans-serif; }
+
+/* Scanline signature texture */
+.scanline {
+  position: relative;
+}
+.scanline::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(255,255,255,0.012) 2px,
+    rgba(255,255,255,0.012) 4px
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+.scanline > * { position: relative; z-index: 1; }
+
+/* Card */
+.fgc-card {
+  background: var(--navy-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+/* Badge */
+.badge-live     { background: var(--coral-dim); color: var(--coral);   border: 1px solid rgba(255,77,77,0.25); }
+.badge-upcoming { background: var(--blue-dim);  color: var(--blue);    border: 1px solid rgba(79,142,247,0.25); }
+.badge-ended    { background: var(--navy-4);    color: var(--text-muted); border: 1px solid var(--border); }
+
+/* Live dot animation */
+.live-dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--coral);
+  animation: pulse 1.5s infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }

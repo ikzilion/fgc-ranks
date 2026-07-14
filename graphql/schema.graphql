@@ -1,0 +1,140 @@
+scalar Date
+
+# ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum TournamentStatus {
+  UPCOMING
+  LIVE
+  ENDED
+}
+
+enum MatchStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum UserRole {
+  PLAYER
+  ADMIN
+}
+
+# ─── Core types ──────────────────────────────────────────────────────────────
+
+type User {
+  id: ID!
+  email: String!
+  role: UserRole!
+  player: Player
+  createdAt: Date!
+}
+
+type Player {
+  id: ID!
+  user: User
+  tag: String!
+  region: String
+  characters: [String!]!
+  wins: Int!
+  losses: Int!
+  points: Int!
+  winRate: Float       # computed: wins / (wins + losses)
+  tournaments: [Entrant!]!
+  createdAt: Date!
+}
+
+type Tournament {
+  id: ID!
+  name: String!
+  game: String!
+  status: TournamentStatus!
+  entrantCount: Int!
+  startDate: Date!
+  endDate: Date
+  entrants: [Entrant!]!
+  matches: [Match!]!
+}
+
+# Join between Player and Tournament
+type Entrant {
+  id: ID!
+  player: Player!
+  tournament: Tournament!
+  seed: Int
+  placement: Int
+}
+
+type Match {
+  id: ID!
+  tournament: Tournament!
+  player1: Player!
+  player2: Player!
+  player1Score: Int!
+  player2Score: Int!
+  winner: Player
+  round: String!
+  status: MatchStatus!
+}
+
+# ─── Auth ────────────────────────────────────────────────────────────────────
+
+type AuthPayload {
+  token: String!
+  user: User!
+}
+
+# ─── Queries ─────────────────────────────────────────────────────────────────
+
+type Query {
+  # Players
+  players(limit: Int, offset: Int): [Player!]!
+  player(id: ID!): Player
+  playerByTag(tag: String!): Player
+
+  # Tournaments
+  tournaments(status: TournamentStatus, limit: Int, offset: Int): [Tournament!]!
+  tournament(id: ID!): Tournament
+
+  # Matches
+  matches(tournamentId: ID!): [Match!]!
+  match(id: ID!): Match
+
+  # Auth
+  me: User
+}
+
+# ─── Mutations ───────────────────────────────────────────────────────────────
+
+type Mutation {
+  # Auth
+  register(email: String!, password: String!, tag: String!): AuthPayload!
+  login(email: String!, password: String!): AuthPayload!
+
+  # Players
+  updatePlayer(id: ID!, tag: String, region: String, characters: [String!]): Player!
+
+  # Tournaments
+  createTournament(
+    name: String!
+    game: String!
+    startDate: Date!
+  ): Tournament!
+  updateTournamentStatus(id: ID!, status: TournamentStatus!): Tournament!
+
+  # Entrants
+  joinTournament(tournamentId: ID!, playerId: ID!): Entrant!
+  setPlacement(entrantId: ID!, placement: Int!): Entrant!
+
+  # Matches
+  createMatch(
+    tournamentId: ID!
+    player1Id: ID!
+    player2Id: ID!
+    round: String!
+  ): Match!
+  reportResult(
+    matchId: ID!
+    player1Score: Int!
+    player2Score: Int!
+  ): Match!
+}

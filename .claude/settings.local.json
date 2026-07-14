@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm -v)",
+      "Bash(mkdir -p \"/c/Users/dio10/AppData/Local/Temp/claude/C--Users-dio10-Dropbox-FGC-Ranks/7c3a401a-3b82-4645-896a-64bdc797bf6f/scratchpad/pre-scaffold-backup\")",
+      "Bash(mv \"/c/Users/dio10/Dropbox/FGC Ranks/CLAUDE.md\" \"/c/Users/dio10/Dropbox/FGC Ranks/index.js\" \"/c/Users/dio10/Dropbox/FGC Ranks/package.json\" \"/c/Users/dio10/AppData/Local/Temp/claude/C--Users-dio10-Dropbox-FGC-Ranks/7c3a401a-3b82-4645-896a-64bdc797bf6f/scratchpad/pre-scaffold-backup/\")",
+      "Bash(npx *)",
+      "Bash(cd *)",
+      "Bash(npm install *)",
+      "Bash(npm ls *)",
+      "Bash(node -e \"console.log\\(Object.keys\\(require\\('next-auth'\\)\\)\\)\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/login)",
+      "Bash(curl -s -X POST http://localhost:3000/api/graphql -H \"Content-Type: application/json\" -d '{\"query\":\"{ health }\"}')",
+      "Bash(powershell -Command 'Get-CimInstance Win32_Process -Filter \"Name='\\\\''node.exe'\\\\''\" | Where-Object { $_.CommandLine -like '\\\\''*next dev*'\\\\'' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }')",
+      "Read(//c/Users/dio10/**)",
+      "PowerShell(robocopy \"C:\\\\Users\\\\dio10\\\\Dropbox\\\\FGC Ranks\" \"G:\\\\My Drive\\\\FGC Ranks\" /MOVE /E /XD node_modules .next /XF tsconfig.tsbuildinfo)",
+      "Bash(taskkill //F //IM node.exe //T)",
+      "Bash(npm run *)",
+      "Bash(echo \"started pid $!\")",
+      "Bash(curl -s -o /dev/null -w \"/ -> %{http_code}\\\\n\" http://localhost:3000/)",
+      "Bash(curl -s -o /dev/null -w \"/tournaments -> %{http_code}\\\\n\" http://localhost:3000/tournaments)",
+      "Bash(curl -s -o /dev/null -w \"/players -> %{http_code}\\\\n\" http://localhost:3000/players)",
+      "Bash(curl -s -X POST http://localhost:3000/api/graphql -H \"Content-Type: application/json\" -d '{\"query\":\"{ tournaments\\(limit:3\\) { id name status } }\"}')",
+      "mcp__claude_ai_Google_Drive__list_recent_files",
+      "mcp__claude_ai_Google_Drive__get_file_metadata",
+      "mcp__claude_ai_Google_Drive__read_file_content"
+    ]
+  }
+}

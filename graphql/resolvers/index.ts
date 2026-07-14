@@ -1,0 +1,200 @@
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import { connectToDatabase } from "@/lib/db";
+import { User } from "@/models/User";
+import { Player } from "@/models/Player";
+import { Tournament } from "@/models/Tournament";
+import { Entrant } from "@/models/Entrant";
+import { Match, MatchStatus } from "@/models/Match";
+
+const JWT_SECRET = process.env.NEXTAUTH_SECRET || "dev-secret";
+
+export const resolvers = {
+  // ─── Queries ───────────────────────────────────────────────────────────────
+
+  Query: {
+    // Players
+    players: async (_: unknown, { limit = 20, offset = 0 }: { limit?: number; offset?: number }) => {
+      await connectToDatabase();
+      return Player.find().sort({ points: -1 }).skip(offset).limit(limit);
+    },
+
+    player: async (_: unknown, { id }: { id: string }) => {
+      await connectToDatabase();
+      return Player.findById(id);
+    },
+
+    playerByTag: async (_: unknown, { tag }: { tag: string }) => {
+      await connectToDatabase();
+      return Player.findOne({ tag });
+    },
+
+    // Tournaments
+    tournaments: async (
+      _: unknown,
+      { status, limit = 20, offset = 0 }: { status?: string; limit?: number; offset?: number }
+    ) => {
+      await connectToDatabase();
+      const filter = status ? { status } : {};
+      return Tournament.find(filter).sort({ startDate: -1 }).skip(offset).limit(limit);
+    },
+
+    tournament: async (_: unknown, { id }: { id: string }) => {
+      await connectToDatabase();
+      return Tournament.findById(id);
+    },
+
+    // Matches
+    matches: async (_: unknown, { tournamentId }: { tournamentId: string }) => {
+      await connectToDatabase();
+      return Match.find({ tournamentId });
+    },
+
+    match: async (_: unknown, { id }: { id: string }) => {
+      await connectToDatabase();
+      return Match.findById(id);
+    },
+
+    // Auth
+    me: async (_: unknown, __: unknown, { userId }: { userId?: string }) => {
+      if (!userId) return null;
+      await connectToDatabase();
+      return User.findById(userId);
+    },
+  },
+
+  // ─── Mutations ─────────────────────────────────────────────────────────────
+
+  Mutation: {
+    // Auth
+    register: async (
+      _: unknown,
+      { email, password, tag }: { email: string; password: string; tag: string }
+    ) => {
+      await connectToDatabase();
+      const passwordHash = await bcrypt.hash(password, 10);
+      const user = await User.create({ email, passwordHash });
+      const player = await Player.create({ userId: user._id, tag });
+      await User.findByIdAndUpdate(user._id, { playerId: player._id });
+      const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: "7d" });
+      return { token, user };
+    },
+
+    login: async (_: unknown, { email, password }: { email: string; password: string }) => {
+      await connectToDatabase();
+      const user = await User.findOne({ email });
+      if (!user) throw new Error("Invalid email or password");
+      const valid = await bcrypt.compare(password, user.passwordHash);
+      if (!valid) throw new Error("Invalid email or password");
+      const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: "7d" });
+      return { token, user };
+    },
+
+    // Players
+    updatePlayer: async (
+      _: unknown,
+      { id, tag, region, characters }: { id: string; tag?: string; region?: string; characters?: string[] }
+    ) => {
+      await connectToDatabase();
+      return Player.findByIdAndUpdate(id, { tag, region, characters }, { new: true });
+    },
+
+    // Tournaments
+    createTournament: async (
+      _: unknown,
+      { name, game, startDate }: { name: string; game: string; startDate: Date }
+    ) => {
+      await connectToDatabase();
+      return Tournament.create({ name, game, startDate });
+    },
+
+    updateTournamentStatus: async (_: unknown, { id, status }: { id: string; status: string }) => {
+      await connectToDatabase();
+      return Tournament.findByIdAndUpdate(id, { status }, { new: true });
+    },
+
+    // Entrants
+    joinTournament: async (
+      _: unknown,
+      { tournamentId, playerId }: { tournamentId: string; playerId: string }
+    ) => {
+      await connectToDatabase();
+      const entrant = await Entrant.create({ tournamentId, playerId });
+      // Keep entrantCount in sync
+      await Tournament.findByIdAndUpdate(tournamentId, { $inc: { entrantCount: 1 } });
+      return entrant;
+    },
+
+    setPlacement: async (_: unknown, { entrantId, placement }: { entrantId: string; placement: number }) => {
+      await connectToDatabase();
+      return Entrant.findByIdAndUpdate(entrantId, { placement }, { new: true });
+    },
+
+    // Matches
+    createMatch: async (
+      _: unknown,
+      { tournamentId, player1Id, player2Id, round }: { tournamentId: string; player1Id: string; player2Id: string; round: string }
+    ) => {
+      await connectToDatabase();
+      return Match.create({ tournamentId, player1Id, player2Id, round });
+    },
+
+    reportResult: async (
+      _: unknown,
+      { matchId, player1Score, player2Score }: { matchId: string; player1Score: number; player2Score: number }
+    ) => {
+      await connectToDatabase();
+      const match = await Match.findById(matchId);
+      if (!match) throw new Error("Match not found");
+
+      const winnerId = player1Score > player2Score ? match.player1Id : match.player2Id;
+      const loserId = player1Score > player2Score ? match.player2Id : match.player1Id;
+
+      // Update match result
+      const updated = await Match.findByIdAndUpdate(
+        matchId,
+        { player1Score, player2Score, winnerId, status: MatchStatus.COMPLETED },
+        { new: true }
+      );
+
+      // Update win/loss records on both players
+      await Player.findByIdAndUpdate(winnerId, { $inc: { wins: 1, points: 100 } });
+      await Player.findByIdAndUpdate(loserId, { $inc: { losses: 1 } });
+
+      return updated;
+    },
+  },
+
+  // ─── Field resolvers (populate references) ─────────────────────────────────
+
+  User: {
+    player: (parent: { playerId: string }) => Player.findById(parent.playerId),
+  },
+
+  Player: {
+    user: (parent: { userId: string }) => User.findById(parent.userId),
+    tournaments: (parent: { _id: string }) => Entrant.find({ playerId: parent._id }),
+    winRate: (parent: { wins: number; losses: number }) => {
+      const total = parent.wins + parent.losses;
+      return total === 0 ? 0 : Math.round((parent.wins / total) * 100) / 100;
+    },
+  },
+
+  Tournament: {
+    entrants: (parent: { _id: string }) => Entrant.find({ tournamentId: parent._id }),
+    matches: (parent: { _id: string }) => Match.find({ tournamentId: parent._id }),
+  },
+
+  Entrant: {
+    player: (parent: { playerId: string }) => Player.findById(parent.playerId),
+    tournament: (parent: { tournamentId: string }) => Tournament.findById(parent.tournamentId),
+  },
+
+  Match: {
+    player1: (parent: { player1Id: string }) => Player.findById(parent.player1Id),
+    player2: (parent: { player2Id: string }) => Player.findById(parent.player2Id),
+    winner: (parent: { winnerId?: string }) =>
+      parent.winnerId ? Player.findById(parent.winnerId) : null,
+    tournament: (parent: { tournamentId: string }) => Tournament.findById(parent.tournamentId),
+  },
+};
