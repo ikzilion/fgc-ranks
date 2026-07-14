@@ -4,6 +4,8 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 
+export const dynamic = "force-dynamic";
+
 const GET_TOURNAMENT = `
   query GetTournament($id: ID!) {
     tournament(id: $id) {

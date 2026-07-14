@@ -3,6 +3,8 @@
 
 import Link from "next/link";
 
+export const dynamic = "force-dynamic";
+
 const GET_PLAYERS = `
   query {
     players(limit: 50) {
