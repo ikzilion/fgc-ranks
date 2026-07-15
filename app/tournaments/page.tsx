@@ -2,6 +2,7 @@
 // Tournament list — upcoming, live, and ended.
 
 import Link from "next/link";
+import { CreateTournamentButton } from "@/components/CreateTournamentButton";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +59,10 @@ export default async function TournamentsPage() {
     <main className="max-w-4xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
         <h1 className="font-rajdhani text-2xl font-bold text-[var(--text-primary)]">Tournaments</h1>
-        <p className="text-[12px] text-[var(--text-secondary)]">{tournaments.length} tournaments</p>
+        <div className="flex items-center gap-4">
+          <p className="text-[12px] text-[var(--text-secondary)]">{tournaments.length} tournaments</p>
+          <CreateTournamentButton />
+        </div>
       </div>
 
       <div className="fgc-card">

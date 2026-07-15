@@ -105,8 +105,11 @@ export const resolvers = {
     // Tournaments
     createTournament: async (
       _: unknown,
-      { name, game, startDate }: { name: string; game: string; startDate: Date }
+      { name, game, startDate }: { name: string; game: string; startDate: Date },
+      { role }: { role?: string }
     ) => {
+      if (role !== "ADMIN") throw new Error("Not authorized");
+
       await connectToDatabase();
       return Tournament.create({ name, game, startDate });
     },
