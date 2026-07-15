@@ -69,15 +69,47 @@ export function ReportMatchButton({ match }: { match: Match }) {
     setLoading(false);
   }
 
+  async function handleDelete() {
+    if (!confirm("Delete this match? This cannot be undone.")) return;
+
+    try {
+      const res = await fetch("/api/graphql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: `mutation DeleteMatch($id: ID!) { deleteMatch(id: $id) }`,
+          variables: { id: match.id },
+        }),
+      });
+      const json = await res.json();
+      if (json.errors) {
+        alert(json.errors[0]?.message ?? "Failed to delete match");
+      } else {
+        router.refresh();
+      }
+    } catch {
+      alert("Something went wrong. Try again.");
+    }
+  }
+
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className="text-[11px] font-semibold px-2 py-1 rounded"
-        style={{ background: "var(--blue-dim)", color: "var(--blue)", border: "1px solid rgba(79,142,247,0.2)", cursor: "pointer" }}
-      >
-        Report result
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setOpen(true)}
+          className="text-[11px] font-semibold px-2 py-1 rounded"
+          style={{ background: "var(--blue-dim)", color: "var(--blue)", border: "1px solid rgba(79,142,247,0.2)", cursor: "pointer" }}
+        >
+          Report result
+        </button>
+        <button
+          onClick={handleDelete}
+          className="text-[11px] font-semibold px-2 py-1 rounded"
+          style={{ background: "var(--coral-dim)", color: "var(--coral)", border: "1px solid rgba(255,77,77,0.2)", cursor: "pointer" }}
+        >
+          Delete
+        </button>
+      </div>
 
       {open && (
         <div
