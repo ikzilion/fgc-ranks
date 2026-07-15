@@ -93,13 +93,15 @@ export const resolvers = {
     // Players
     updatePlayer: async (
       _: unknown,
-      { id, tag, region, characters }: { id: string; tag?: string; region?: string; characters?: string[] },
+      { id, tag, region, avatarUrl, characters }: { id: string; tag?: string; region?: string; avatarUrl?: string; characters?: string[] },
       { playerId, role }: { playerId?: string; role?: string }
     ) => {
       if (playerId !== id && role !== "ADMIN") throw new Error("Not authorized");
 
       await connectToDatabase();
-      return Player.findByIdAndUpdate(id, { tag, region, characters }, { new: true });
+      const update: any = { tag, region, characters };
+      if (avatarUrl !== undefined) update.avatarUrl = avatarUrl;
+      return Player.findByIdAndUpdate(id, update, { new: true });
     },
 
     // Tournaments

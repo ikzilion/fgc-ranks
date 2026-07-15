@@ -10,6 +10,7 @@ const GET_PLAYER = `
       id
       tag
       region
+      avatarUrl
       characters
       wins
       losses
@@ -61,10 +62,14 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
       {/* Header */}
       <div className="fgc-card p-6 mb-4 flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-5">
         <div
-          className="w-16 h-16 rounded-full flex items-center justify-center flex-shrink-0 font-rajdhani text-2xl font-bold"
+          className="w-16 h-16 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden font-rajdhani text-2xl font-bold"
           style={{ background: "var(--blue-dim)", border: "2px solid rgba(79,142,247,0.4)", color: "var(--blue)" }}
         >
-          {player.tag.slice(0, 2).toUpperCase()}
+          {player.avatarUrl ? (
+            <img src={player.avatarUrl} alt={player.tag} className="w-full h-full object-cover" />
+          ) : (
+            player.tag.slice(0, 2).toUpperCase()
+          )}
         </div>
         <div className="flex-1">
           <div className="flex items-center justify-between">
@@ -74,6 +79,7 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
               currentTag={player.tag}
               currentRegion={player.region}
               currentCharacters={player.characters}
+              currentAvatarUrl={player.avatarUrl}
             />
           </div>
           <div className="flex items-center gap-2 mt-2 flex-wrap">

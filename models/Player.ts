@@ -6,6 +6,7 @@ const PlayerSchema = new Schema(
     userId: { type: Schema.Types.ObjectId, ref: "User" },
     tag: { type: String, required: true, unique: true },
     region: { type: String, default: "" },
+    avatarUrl: { type: String, default: "" },
     // Array of character names this player mains
     characters: { type: [String], default: [] },
     wins: { type: Number, default: 0 },

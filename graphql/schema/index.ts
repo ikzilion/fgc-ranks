@@ -21,6 +21,7 @@ export const typeDefs = `#graphql
     user: User
     tag: String!
     region: String
+    avatarUrl: String
     characters: [String!]!
     wins: Int!
     losses: Int!
@@ -86,7 +87,7 @@ export const typeDefs = `#graphql
     register(email: String!, password: String!, tag: String!): AuthPayload!
     login(email: String!, password: String!): AuthPayload!
 
-    updatePlayer(id: ID!, tag: String, region: String, characters: [String!]): Player!
+    updatePlayer(id: ID!, tag: String, region: String, avatarUrl: String, characters: [String!]): Player!
 
     createTournament(name: String!, game: String!, startDate: Date!): Tournament!
     updateTournamentStatus(id: ID!, status: TournamentStatus!): Tournament!

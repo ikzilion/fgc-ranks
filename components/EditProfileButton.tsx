@@ -10,21 +10,50 @@ interface Props {
   currentTag: string;
   currentRegion: string;
   currentCharacters: string[];
+  currentAvatarUrl?: string;
 }
 
-export function EditProfileButton({ playerId, currentTag, currentRegion, currentCharacters }: Props) {
+export function EditProfileButton({ playerId, currentTag, currentRegion, currentCharacters, currentAvatarUrl }: Props) {
   const { data: session } = useSession();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [tag, setTag] = useState(currentTag);
   const [region, setRegion] = useState(currentRegion || "");
   const [charactersInput, setCharactersInput] = useState(currentCharacters.join(", "));
+  const [avatarUrl, setAvatarUrl] = useState(currentAvatarUrl || "");
+  const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   // Only show the edit button on your own profile
   const isOwnProfile = (session?.user as any)?.playerId === playerId;
   if (!isOwnProfile) return null;
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setError("");
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const json = await res.json();
+
+      if (json.error) {
+        setError(json.error);
+      } else {
+        setAvatarUrl(json.url);
+      }
+    } catch {
+      setError("Failed to upload image. Try again.");
+    }
+
+    setUploading(false);
+  }
 
   async function handleSubmit() {
     setLoading(true);
@@ -41,16 +70,17 @@ export function EditProfileButton({ playerId, currentTag, currentRegion, current
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           query: `
-            mutation UpdatePlayer($id: ID!, $tag: String, $region: String, $characters: [String!]) {
-              updatePlayer(id: $id, tag: $tag, region: $region, characters: $characters) {
+            mutation UpdatePlayer($id: ID!, $tag: String, $region: String, $avatarUrl: String, $characters: [String!]) {
+              updatePlayer(id: $id, tag: $tag, region: $region, avatarUrl: $avatarUrl, characters: $characters) {
                 id
                 tag
                 region
+                avatarUrl
                 characters
               }
             }
           `,
-          variables: { id: playerId, tag, region, characters },
+          variables: { id: playerId, tag, region, avatarUrl, characters },
         }),
       });
 
@@ -87,6 +117,26 @@ export function EditProfileButton({ playerId, currentTag, currentRegion, current
         >
           <div className="fgc-card p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
             <h2 className="font-rajdhani text-xl font-bold text-[var(--text-primary)] mb-4">Edit profile</h2>
+
+            <div className="mb-4 flex items-center gap-3">
+              <div
+                className="w-16 h-16 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden font-rajdhani text-lg font-bold"
+                style={{ background: "var(--blue-dim)", border: "2px solid rgba(79,142,247,0.4)", color: "var(--blue)" }}
+              >
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+                ) : (
+                  tag.slice(0, 2).toUpperCase()
+                )}
+              </div>
+              <label
+                className="text-[12px] font-semibold px-3 py-2 rounded cursor-pointer"
+                style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)" }}
+              >
+                {uploading ? "Uploading..." : "Change photo"}
+                <input type="file" accept="image/*" onChange={handleFileChange} disabled={uploading} className="hidden" />
+              </label>
+            </div>
 
             <div className="mb-4">
               <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Player tag</label>
