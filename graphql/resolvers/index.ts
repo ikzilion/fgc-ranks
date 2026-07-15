@@ -176,6 +176,40 @@ export const resolvers = {
 
       return updated;
     },
+
+    deleteMatch: async (_: unknown, { id }: { id: string }, { role }: { role?: string }) => {
+      if (role !== "ADMIN") throw new Error("Not authorized");
+
+      await connectToDatabase();
+      const result = await Match.findByIdAndDelete(id);
+      return !!result;
+    },
+
+    deleteTournament: async (_: unknown, { id }: { id: string }, { role }: { role?: string }) => {
+      if (role !== "ADMIN") throw new Error("Not authorized");
+
+      await connectToDatabase();
+      // Clean up related matches and entrants first
+      await Match.deleteMany({ tournamentId: id });
+      await Entrant.deleteMany({ tournamentId: id });
+      const result = await Tournament.findByIdAndDelete(id);
+      return !!result;
+    },
+
+    leaveTournament: async (
+      _: unknown,
+      { entrantId }: { entrantId: string },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const entrant = await Entrant.findById(entrantId);
+      if (!entrant) return false;
+      if (entrant.playerId.toString() !== playerId && role !== "ADMIN") throw new Error("Not authorized");
+
+      await Entrant.findByIdAndDelete(entrantId);
+      await Tournament.findByIdAndUpdate(entrant.tournamentId, { $inc: { entrantCount: -1 } });
+      return true;
+    },
   },
 
   // ─── Field resolvers (populate references) ─────────────────────────────────
