@@ -7,6 +7,7 @@ const GET_PLAYERS = `
       id
       tag
       region
+      avatarUrl
       characters
       wins
       losses

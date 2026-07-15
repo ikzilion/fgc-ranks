@@ -28,6 +28,7 @@ const GET_TOURNAMENT = `
         player {
           id
           tag
+          avatarUrl
           characters
         }
       }
@@ -37,8 +38,8 @@ const GET_TOURNAMENT = `
         status
         player1Score
         player2Score
-        player1 { id tag }
-        player2 { id tag }
+        player1 { id tag avatarUrl }
+        player2 { id tag avatarUrl }
         winner { id tag }
       }
     }
@@ -188,10 +189,14 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                   >
                     <span className="text-[11px] text-[var(--text-muted)] w-5 flex-shrink-0">{entrant.seed ?? "—"}</span>
                     <div
-                      className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 font-rajdhani text-[10px] font-bold"
+                      className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 font-rajdhani text-[10px] font-bold overflow-hidden"
                       style={{ background: "var(--blue-dim)", color: "var(--blue)", border: "1px solid rgba(79,142,247,0.3)" }}
                     >
-                      {entrant.player.tag.slice(0, 2).toUpperCase()}
+                      {entrant.player.avatarUrl ? (
+                        <img src={entrant.player.avatarUrl} alt={entrant.player.tag} className="w-full h-full object-cover" />
+                      ) : (
+                        entrant.player.tag.slice(0, 2).toUpperCase()
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-rajdhani text-[13px] font-semibold text-[var(--text-primary)] truncate">{entrant.player.tag}</p>

@@ -45,9 +45,13 @@ export function Navbar() {
             <>
               <Link
                 href={`/players/${(session.user as any).playerId}`}
-                style={{ width: "30px", height: "30px", borderRadius: "50%", background: "var(--blue-dim)", border: "1px solid rgba(79,142,247,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: "var(--blue)", fontFamily: "'Rajdhani', sans-serif", textDecoration: "none", cursor: "pointer" }}
+                style={{ width: "30px", height: "30px", borderRadius: "50%", background: "var(--blue-dim)", border: "1px solid rgba(79,142,247,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: "var(--blue)", fontFamily: "'Rajdhani', sans-serif", textDecoration: "none", cursor: "pointer", overflow: "hidden" }}
               >
-                {(session.user as any).tag?.slice(0, 2).toUpperCase() ?? session.user.email?.slice(0, 2).toUpperCase()}
+                {(session.user as any).avatarUrl ? (
+                  <img src={(session.user as any).avatarUrl} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                ) : (
+                  (session.user as any).tag?.slice(0, 2).toUpperCase() ?? session.user.email?.slice(0, 2).toUpperCase()
+                )}
               </Link>
               <button
                 onClick={() => signOut({ callbackUrl: "/login" })}

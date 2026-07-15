@@ -8,6 +8,7 @@ interface Player {
   id: string;
   tag: string;
   region: string;
+  avatarUrl?: string;
   characters: string[];
   wins: number;
   losses: number;
@@ -81,10 +82,14 @@ export function PlayerSearchFilter({ players }: { players: Player[] }) {
               {player.rank}
             </span>
             <div
-              className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 font-rajdhani text-[12px] font-bold"
+              className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 font-rajdhani text-[12px] font-bold overflow-hidden"
               style={{ background: "var(--blue-dim)", border: "1px solid rgba(79,142,247,0.3)", color: "var(--blue)" }}
             >
-              {player.tag.slice(0, 2).toUpperCase()}
+              {player.avatarUrl ? (
+                <img src={player.avatarUrl} alt={player.tag} className="w-full h-full object-cover" />
+              ) : (
+                player.tag.slice(0, 2).toUpperCase()
+              )}
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-rajdhani text-[16px] font-bold text-[var(--text-primary)] leading-tight">{player.tag}</p>
