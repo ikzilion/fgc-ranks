@@ -200,6 +200,16 @@ export const resolvers = {
       if (role !== "ADMIN") throw new Error("Not authorized");
 
       await connectToDatabase();
+
+      // Undo the win/loss/points effects reportResult applied for any
+      // completed matches, so deleting the tournament doesn't leave stale stats.
+      const completedMatches = await Match.find({ tournamentId: id, status: MatchStatus.COMPLETED, winnerId: { $ne: null } });
+      for (const match of completedMatches) {
+        const loserId = match.winnerId.toString() === match.player1Id.toString() ? match.player2Id : match.player1Id;
+        await Player.findByIdAndUpdate(match.winnerId, { $inc: { wins: -1, points: -100 } });
+        await Player.findByIdAndUpdate(loserId, { $inc: { losses: -1 } });
+      }
+
       // Clean up related matches and entrants first
       await Match.deleteMany({ tournamentId: id });
       await Entrant.deleteMany({ tournamentId: id });

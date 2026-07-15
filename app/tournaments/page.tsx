@@ -3,6 +3,7 @@
 
 import Link from "next/link";
 import { CreateTournamentButton } from "@/components/CreateTournamentButton";
+import { DeleteTournamentButton } from "@/components/DeleteTournamentButton";
 
 export const dynamic = "force-dynamic";
 
@@ -81,7 +82,10 @@ export default async function TournamentsPage() {
                 {tournament.game} · {tournament.entrantCount} entrants · {new Date(tournament.startDate).toLocaleDateString()}
               </p>
             </div>
-            {statusBadge(tournament.status)}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {statusBadge(tournament.status)}
+              <DeleteTournamentButton tournamentId={tournament.id} />
+            </div>
           </Link>
         ))}
       </div>
