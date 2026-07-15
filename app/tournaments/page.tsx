@@ -71,22 +71,21 @@ export default async function TournamentsPage() {
           <p className="p-6 text-[var(--text-secondary)]">No tournaments yet.</p>
         )}
         {tournaments.map((tournament: any) => (
-          <Link
+          <div
             key={tournament.id}
-            href={`/tournaments/${tournament.id}`}
             className="flex items-center gap-4 px-5 py-3 border-b border-[var(--border)] last:border-0 hover:bg-[var(--navy-3)] transition-colors"
           >
-            <div className="flex-1 min-w-0">
+            <Link href={`/tournaments/${tournament.id}`} className="flex-1 min-w-0">
               <p className="font-rajdhani text-[16px] font-bold text-[var(--text-primary)] leading-tight">{tournament.name}</p>
               <p className="text-[12px] text-[var(--text-secondary)] truncate">
                 {tournament.game} · {tournament.entrantCount} entrants · {new Date(tournament.startDate).toLocaleDateString()}
               </p>
-            </div>
+            </Link>
             <div className="flex items-center gap-2 flex-shrink-0">
               {statusBadge(tournament.status)}
               <DeleteTournamentButton tournamentId={tournament.id} />
             </div>
-          </Link>
+          </div>
         ))}
       </div>
     </main>
