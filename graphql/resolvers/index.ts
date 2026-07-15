@@ -114,7 +114,13 @@ export const resolvers = {
       return Tournament.create({ name, game, startDate });
     },
 
-    updateTournamentStatus: async (_: unknown, { id, status }: { id: string; status: string }) => {
+    updateTournamentStatus: async (
+      _: unknown,
+      { id, status }: { id: string; status: string },
+      { role }: { role?: string }
+    ) => {
+      if (role !== "ADMIN") throw new Error("Not authorized");
+
       await connectToDatabase();
       return Tournament.findByIdAndUpdate(id, { status }, { new: true });
     },

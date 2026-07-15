@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { JoinTournamentButton } from "@/components/JoinTournamentButton";
+import { TournamentStatusButton } from "@/components/TournamentStatusButton";
 import { ReportMatchButton } from "@/components/ReportMatchButton";
 
 export const dynamic = "force-dynamic";
@@ -108,6 +109,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
           </div>
           <div className="flex items-center gap-3">
             {statusBadge(tournament.status)}
+            <TournamentStatusButton tournamentId={tournament.id} status={tournament.status} />
             <JoinTournamentButton
               tournamentId={tournament.id}
               isEntered={tournament.isEntered}
