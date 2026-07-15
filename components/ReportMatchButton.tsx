@@ -25,9 +25,8 @@ export function ReportMatchButton({ match }: { match: Match }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Only admins can report results
+  // Only admins can see these controls at all
   if ((session?.user as any)?.role !== "ADMIN") return null;
-  if (match.status === "COMPLETED") return null;
 
   async function handleSubmit() {
     if (p1Score === p2Score) {
@@ -95,13 +94,15 @@ export function ReportMatchButton({ match }: { match: Match }) {
   return (
     <>
       <div className="flex items-center gap-2">
-        <button
-          onClick={() => setOpen(true)}
-          className="text-[11px] font-semibold px-2 py-1 rounded"
-          style={{ background: "var(--blue-dim)", color: "var(--blue)", border: "1px solid rgba(79,142,247,0.2)", cursor: "pointer" }}
-        >
-          Report result
-        </button>
+        {match.status !== "COMPLETED" && (
+          <button
+            onClick={() => setOpen(true)}
+            className="text-[11px] font-semibold px-2 py-1 rounded"
+            style={{ background: "var(--blue-dim)", color: "var(--blue)", border: "1px solid rgba(79,142,247,0.2)", cursor: "pointer" }}
+          >
+            Report result
+          </button>
+        )}
         <button
           onClick={handleDelete}
           className="text-[11px] font-semibold px-2 py-1 rounded"

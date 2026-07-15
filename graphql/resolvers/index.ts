@@ -181,8 +181,19 @@ export const resolvers = {
       if (role !== "ADMIN") throw new Error("Not authorized");
 
       await connectToDatabase();
-      const result = await Match.findByIdAndDelete(id);
-      return !!result;
+      const match = await Match.findById(id);
+      if (!match) return false;
+
+      // Undo the win/loss/points effects reportResult applied, so deleting a
+      // completed match doesn't leave stale stats behind.
+      if (match.status === MatchStatus.COMPLETED && match.winnerId) {
+        const loserId = match.winnerId.toString() === match.player1Id.toString() ? match.player2Id : match.player1Id;
+        await Player.findByIdAndUpdate(match.winnerId, { $inc: { wins: -1, points: -100 } });
+        await Player.findByIdAndUpdate(loserId, { $inc: { losses: -1 } });
+      }
+
+      await Match.findByIdAndDelete(id);
+      return true;
     },
 
     deleteTournament: async (_: unknown, { id }: { id: string }, { role }: { role?: string }) => {
