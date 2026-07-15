@@ -43,11 +43,12 @@ export function Navbar() {
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           {session?.user ? (
             <>
-              <div
-                style={{ width: "30px", height: "30px", borderRadius: "50%", background: "var(--blue-dim)", border: "1px solid rgba(79,142,247,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: "var(--blue)", fontFamily: "'Rajdhani', sans-serif" }}
+              <Link
+                href={`/players/${(session.user as any).playerId}`}
+                style={{ width: "30px", height: "30px", borderRadius: "50%", background: "var(--blue-dim)", border: "1px solid rgba(79,142,247,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: "var(--blue)", fontFamily: "'Rajdhani', sans-serif", textDecoration: "none", cursor: "pointer" }}
               >
                 {(session.user as any).tag?.slice(0, 2).toUpperCase() ?? session.user.email?.slice(0, 2).toUpperCase()}
-              </div>
+              </Link>
               <button
                 onClick={() => signOut({ callbackUrl: "/login" })}
                 style={{ fontSize: "12px", color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer" }}
