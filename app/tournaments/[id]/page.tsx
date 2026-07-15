@@ -84,6 +84,8 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   const tournament = await getTournament(id, playerId);
   if (!tournament) notFound();
 
+  const myEntrant = tournament.entrants.find((e: any) => e.player.id === playerId);
+
   // Group matches by round
   const rounds: Record<string, any[]> = {};
   for (const match of tournament.matches) {
@@ -109,6 +111,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
             <JoinTournamentButton
               tournamentId={tournament.id}
               isEntered={tournament.isEntered}
+              entrantId={myEntrant?.id}
             />
           </div>
         </div>
