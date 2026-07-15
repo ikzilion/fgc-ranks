@@ -14,6 +14,7 @@ const handler = startServerAndCreateNextHandler<NextRequest>(server, {
       req,
       userId: (session?.user as any)?.id,
       role: (session?.user as any)?.role,
+      playerId: (session?.user as any)?.playerId,
     };
   },
 });

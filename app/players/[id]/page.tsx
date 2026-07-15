@@ -2,6 +2,7 @@
 // Individual player profile — stats, characters, and tournament history.
 
 import { notFound } from "next/navigation";
+import { EditProfileButton } from "@/components/EditProfileButton";
 
 const GET_PLAYER = `
   query GetPlayer($id: ID!) {
@@ -65,8 +66,16 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
         >
           {player.tag.slice(0, 2).toUpperCase()}
         </div>
-        <div>
-          <h1 className="font-rajdhani text-3xl font-bold text-[var(--text-primary)] leading-tight">{player.tag}</h1>
+        <div className="flex-1">
+          <div className="flex items-center justify-between">
+            <h1 className="font-rajdhani text-3xl font-bold text-[var(--text-primary)] leading-tight">{player.tag}</h1>
+            <EditProfileButton
+              playerId={player.id}
+              currentTag={player.tag}
+              currentRegion={player.region}
+              currentCharacters={player.characters}
+            />
+          </div>
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             {player.characters.map((c: string) => (
               <span
