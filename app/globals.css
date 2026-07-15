@@ -75,3 +75,23 @@ html, body {
   animation: pulse 1.5s infinite;
 }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+/* Mobile responsive adjustments */
+@media (max-width: 640px) {
+  .stat-row,
+  .stats-row,
+  .mini-stats,
+  .grid-cols-4 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  .two-col,
+  .grid-cols-3 {
+    grid-template-columns: 1fr !important;
+  }
+
+  main {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+}

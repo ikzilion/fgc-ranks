@@ -98,7 +98,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     <main className="max-w-5xl mx-auto px-4 py-8">
       {/* Header */}
       <div className="fgc-card p-6 mb-6">
-        <div className="flex items-start justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
           <div>
             <h1 className="font-rajdhani text-3xl font-bold text-[var(--text-primary)] leading-tight">
               {tournament.name}
@@ -119,7 +119,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {/* Bracket / Matches */}
         <div className="col-span-2">
           <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">Bracket</p>

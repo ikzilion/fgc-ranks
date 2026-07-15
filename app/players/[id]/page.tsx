@@ -59,7 +59,7 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
   return (
     <main className="max-w-4xl mx-auto px-4 py-8">
       {/* Header */}
-      <div className="fgc-card p-6 mb-4 flex items-center gap-5">
+      <div className="fgc-card p-6 mb-4 flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-5">
         <div
           className="w-16 h-16 rounded-full flex items-center justify-center flex-shrink-0 font-rajdhani text-2xl font-bold"
           style={{ background: "var(--blue-dim)", border: "2px solid rgba(79,142,247,0.4)", color: "var(--blue)" }}
@@ -100,7 +100,7 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
       </div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         {[
           { label: "Tournaments",   value: player.tournaments.length },
           { label: "Win rate",      value: player.winRate != null ? `${Math.round(player.winRate * 100)}%` : "—" },

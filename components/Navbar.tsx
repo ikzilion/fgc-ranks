@@ -24,12 +24,12 @@ export function Navbar() {
         zIndex: 50,
       }}
     >
-      <div style={{ maxWidth: "80rem", margin: "0 auto", padding: "0 1rem", height: "52px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <Link href="/tournaments" className="font-rajdhani" style={{ fontSize: "22px", fontWeight: 700, letterSpacing: "0.04em", color: "var(--text-primary)", textDecoration: "none" }}>
+      <div style={{ maxWidth: "80rem", margin: "0 auto", padding: "0 1rem", height: "52px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+        <Link href="/tournaments" className="font-rajdhani" style={{ fontSize: "20px", fontWeight: 700, letterSpacing: "0.04em", color: "var(--text-primary)", textDecoration: "none", flexShrink: 0 }}>
           FGC<span style={{ color: "var(--blue)" }}>.</span>HUB
         </Link>
 
-        <div style={{ display: "flex", gap: "4px" }}>
+        <div style={{ display: "flex", gap: "4px", overflowX: "auto" }}>
           {links.map(({ href, label }) => {
             const active = pathname.startsWith(href);
             return (

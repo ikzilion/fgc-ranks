@@ -73,7 +73,7 @@ export default async function TournamentsPage() {
         {tournaments.map((tournament: any) => (
           <div
             key={tournament.id}
-            className="flex items-center gap-4 px-5 py-3 border-b border-[var(--border)] last:border-0 hover:bg-[var(--navy-3)] transition-colors"
+            className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 px-5 py-3 border-b border-[var(--border)] last:border-0 hover:bg-[var(--navy-3)] transition-colors"
           >
             <Link href={`/tournaments/${tournament.id}`} className="flex-1 min-w-0">
               <p className="font-rajdhani text-[16px] font-bold text-[var(--text-primary)] leading-tight">{tournament.name}</p>

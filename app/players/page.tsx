@@ -84,7 +84,7 @@ export default async function PlayersPage() {
             <Link
               key={player.id}
               href={`/players/${player.id}`}
-              className="flex items-center gap-4 px-5 py-3 border-b border-[var(--border)] last:border-0 hover:bg-[var(--navy-3)] transition-colors"
+              className="flex items-center gap-2 sm:gap-4 px-3 sm:px-5 py-3 border-b border-[var(--border)] last:border-0 hover:bg-[var(--navy-3)] transition-colors"
             >
               <span className={`font-rajdhani text-[15px] font-bold w-6 flex-shrink-0 ${rankColor(rank)}`}>
                 {rank}
