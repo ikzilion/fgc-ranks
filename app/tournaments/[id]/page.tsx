@@ -142,6 +142,13 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                           {match.winner?.id === match.player1.id && (
                             <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "var(--green)" }} />
                           )}
+                          <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ background: "var(--navy-4)", border: "1px solid var(--border-strong)" }}>
+                            {match.player1.avatarUrl ? (
+                              <img src={match.player1.avatarUrl} alt={match.player1.tag} className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="text-[8px] font-bold" style={{ color: "var(--text-secondary)" }}>{match.player1.tag.slice(0, 2).toUpperCase()}</span>
+                            )}
+                          </div>
                           <Link href={`/players/${match.player1.id}`} className="font-rajdhani text-[14px] font-semibold text-[var(--text-primary)] hover:text-[var(--blue)]">
                             {match.player1.tag}
                           </Link>
@@ -156,6 +163,13 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                           {match.winner?.id === match.player2.id && (
                             <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "var(--green)" }} />
                           )}
+                          <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ background: "var(--navy-4)", border: "1px solid var(--border-strong)" }}>
+                            {match.player2.avatarUrl ? (
+                              <img src={match.player2.avatarUrl} alt={match.player2.tag} className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="text-[8px] font-bold" style={{ color: "var(--text-secondary)" }}>{match.player2.tag.slice(0, 2).toUpperCase()}</span>
+                            )}
+                          </div>
                           <Link href={`/players/${match.player2.id}`} className="font-rajdhani text-[14px] font-semibold text-[var(--text-primary)] hover:text-[var(--blue)]">
                             {match.player2.tag}
                           </Link>
