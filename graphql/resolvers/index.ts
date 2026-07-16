@@ -6,6 +6,7 @@ import { Player } from "@/models/Player";
 import { Tournament } from "@/models/Tournament";
 import { Entrant } from "@/models/Entrant";
 import { Match, MatchStatus } from "@/models/Match";
+import { Notification } from "@/models/Notification";
 
 const JWT_SECRET = process.env.NEXTAUTH_SECRET || "dev-secret";
 
@@ -13,6 +14,19 @@ export const resolvers = {
   // ─── Queries ───────────────────────────────────────────────────────────────
 
   Query: {
+    // Notifications
+    myNotifications: async (_: unknown, __: unknown, { playerId }: { playerId?: string }) => {
+      if (!playerId) return [];
+      await connectToDatabase();
+      return Notification.find({ playerId }).sort({ createdAt: -1 }).limit(30);
+    },
+
+    unreadNotificationCount: async (_: unknown, __: unknown, { playerId }: { playerId?: string }) => {
+      if (!playerId) return 0;
+      await connectToDatabase();
+      return Notification.countDocuments({ playerId, read: false });
+    },
+
     // Players
     players: async (_: unknown, { limit = 20, offset = 0 }: { limit?: number; offset?: number }) => {
       await connectToDatabase();
@@ -124,14 +138,29 @@ export const resolvers = {
       if (role !== "ADMIN") throw new Error("Not authorized");
 
       await connectToDatabase();
-      return Tournament.findByIdAndUpdate(id, { status }, { new: true });
+      const updated = await Tournament.findByIdAndUpdate(id, { status }, { new: true });
+
+      // Notify all entrants when a tournament goes live or ends
+      if (status === "LIVE" || status === "ENDED") {
+        const entrants = await Entrant.find({ tournamentId: id });
+        const notifType = status === "LIVE" ? "TOURNAMENT_LIVE" : "TOURNAMENT_ENDED";
+        const msg = status === "LIVE" ? `${updated.name} is now live!` : `${updated.name} has ended.`;
+        await Notification.create(
+          entrants.map(e => ({ playerId: e.playerId, type: notifType, message: msg, link: `/tournaments/${id}` }))
+        );
+      }
+
+      return updated;
     },
 
     // Entrants
     joinTournament: async (
       _: unknown,
-      { tournamentId, playerId }: { tournamentId: string; playerId: string }
+      { tournamentId, playerId }: { tournamentId: string; playerId: string },
+      { playerId: callerPlayerId, role }: { playerId?: string; role?: string }
     ) => {
+      if (callerPlayerId !== playerId && role !== "ADMIN") throw new Error("Not authorized");
+
       await connectToDatabase();
       const existingEntrant = await Entrant.findOne({ tournamentId, playerId });
       if (existingEntrant) {
@@ -140,6 +169,22 @@ export const resolvers = {
       const entrant = await Entrant.create({ tournamentId, playerId });
       // Keep entrantCount in sync
       await Tournament.findByIdAndUpdate(tournamentId, { $inc: { entrantCount: 1 } });
+
+      // Notify existing entrants that someone new joined
+      const tournament = await Tournament.findById(tournamentId);
+      const joiningPlayer = await Player.findById(playerId);
+      const others = await Entrant.find({ tournamentId, playerId: { $ne: playerId } });
+      if (others.length > 0 && tournament && joiningPlayer) {
+        await Notification.create(
+          others.map(e => ({
+            playerId: e.playerId,
+            type: "PLAYER_JOINED",
+            message: `${joiningPlayer.tag} joined ${tournament.name}`,
+            link: `/tournaments/${tournamentId}`,
+          }))
+        );
+      }
+
       return entrant;
     },
 
@@ -184,6 +229,12 @@ export const resolvers = {
       // Update win/loss records on both players
       await Player.findByIdAndUpdate(winnerId, { $inc: { wins: 1, points: 100 } });
       await Player.findByIdAndUpdate(loserId, { $inc: { losses: 1 } });
+
+      // Notify both players their match result was reported
+      await Notification.create([
+        { playerId: winnerId, type: "MATCH_REPORTED", message: `You won your ${match.round} match!`, link: `/tournaments/${match.tournamentId}` },
+        { playerId: loserId, type: "MATCH_REPORTED", message: `Your ${match.round} match result was reported.`, link: `/tournaments/${match.tournamentId}` },
+      ]);
 
       return updated;
     },
@@ -240,6 +291,21 @@ export const resolvers = {
 
       await Entrant.findByIdAndDelete(entrantId);
       await Tournament.findByIdAndUpdate(entrant.tournamentId, { $inc: { entrantCount: -1 } });
+      return true;
+    },
+
+    // Notifications
+    markNotificationRead: async (_: unknown, { id }: { id: string }, { playerId }: { playerId?: string }) => {
+      if (!playerId) throw new Error("Not authorized");
+      await connectToDatabase();
+      const result = await Notification.findOneAndUpdate({ _id: id, playerId }, { read: true });
+      return !!result;
+    },
+
+    markAllNotificationsRead: async (_: unknown, __: unknown, { playerId }: { playerId?: string }) => {
+      if (!playerId) throw new Error("Not authorized");
+      await connectToDatabase();
+      await Notification.updateMany({ playerId, read: false }, { read: true });
       return true;
     },
   },

@@ -7,6 +7,12 @@ export const typeDefs = `#graphql
   enum TournamentStatus { UPCOMING LIVE ENDED }
   enum MatchStatus      { PENDING IN_PROGRESS COMPLETED }
   enum UserRole         { PLAYER ADMIN }
+  enum NotificationType {
+    MATCH_REPORTED
+    TOURNAMENT_LIVE
+    TOURNAMENT_ENDED
+    PLAYER_JOINED
+  }
 
   type User {
     id: ID!
@@ -69,7 +75,19 @@ export const typeDefs = `#graphql
     user: User!
   }
 
+  type Notification {
+    id: ID!
+    type: NotificationType!
+    message: String!
+    link: String
+    read: Boolean!
+    createdAt: Date!
+  }
+
   type Query {
+    myNotifications: [Notification!]!
+    unreadNotificationCount: Int!
+
     players(limit: Int, offset: Int): [Player!]!
     player(id: ID!): Player
     playerByTag(tag: String!): Player
@@ -101,5 +119,8 @@ export const typeDefs = `#graphql
     deleteMatch(id: ID!): Boolean!
     deleteTournament(id: ID!): Boolean!
     leaveTournament(entrantId: ID!): Boolean!
+
+    markNotificationRead(id: ID!): Boolean!
+    markAllNotificationsRead: Boolean!
   }
 `;
