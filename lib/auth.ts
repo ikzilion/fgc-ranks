@@ -1,10 +1,15 @@
 // lib/auth.ts
-import NextAuth from "next-auth";
+import NextAuth, { CredentialsSignin } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { connectToDatabase } from "@/lib/db";
 import { User } from "@/models/User";
 import { Player } from "@/models/Player";
+import { loginRateLimit, getClientIp } from "@/lib/rateLimit";
+
+class RateLimitedSignin extends CredentialsSignin {
+  code = "rate_limited";
+}
 
 export const authConfig = {
   providers: [
@@ -14,8 +19,13 @@ export const authConfig = {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, request) {
         if (!credentials?.email || !credentials?.password) return null;
+
+        const ip = getClientIp(request);
+        const { success } = await loginRateLimit.limit(ip);
+        if (!success) throw new RateLimitedSignin();
+
         await connectToDatabase();
         const user = await User.findOne({ email: credentials.email });
         if (!user) return null;

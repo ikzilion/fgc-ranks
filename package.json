@@ -11,6 +11,8 @@
   "dependencies": {
     "@apollo/server": "^5.5.1",
     "@as-integrations/next": "^4.1.0",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.38.0",
     "@vercel/blob": "^2.6.1",
     "bcryptjs": "^3.0.3",
     "graphql": "^16.14.2",

@@ -7,6 +7,8 @@ import { Tournament } from "@/models/Tournament";
 import { Entrant } from "@/models/Entrant";
 import { Match, MatchStatus } from "@/models/Match";
 import { Notification } from "@/models/Notification";
+import { loginRateLimit, registerRateLimit, getClientIp } from "@/lib/rateLimit";
+import { NextRequest } from "next/server";
 
 const JWT_SECRET = process.env.NEXTAUTH_SECRET || "dev-secret";
 
@@ -83,8 +85,13 @@ export const resolvers = {
     // Auth
     register: async (
       _: unknown,
-      { email, password, tag }: { email: string; password: string; tag: string }
+      { email, password, tag }: { email: string; password: string; tag: string },
+      { req }: { req: NextRequest }
     ) => {
+      const ip = getClientIp(req);
+      const { success } = await registerRateLimit.limit(ip);
+      if (!success) throw new Error("Too many accounts created from this IP. Please try again later.");
+
       await connectToDatabase();
       const passwordHash = await bcrypt.hash(password, 10);
       const user = await User.create({ email, passwordHash });
@@ -94,7 +101,15 @@ export const resolvers = {
       return { token, user };
     },
 
-    login: async (_: unknown, { email, password }: { email: string; password: string }) => {
+    login: async (
+      _: unknown,
+      { email, password }: { email: string; password: string },
+      { req }: { req: NextRequest }
+    ) => {
+      const ip = getClientIp(req);
+      const { success } = await loginRateLimit.limit(ip);
+      if (!success) throw new Error("Too many login attempts. Please try again later.");
+
       await connectToDatabase();
       const user = await User.findOne({ email });
       if (!user) throw new Error("Invalid email or password");
