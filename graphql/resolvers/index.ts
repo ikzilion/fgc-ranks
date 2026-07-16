@@ -151,8 +151,11 @@ export const resolvers = {
     // Matches
     createMatch: async (
       _: unknown,
-      { tournamentId, player1Id, player2Id, round }: { tournamentId: string; player1Id: string; player2Id: string; round: string }
+      { tournamentId, player1Id, player2Id, round }: { tournamentId: string; player1Id: string; player2Id: string; round: string },
+      { role }: { role?: string }
     ) => {
+      if (role !== "ADMIN") throw new Error("Not authorized");
+
       await connectToDatabase();
       return Match.create({ tournamentId, player1Id, player2Id, round });
     },

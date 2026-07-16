@@ -6,6 +6,7 @@ import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { JoinTournamentButton } from "@/components/JoinTournamentButton";
 import { TournamentStatusButton } from "@/components/TournamentStatusButton";
+import { CreateMatchButton } from "@/components/CreateMatchButton";
 import { ReportMatchButton } from "@/components/ReportMatchButton";
 
 export const dynamic = "force-dynamic";
@@ -123,7 +124,10 @@ export default async function TournamentDetailPage({ params }: { params: Promise
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {/* Bracket / Matches */}
         <div className="col-span-2">
-          <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">Bracket</p>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Bracket</p>
+            <CreateMatchButton tournamentId={tournament.id} entrants={tournament.entrants} />
+          </div>
           {tournament.matches.length === 0 ? (
             <div className="fgc-card p-6 text-[var(--text-secondary)]">No matches yet.</div>
           ) : (
