@@ -162,6 +162,11 @@ export const resolvers = {
       if (callerPlayerId !== playerId && role !== "ADMIN") throw new Error("Not authorized");
 
       await connectToDatabase();
+      const tournament = await Tournament.findById(tournamentId);
+      if (tournament && (tournament.status === "LIVE" || tournament.status === "ENDED")) {
+        throw new Error("Cannot join a tournament that is already live or has ended");
+      }
+
       const existingEntrant = await Entrant.findOne({ tournamentId, playerId });
       if (existingEntrant) {
         return existingEntrant;
@@ -171,7 +176,6 @@ export const resolvers = {
       await Tournament.findByIdAndUpdate(tournamentId, { $inc: { entrantCount: 1 } });
 
       // Notify existing entrants that someone new joined
-      const tournament = await Tournament.findById(tournamentId);
       const joiningPlayer = await Player.findById(playerId);
       const others = await Entrant.find({ tournamentId, playerId: { $ne: playerId } });
       if (others.length > 0 && tournament && joiningPlayer) {

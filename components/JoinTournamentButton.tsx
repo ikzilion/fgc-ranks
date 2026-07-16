@@ -9,15 +9,19 @@ interface Props {
   tournamentId: string;
   isEntered: boolean;
   entrantId?: string;
+  status: string;
 }
 
-export function JoinTournamentButton({ tournamentId, isEntered, entrantId }: Props) {
+export function JoinTournamentButton({ tournamentId, isEntered, entrantId, status }: Props) {
   const { data: session } = useSession();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const isLocked = status === "LIVE" || status === "ENDED";
+
   if (!session) {
+    if (isLocked) return null; // don't show "sign in to join" for locked tournaments either
     return (
       <a
         href="/login"
@@ -38,14 +42,16 @@ export function JoinTournamentButton({ tournamentId, isEntered, entrantId }: Pro
         >
           ✓ Entered
         </span>
-        <button
-          onClick={handleLeave}
-          disabled={loading}
-          className="text-[11px] font-semibold px-2 py-1.5 rounded"
-          style={{ background: "var(--coral-dim)", color: "var(--coral)", border: "1px solid rgba(255,77,77,0.2)", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.6 : 1 }}
-        >
-          {loading ? "..." : "Leave"}
-        </button>
+        {!isLocked && (
+          <button
+            onClick={handleLeave}
+            disabled={loading}
+            className="text-[11px] font-semibold px-2 py-1.5 rounded"
+            style={{ background: "var(--coral-dim)", color: "var(--coral)", border: "1px solid rgba(255,77,77,0.2)", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.6 : 1 }}
+          >
+            {loading ? "..." : "Leave"}
+          </button>
+        )}
       </div>
     );
   }
@@ -121,6 +127,8 @@ export function JoinTournamentButton({ tournamentId, isEntered, entrantId }: Pro
 
     setLoading(false);
   }
+
+  if (isLocked) return null; // tournament already live or ended — no join button shown
 
   return (
     <div className="flex flex-col items-end gap-1">

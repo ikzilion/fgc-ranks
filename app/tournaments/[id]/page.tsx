@@ -116,6 +116,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
               tournamentId={tournament.id}
               isEntered={tournament.isEntered}
               entrantId={myEntrant?.id}
+              status={tournament.status}
             />
           </div>
         </div>
