@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
+import { NotificationBell } from "@/components/NotificationBell";
 
 const links = [
   { href: "/tournaments", label: "Tournaments" },
@@ -41,6 +42,7 @@ export function Navbar() {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <NotificationBell />
           {session?.user ? (
             <>
               <Link
