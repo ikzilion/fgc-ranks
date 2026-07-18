@@ -598,9 +598,13 @@ export const resolvers = {
       await connectToDatabase();
       const entrant = await Entrant.findById(entrantId);
       if (!entrant) return false;
-      if (entrant.playerId.toString() !== playerId && role !== "ADMIN") throw new Error("Not authorized");
 
       const tournament = await Tournament.findById(entrant.tournamentId);
+      const isSelf = entrant.playerId.toString() === playerId;
+      if (!isSelf && role !== "ADMIN" && !isOrganizer(tournament, playerId, role)) {
+        throw new Error("Not authorized");
+      }
+
       if (tournament && (tournament.status === "LIVE" || tournament.status === "ENDED")) {
         throw new Error("Cannot leave a tournament that is already live or has ended");
       }

@@ -10,6 +10,7 @@ import { CreateMatchButton } from "@/components/CreateMatchButton";
 import { ReportMatchButton } from "@/components/ReportMatchButton";
 import { ManageOrganizersButton } from "@/components/ManageOrganizersButton";
 import { InvitePlayerButton } from "@/components/InvitePlayerButton";
+import { RemoveEntrantButton } from "@/components/RemoveEntrantButton";
 
 export const dynamic = "force-dynamic";
 
@@ -258,31 +259,33 @@ export default async function TournamentDetailPage({ params }: { params: Promise
               [...tournament.entrants]
                 .sort((a: any, b: any) => (a.seed ?? 999) - (b.seed ?? 999))
                 .map((entrant: any) => (
-                  <Link
+                  <div
                     key={entrant.id}
-                    href={`/players/${entrant.player.id}`}
                     className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--border)] last:border-0 hover:bg-[var(--navy-3)] transition-colors"
                   >
-                    <span className="text-[11px] text-[var(--text-muted)] w-5 flex-shrink-0">{entrant.seed ?? "—"}</span>
-                    <div
-                      className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 font-rajdhani text-[10px] font-bold overflow-hidden"
-                      style={{ background: "var(--blue-dim)", color: "var(--blue)", border: "1px solid rgba(79,142,247,0.3)" }}
-                    >
-                      {entrant.player.avatarUrl ? (
-                        <img src={entrant.player.avatarUrl} alt={entrant.player.tag} className="w-full h-full object-cover" />
-                      ) : (
-                        entrant.player.tag.slice(0, 2).toUpperCase()
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-rajdhani text-[13px] font-semibold text-[var(--text-primary)] truncate">{entrant.player.tag}</p>
-                      {entrant.placement && (
-                        <p className="text-[11px]" style={{ color: entrant.placement === 1 ? "var(--gold)" : "var(--text-muted)" }}>
-                          {entrant.placement === 1 ? "🏆 Champion" : `${entrant.placement}th place`}
-                        </p>
-                      )}
-                    </div>
-                  </Link>
+                    <Link href={`/players/${entrant.player.id}`} className="flex items-center gap-3 flex-1 min-w-0">
+                      <span className="text-[11px] text-[var(--text-muted)] w-5 flex-shrink-0">{entrant.seed ?? "—"}</span>
+                      <div
+                        className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 font-rajdhani text-[10px] font-bold overflow-hidden"
+                        style={{ background: "var(--blue-dim)", color: "var(--blue)", border: "1px solid rgba(79,142,247,0.3)" }}
+                      >
+                        {entrant.player.avatarUrl ? (
+                          <img src={entrant.player.avatarUrl} alt={entrant.player.tag} className="w-full h-full object-cover" />
+                        ) : (
+                          entrant.player.tag.slice(0, 2).toUpperCase()
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-rajdhani text-[13px] font-semibold text-[var(--text-primary)] truncate">{entrant.player.tag}</p>
+                        {entrant.placement && (
+                          <p className="text-[11px]" style={{ color: entrant.placement === 1 ? "var(--gold)" : "var(--text-muted)" }}>
+                            {entrant.placement === 1 ? "🏆 Champion" : `${entrant.placement}th place`}
+                          </p>
+                        )}
+                      </div>
+                    </Link>
+                    <RemoveEntrantButton entrantId={entrant.id} playerTag={entrant.player.tag} canManage={canManage} />
+                  </div>
                 ))
             )}
           </div>
