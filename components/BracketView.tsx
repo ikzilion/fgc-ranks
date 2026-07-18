@@ -236,7 +236,11 @@ export function BracketView({
         <span style={{ color: resolvedLineColor }}>―</span> match progression
       </p>
 
-      <div ref={containerRef} className="relative overflow-x-auto pb-2" style={{ WebkitOverflowScrolling: "touch" }}>
+      {/* Bounded height so this container's own scrollbars (both axes) stay
+          inside a box that's always fully on-screen once the bracket is
+          scrolled into view — a large bracket's horizontal scrollbar used to
+          only be reachable at the very bottom of the (unbounded-height) page. */}
+      <div ref={containerRef} className="relative overflow-auto pb-2 max-h-[65vh]" style={{ WebkitOverflowScrolling: "touch" }}>
         <svg
           className="absolute top-0 left-0 pointer-events-none"
           width={overlay.width}
