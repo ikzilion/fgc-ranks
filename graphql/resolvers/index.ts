@@ -126,21 +126,12 @@ export const resolvers = {
       { email }: { email: string },
       { req }: { req: NextRequest }
     ) => {
-      const t0 = Date.now();
       const ip = getClientIp(req);
       const { success } = await passwordResetRateLimit.limit(ip);
-      console.log(
-        `[requestPasswordReset] rate limit check: ${Date.now() - t0}ms — ${success ? "ALLOWED" : "BLOCKED"} (ip: ${ip})`
-      );
       if (!success) throw new Error("Too many requests. Please try again later.");
 
-      const t1 = Date.now();
       await connectToDatabase();
-      console.log(`[requestPasswordReset] connectToDatabase: ${Date.now() - t1}ms`);
-
-      const t2 = Date.now();
       const user = await User.findOne({ email });
-      console.log(`[requestPasswordReset] User.findOne: ${Date.now() - t2}ms`);
 
       // Only generate/send a token if the account exists, but always return
       // true either way — this prevents the endpoint from being used to
@@ -149,20 +140,13 @@ export const resolvers = {
         const rawToken = randomBytes(32).toString("hex");
         const resetTokenHash = createHash("sha256").update(rawToken).digest("hex");
         const resetTokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
-
-        const t3 = Date.now();
         await User.findByIdAndUpdate(user._id, { resetTokenHash, resetTokenExpiry });
-        console.log(`[requestPasswordReset] User.findByIdAndUpdate: ${Date.now() - t3}ms`);
 
         const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
         const resetUrl = `${baseUrl}/reset-password?token=${rawToken}`;
-
-        const t4 = Date.now();
         await sendPasswordResetEmail(email, resetUrl);
-        console.log(`[requestPasswordReset] sendPasswordResetEmail: ${Date.now() - t4}ms`);
       }
 
-      console.log(`[requestPasswordReset] total: ${Date.now() - t0}ms`);
       return true;
     },
 
