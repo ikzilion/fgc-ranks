@@ -284,7 +284,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                         )}
                       </div>
                     </Link>
-                    <RemoveEntrantButton entrantId={entrant.id} playerTag={entrant.player.tag} canManage={canManage} />
+                    <RemoveEntrantButton entrantId={entrant.id} playerTag={entrant.player.tag} canManage={canManage} status={tournament.status} />
                   </div>
                 ))
             )}

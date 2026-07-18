@@ -8,15 +8,19 @@ export function RemoveEntrantButton({
   entrantId,
   playerTag,
   canManage,
+  status,
 }: {
   entrantId: string;
   playerTag: string;
   canManage: boolean;
+  status: string;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
-  if (!canManage) return null;
+  // Organizers/admins can remove an entrant while UPCOMING or LIVE (e.g. a
+  // no-show), but not once the tournament has ENDED — mirrors the server-side guard.
+  if (!canManage || status === "ENDED") return null;
 
   async function handleRemove() {
     if (!confirm(`Remove ${playerTag} from this tournament?`)) return;

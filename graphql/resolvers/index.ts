@@ -609,12 +609,24 @@ export const resolvers = {
 
       const tournament = await Tournament.findById(entrant.tournamentId);
       const isSelf = entrant.playerId.toString() === playerId;
-      if (!isSelf && role !== "ADMIN" && !isOrganizer(tournament, playerId, role)) {
-        throw new Error("Not authorized");
-      }
+      // isOrganizer already treats ADMIN as an organizer for any tournament, so this
+      // one check covers both TOs and global admins — same as every other resolver here.
+      const isManager = isOrganizer(tournament, playerId, role);
+      if (!isSelf && !isManager) throw new Error("Not authorized");
 
-      if (tournament && (tournament.status === "LIVE" || tournament.status === "ENDED")) {
-        throw new Error("Cannot leave a tournament that is already live or has ended");
+      if (tournament) {
+        if (isSelf) {
+          // Self-leave stays locked once the tournament is LIVE or ENDED, unchanged.
+          if (tournament.status === "LIVE" || tournament.status === "ENDED") {
+            throw new Error("Cannot leave a tournament that is already live or has ended");
+          }
+        } else {
+          // Organizer/admin removal: allowed while LIVE (e.g. removing a no-show),
+          // still blocked once ENDED.
+          if (tournament.status === "ENDED") {
+            throw new Error("Cannot remove a player from a tournament that has already ended");
+          }
+        }
       }
 
       await Entrant.findByIdAndDelete(entrantId);
