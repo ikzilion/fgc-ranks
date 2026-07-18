@@ -10,7 +10,8 @@ A Fighting Game Community (FGC) web platform with two core features:
 - **API:** GraphQL with Apollo Server (`@apollo/server` + `@as-integrations/next`)
 - **Database:** MongoDB Atlas (Mongoose ODM)
 - **Auth:** NextAuth.js v5 (credentials provider)
-- **Rate limiting:** Upstash Redis + `@upstash/ratelimit` (login/register)
+- **Rate limiting:** Upstash Redis + `@upstash/ratelimit` (login/register/password reset)
+- **Transactional email:** Resend (password reset)
 - **File storage:** Vercel Blob (player avatar images)
 - **Hosting:** Vercel (single project)
 
@@ -22,7 +23,7 @@ A Fighting Game Community (FGC) web platform with two core features:
 │   │   ├── graphql/route.ts
 │   │   ├── auth/[...nextauth]/route.ts
 │   │   └── upload/route.ts
-│   ├── (auth)/           # login, register
+│   ├── (auth)/           # login, register, forgot-password, reset-password
 │   ├── tournaments/
 │   │   ├── page.tsx
 │   │   └── [id]/page.tsx
@@ -42,7 +43,7 @@ A Fighting Game Community (FGC) web platform with two core features:
 ├── graphql/
 │   ├── schema/index.ts
 │   └── resolvers/index.ts
-├── lib/                  # db.ts, auth.ts, testDb.ts, rateLimit.ts
+├── lib/                  # db.ts, auth.ts, testDb.ts, rateLimit.ts, email.ts
 ├── models/                # User, Player, Tournament, Entrant, Match, Notification
 └── scripts/               # makeAdmin.js
 ```
@@ -52,7 +53,7 @@ A Fighting Game Community (FGC) web platform with two core features:
 - **Tournament** — brackets, rounds, match results, status (UPCOMING/LIVE/ENDED)
 - **Entrant** — a player's participation in a specific tournament
 - **Match** — a reported result between two entrants
-- **User** — auth, linked to a player profile via `playerId`
+- **User** — auth, linked to a player profile via `playerId`; also holds hashed password-reset token + expiry (`resetTokenHash`, `resetTokenExpiry`)
 - **Notification** — per-player, triggered inline by resolvers on match/tournament/join events
 
 MongoDB collection names: players, tournaments, users, entrants, matches, notifications.
@@ -66,7 +67,7 @@ MongoDB collection names: players, tournaments, users, entrants, matches, notifi
 
 ## GraphQL Schema Summary
 - Types: `Player`, `Tournament`, `Entrant`, `Match`, `User`, `Notification`
-- Mutations: `register`, `login`, `updatePlayer`, `createTournament`, `updateTournamentStatus`, `joinTournament` (status-gated), `setPlacement`, `createMatch`, `reportResult`, `deleteMatch`, `deleteTournament`, `leaveTournament`, `markNotificationRead`, `markAllNotificationsRead`
+- Mutations: `register`, `login`, `requestPasswordReset`, `resetPassword`, `updatePlayer`, `createTournament`, `updateTournamentStatus`, `joinTournament` (status-gated), `setPlacement`, `createMatch`, `reportResult`, `deleteMatch`, `deleteTournament`, `leaveTournament`, `markNotificationRead`, `markAllNotificationsRead`
 
 ## Commands
 ```bash
@@ -79,7 +80,7 @@ vercel env ls / vercel env add VARNAME environment / vercel env pull .env.local
 
 ## Environment Variables
 Set in `.env.local` and Vercel (Production/Preview/Development) — never paste actual values into chat:
-`MONGODB_URI`, `NEXTAUTH_SECRET`, `NEXT_PUBLIC_APP_URL`, `BLOB_READ_WRITE_TOKEN`, `BLOB_STORE_ID`, `BLOB_WEBHOOK_PUBLIC_KEY`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`
+`MONGODB_URI`, `NEXTAUTH_SECRET`, `NEXT_PUBLIC_APP_URL`, `BLOB_READ_WRITE_TOKEN`, `BLOB_STORE_ID`, `BLOB_WEBHOOK_PUBLIC_KEY`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL` (optional — falls back to Resend's shared test sender)
 
 ## Design System
 `app/globals.css` — navy/blue/coral/gold/green palette, Rajdhani + Inter fonts, scanline texture. Mobile responsive via `sm:` breakpoints.

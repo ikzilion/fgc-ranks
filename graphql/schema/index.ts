@@ -104,6 +104,8 @@ export const typeDefs = `#graphql
   type Mutation {
     register(email: String!, password: String!, tag: String!): AuthPayload!
     login(email: String!, password: String!): AuthPayload!
+    requestPasswordReset(email: String!): Boolean!
+    resetPassword(token: String!, newPassword: String!): Boolean!
 
     updatePlayer(id: ID!, tag: String, region: String, avatarUrl: String, characters: [String!]): Player!
 

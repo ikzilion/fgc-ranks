@@ -59,7 +59,7 @@ export default function LoginPage() {
               />
             </div>
 
-            <div className="mb-6">
+            <div className="mb-2">
               <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Password</label>
               <input
                 type="password"
@@ -70,6 +70,12 @@ export default function LoginPage() {
                 className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
                 style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
               />
+            </div>
+
+            <div className="mb-6 text-right">
+              <Link href="/forgot-password" className="text-[12px] text-[var(--blue)] hover:underline">
+                Forgot password?
+              </Link>
             </div>
 
             {error && (

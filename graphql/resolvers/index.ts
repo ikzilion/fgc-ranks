@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { randomBytes, createHash } from "crypto";
 import { connectToDatabase } from "@/lib/db";
 import { User } from "@/models/User";
 import { Player } from "@/models/Player";
@@ -7,7 +8,8 @@ import { Tournament } from "@/models/Tournament";
 import { Entrant } from "@/models/Entrant";
 import { Match, MatchStatus } from "@/models/Match";
 import { Notification } from "@/models/Notification";
-import { loginRateLimit, registerRateLimit, getClientIp } from "@/lib/rateLimit";
+import { loginRateLimit, registerRateLimit, passwordResetRateLimit, getClientIp } from "@/lib/rateLimit";
+import { sendPasswordResetEmail } from "@/lib/email";
 import { NextRequest } from "next/server";
 
 const JWT_SECRET = process.env.NEXTAUTH_SECRET || "dev-secret";
@@ -117,6 +119,69 @@ export const resolvers = {
       if (!valid) throw new Error("Invalid email or password");
       const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: "7d" });
       return { token, user };
+    },
+
+    requestPasswordReset: async (
+      _: unknown,
+      { email }: { email: string },
+      { req }: { req: NextRequest }
+    ) => {
+      const t0 = Date.now();
+      const ip = getClientIp(req);
+      const { success } = await passwordResetRateLimit.limit(ip);
+      console.log(
+        `[requestPasswordReset] rate limit check: ${Date.now() - t0}ms — ${success ? "ALLOWED" : "BLOCKED"} (ip: ${ip})`
+      );
+      if (!success) throw new Error("Too many requests. Please try again later.");
+
+      const t1 = Date.now();
+      await connectToDatabase();
+      console.log(`[requestPasswordReset] connectToDatabase: ${Date.now() - t1}ms`);
+
+      const t2 = Date.now();
+      const user = await User.findOne({ email });
+      console.log(`[requestPasswordReset] User.findOne: ${Date.now() - t2}ms`);
+
+      // Only generate/send a token if the account exists, but always return
+      // true either way — this prevents the endpoint from being used to
+      // enumerate which emails have accounts.
+      if (user) {
+        const rawToken = randomBytes(32).toString("hex");
+        const resetTokenHash = createHash("sha256").update(rawToken).digest("hex");
+        const resetTokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+        const t3 = Date.now();
+        await User.findByIdAndUpdate(user._id, { resetTokenHash, resetTokenExpiry });
+        console.log(`[requestPasswordReset] User.findByIdAndUpdate: ${Date.now() - t3}ms`);
+
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+        const resetUrl = `${baseUrl}/reset-password?token=${rawToken}`;
+
+        const t4 = Date.now();
+        await sendPasswordResetEmail(email, resetUrl);
+        console.log(`[requestPasswordReset] sendPasswordResetEmail: ${Date.now() - t4}ms`);
+      }
+
+      console.log(`[requestPasswordReset] total: ${Date.now() - t0}ms`);
+      return true;
+    },
+
+    resetPassword: async (
+      _: unknown,
+      { token, newPassword }: { token: string; newPassword: string }
+    ) => {
+      await connectToDatabase();
+      const resetTokenHash = createHash("sha256").update(token).digest("hex");
+      const user = await User.findOne({ resetTokenHash, resetTokenExpiry: { $gt: new Date() } });
+      if (!user) throw new Error("Invalid or expired reset link");
+
+      const passwordHash = await bcrypt.hash(newPassword, 10);
+      await User.findByIdAndUpdate(user._id, {
+        passwordHash,
+        resetTokenHash: null,
+        resetTokenExpiry: null,
+      });
+      return true;
     },
 
     // Players
