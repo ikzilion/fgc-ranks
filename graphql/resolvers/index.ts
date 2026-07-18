@@ -261,6 +261,88 @@ export const resolvers = {
       return updated;
     },
 
+    updateTournamentVisibility: async (
+      _: unknown,
+      { id, visibility }: { id: string; visibility: string },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const tournament = await Tournament.findById(id);
+      if (!tournament) throw new Error("Tournament not found");
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+
+      return Tournament.findByIdAndUpdate(id, { visibility }, { new: true });
+    },
+
+    inviteToTournament: async (
+      _: unknown,
+      { tournamentId, playerId: inviteeId }: { tournamentId: string; playerId: string },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const tournament = await Tournament.findById(tournamentId);
+      if (!tournament) throw new Error("Tournament not found");
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+
+      const invitee = await Player.findById(inviteeId);
+      if (!invitee) throw new Error("Player not found");
+
+      const alreadyEntrant = await Entrant.findOne({ tournamentId, playerId: inviteeId });
+      if (alreadyEntrant) throw new Error("Player is already an entrant in this tournament.");
+
+      const alreadyInvited = tournament.invitedPlayerIds.some((id: any) => id.toString() === inviteeId);
+      if (!alreadyInvited) {
+        tournament.invitedPlayerIds.push(inviteeId);
+        await tournament.save();
+
+        await Notification.create({
+          playerId: inviteeId,
+          type: "PLAYER_JOINED",
+          message: `You've been invited to join ${tournament.name}`,
+          link: `/tournaments/${tournamentId}`,
+        });
+      }
+
+      return tournament;
+    },
+
+    cancelTournamentInvite: async (
+      _: unknown,
+      { tournamentId, playerId: inviteeId }: { tournamentId: string; playerId: string },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const tournament = await Tournament.findById(tournamentId);
+      if (!tournament) throw new Error("Tournament not found");
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+
+      tournament.invitedPlayerIds = tournament.invitedPlayerIds.filter(
+        (id: any) => id.toString() !== inviteeId
+      );
+      await tournament.save();
+
+      return tournament;
+    },
+
+    declineTournamentInvite: async (
+      _: unknown,
+      { tournamentId, playerId: inviteeId }: { tournamentId: string; playerId: string },
+      { playerId: callerPlayerId, role }: { playerId?: string; role?: string }
+    ) => {
+      if (callerPlayerId !== inviteeId && role !== "ADMIN") throw new Error("Not authorized");
+
+      await connectToDatabase();
+      const tournament = await Tournament.findById(tournamentId);
+      if (!tournament) throw new Error("Tournament not found");
+
+      tournament.invitedPlayerIds = tournament.invitedPlayerIds.filter(
+        (id: any) => id.toString() !== inviteeId
+      );
+      await tournament.save();
+
+      return tournament;
+    },
+
     addTournamentOrganizer: async (
       _: unknown,
       { tournamentId, playerId: newOrganizerId }: { tournamentId: string; playerId: string },
@@ -325,12 +407,23 @@ export const resolvers = {
       if (tournament && (tournament.status === "LIVE" || tournament.status === "ENDED")) {
         throw new Error("Cannot join a tournament that is already live or has ended");
       }
+      if (tournament && tournament.visibility === "PRIVATE") {
+        const isInvited = tournament.invitedPlayerIds.some((id: any) => id.toString() === playerId);
+        if (!isInvited) throw new Error("This tournament is private — you need an invite from an organizer to join.");
+      }
 
       const existingEntrant = await Entrant.findOne({ tournamentId, playerId });
       if (existingEntrant) {
         return existingEntrant;
       }
       const entrant = await Entrant.create({ tournamentId, playerId });
+      if (tournament && tournament.visibility === "PRIVATE") {
+        // Invite consumed — remove from the pending list now that they've joined
+        tournament.invitedPlayerIds = tournament.invitedPlayerIds.filter(
+          (id: any) => id.toString() !== playerId
+        );
+        await tournament.save();
+      }
       // Keep entrantCount in sync
       await Tournament.findByIdAndUpdate(tournamentId, { $inc: { entrantCount: 1 } });
 
@@ -561,6 +654,12 @@ export const resolvers = {
     isOrganizer: (parent: { organizers?: string[] }, { playerId }: { playerId?: string }) => {
       if (!playerId || !parent.organizers) return false;
       return parent.organizers.some((id: any) => id.toString() === playerId);
+    },
+    invitedPlayers: async (parent: { invitedPlayerIds?: string[] }) =>
+      parent.invitedPlayerIds ? await Player.find({ _id: { $in: parent.invitedPlayerIds } }) : [],
+    isInvited: (parent: { invitedPlayerIds?: string[] }, { playerId }: { playerId?: string }) => {
+      if (!playerId || !parent.invitedPlayerIds) return false;
+      return parent.invitedPlayerIds.some((id: any) => id.toString() === playerId);
     },
   },
 

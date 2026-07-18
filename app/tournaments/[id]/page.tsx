@@ -9,6 +9,7 @@ import { TournamentStatusButton } from "@/components/TournamentStatusButton";
 import { CreateMatchButton } from "@/components/CreateMatchButton";
 import { ReportMatchButton } from "@/components/ReportMatchButton";
 import { ManageOrganizersButton } from "@/components/ManageOrganizersButton";
+import { InvitePlayerButton } from "@/components/InvitePlayerButton";
 
 export const dynamic = "force-dynamic";
 
@@ -19,12 +20,19 @@ const GET_TOURNAMENT = `
       name
       game
       status
+      cancellationReason
+      visibility
       entrantCount
       startDate
       endDate
       isEntered(playerId: $playerId)
       isOrganizer(playerId: $playerId)
+      isInvited(playerId: $playerId)
       organizers {
+        id
+        tag
+      }
+      invitedPlayers {
         id
         tag
       }
@@ -50,6 +58,10 @@ const GET_TOURNAMENT = `
         winner { id tag }
       }
     }
+    players(limit: 200) {
+      id
+      tag
+    }
   }
 `;
 
@@ -65,12 +77,12 @@ async function getTournament(id: string, playerId?: string) {
     const json = await res.json();
     if (json.errors) {
       console.error("[tournament/id] GraphQL errors:", json.errors);
-      return null;
+      return { tournament: null, players: [] };
     }
-    return json.data?.tournament ?? null;
+    return { tournament: json.data?.tournament ?? null, players: json.data?.players ?? [] };
   } catch (err) {
     console.error("[tournament/id] Fetch error:", err);
-    return null;
+    return { tournament: null, players: [] };
   }
 }
 
@@ -83,6 +95,15 @@ function statusBadge(status: string) {
     );
   if (status === "UPCOMING")
     return <span className="badge-upcoming text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded">Upcoming</span>;
+  if (status === "CANCELLED")
+    return (
+      <span
+        className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded"
+        style={{ background: "var(--coral-dim)", color: "var(--coral)" }}
+      >
+        Cancelled
+      </span>
+    );
   return <span className="badge-ended text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded">Ended</span>;
 }
 
@@ -91,7 +112,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   const session = await auth();
   const playerId = (session?.user as any)?.playerId ?? undefined;
   const role = (session?.user as any)?.role;
-  const tournament = await getTournament(id, playerId);
+  const { tournament, players } = await getTournament(id, playerId);
   if (!tournament) notFound();
 
   const canManage = tournament.isOrganizer || role === "ADMIN";
@@ -112,10 +133,18 @@ export default async function TournamentDetailPage({ params }: { params: Promise
           <div>
             <h1 className="font-rajdhani text-3xl font-bold text-[var(--text-primary)] leading-tight">
               {tournament.name}
+              {tournament.visibility === "PRIVATE" && (
+                <span className="ml-2 text-[13px] align-middle" style={{ color: "var(--text-muted)" }}>🔒 Private</span>
+              )}
             </h1>
             <p className="text-[13px] text-[var(--text-secondary)] mt-1">
               {tournament.game} · {tournament.entrantCount} entrants · {new Date(tournament.startDate).toLocaleDateString()}
             </p>
+            {tournament.status === "CANCELLED" && tournament.cancellationReason && (
+              <p className="text-[13px] mt-1" style={{ color: "var(--coral)" }}>
+                Cancelled: {tournament.cancellationReason}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-3">
             {statusBadge(tournament.status)}
@@ -125,15 +154,25 @@ export default async function TournamentDetailPage({ params }: { params: Promise
               isEntered={tournament.isEntered}
               entrantId={myEntrant?.id}
               status={tournament.status}
+              visibility={tournament.visibility}
+              isInvited={tournament.isInvited}
             />
           </div>
         </div>
         {canManage && (
-          <div className="mt-4">
+          <div className="mt-4 flex flex-wrap items-center gap-2">
             <ManageOrganizersButton
               tournamentId={tournament.id}
               organizers={tournament.organizers}
               entrants={tournament.entrants}
+              canManage={canManage}
+            />
+            <InvitePlayerButton
+              tournamentId={tournament.id}
+              visibility={tournament.visibility}
+              invitedPlayers={tournament.invitedPlayers}
+              entrants={tournament.entrants}
+              allPlayers={players}
               canManage={canManage}
             />
           </div>

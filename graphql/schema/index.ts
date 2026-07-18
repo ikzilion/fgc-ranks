@@ -5,6 +5,7 @@ export const typeDefs = `#graphql
   scalar Date
 
   enum TournamentStatus { UPCOMING LIVE ENDED CANCELLED }
+  enum TournamentVisibility { PUBLIC PRIVATE }
   enum MatchStatus      { PENDING IN_PROGRESS COMPLETED }
   enum UserRole         { PLAYER ADMIN }
   enum NotificationType {
@@ -43,12 +44,15 @@ export const typeDefs = `#graphql
     game: String!
     status: TournamentStatus!
     cancellationReason: String
+    visibility: TournamentVisibility!
     entrantCount: Int!
     startDate: Date!
     endDate: Date
     isEntered(playerId: ID): Boolean!
     isOrganizer(playerId: ID): Boolean!
+    isInvited(playerId: ID): Boolean!
     organizers: [Player!]!
+    invitedPlayers: [Player!]!
     entrants: [Entrant!]!
     matches: [Match!]!
   }
@@ -115,6 +119,10 @@ export const typeDefs = `#graphql
     createTournament(name: String!, game: String!, startDate: Date!): Tournament!
     updateTournamentStatus(id: ID!, status: TournamentStatus!): Tournament!
     cancelTournament(id: ID!, reason: String!): Tournament!
+    updateTournamentVisibility(id: ID!, visibility: TournamentVisibility!): Tournament!
+    inviteToTournament(tournamentId: ID!, playerId: ID!): Tournament!
+    cancelTournamentInvite(tournamentId: ID!, playerId: ID!): Tournament!
+    declineTournamentInvite(tournamentId: ID!, playerId: ID!): Tournament!
     addTournamentOrganizer(tournamentId: ID!, playerId: ID!): Tournament!
     removeTournamentOrganizer(tournamentId: ID!, playerId: ID!): Tournament!
 
