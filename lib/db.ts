@@ -14,7 +14,12 @@ export function connectToDatabase() {
   }
 
   if (!global.mongooseConn) {
-    global.mongooseConn = mongoose.connect(MONGODB_URI);
+    // Clear the cache on failure so the next call retries instead of
+    // replaying the same dead connection forever.
+    global.mongooseConn = mongoose.connect(MONGODB_URI).catch((err) => {
+      global.mongooseConn = undefined;
+      throw err;
+    });
   }
 
   return global.mongooseConn;
