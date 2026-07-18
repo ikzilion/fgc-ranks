@@ -229,6 +229,38 @@ export const resolvers = {
       return updated;
     },
 
+    cancelTournament: async (
+      _: unknown,
+      { id, reason }: { id: string; reason: string },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      if (!reason || !reason.trim()) throw new Error("A cancellation reason is required.");
+
+      await connectToDatabase();
+      const tournament = await Tournament.findById(id);
+      if (!tournament) throw new Error("Tournament not found");
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+      if (tournament.status === "CANCELLED") throw new Error("Tournament is already cancelled.");
+
+      const updated = await Tournament.findByIdAndUpdate(
+        id,
+        { status: "CANCELLED", cancellationReason: reason.trim() },
+        { new: true }
+      );
+
+      const entrants = await Entrant.find({ tournamentId: id });
+      await Notification.create(
+        entrants.map(e => ({
+          playerId: e.playerId,
+          type: "TOURNAMENT_ENDED",
+          message: `${updated.name} was cancelled: ${reason.trim()}`,
+          link: `/tournaments/${id}`,
+        }))
+      );
+
+      return updated;
+    },
+
     addTournamentOrganizer: async (
       _: unknown,
       { tournamentId, playerId: newOrganizerId }: { tournamentId: string; playerId: string },
@@ -439,10 +471,15 @@ export const resolvers = {
       return true;
     },
 
-    deleteTournament: async (_: unknown, { id }: { id: string }, { role }: { role?: string }) => {
-      if (role !== "ADMIN") throw new Error("Not authorized");
-
+    deleteTournament: async (
+      _: unknown,
+      { id }: { id: string },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
       await connectToDatabase();
+      const tournament = await Tournament.findById(id);
+      if (!tournament) return false;
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
 
       // Undo the win/loss/points effects reportResult applied for any
       // completed matches, so deleting the tournament doesn't leave stale stats.

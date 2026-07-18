@@ -2,16 +2,14 @@
 "use client";
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
-export function DeleteTournamentButton({ tournamentId }: { tournamentId: string }) {
-  const { data: session } = useSession();
+export function DeleteTournamentButton({ tournamentId, canManage }: { tournamentId: string; canManage: boolean }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
-  // Only admins can delete tournaments
-  if ((session?.user as any)?.role !== "ADMIN") return null;
+  // Organizers of this tournament (or global admins) can delete it
+  if (!canManage) return null;
 
   async function handleDelete(e: React.MouseEvent) {
     e.preventDefault();

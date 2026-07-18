@@ -4,6 +4,7 @@ export enum TournamentStatus {
   UPCOMING = "UPCOMING",
   LIVE = "LIVE",
   ENDED = "ENDED",
+  CANCELLED = "CANCELLED",
 }
 
 const TournamentSchema = new Schema(
@@ -15,6 +16,8 @@ const TournamentSchema = new Schema(
       enum: Object.values(TournamentStatus),
       default: TournamentStatus.UPCOMING,
     },
+    // Only set when status is CANCELLED — shown on the tournament card/listing.
+    cancellationReason: { type: String },
     // Cached count — updated when entrants join/leave
     entrantCount: { type: Number, default: 0 },
     // Players with management access to this specific tournament (create/edit
