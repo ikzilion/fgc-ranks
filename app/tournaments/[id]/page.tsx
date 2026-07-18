@@ -13,6 +13,7 @@ import { InvitePlayerButton } from "@/components/InvitePlayerButton";
 import { RemoveEntrantButton } from "@/components/RemoveEntrantButton";
 import { GenerateBracketButton } from "@/components/GenerateBracketButton";
 import { BracketView } from "@/components/BracketView";
+import { StreamAssetsButton } from "@/components/StreamAssetsButton";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,8 @@ const GET_TOURNAMENT = `
       isEntered(playerId: $playerId)
       isOrganizer(playerId: $playerId)
       isInvited(playerId: $playerId)
+      streamBackgroundUrl
+      sponsorBannerUrl
       organizers {
         id
         tag
@@ -201,6 +204,12 @@ export default async function TournamentDetailPage({ params }: { params: Promise
               invitedPlayers={tournament.invitedPlayers}
               entrants={tournament.entrants}
               allPlayers={players}
+              canManage={canManage}
+            />
+            <StreamAssetsButton
+              tournamentId={tournament.id}
+              streamBackgroundUrl={tournament.streamBackgroundUrl}
+              sponsorBannerUrl={tournament.sponsorBannerUrl}
               canManage={canManage}
             />
           </div>

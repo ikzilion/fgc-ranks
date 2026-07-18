@@ -14,6 +14,13 @@ export function Navbar() {
   const pathname = usePathname();
   const { data: session } = useSession();
 
+  // The stream/broadcast view (/tournaments/[id]/stream) is meant to be
+  // captured as a clean OBS browser source — no site chrome at all. There's
+  // no route-group split for a separate chromeless root layout here, so this
+  // is the pragmatic way to keep it a single page without restructuring
+  // every other route into a parallel layout tree for one page.
+  if (pathname.endsWith("/stream")) return null;
+
   return (
     <nav
       className="scanline"

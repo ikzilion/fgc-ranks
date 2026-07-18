@@ -42,6 +42,11 @@ const TournamentSchema = new Schema(
     organizers: [{ type: Schema.Types.ObjectId, ref: "Player" }],
     startDate: { type: Date, required: true },
     endDate: { type: Date },
+    // Stream/broadcast view (Phase 3) customization — TO-uploaded images via
+    // the same Vercel Blob pattern as player avatars. Empty string = unset,
+    // stream view falls back to design system defaults.
+    streamBackgroundUrl: { type: String, default: "" },
+    sponsorBannerUrl: { type: String, default: "" },
   },
   { timestamps: true }
 );

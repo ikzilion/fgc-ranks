@@ -58,6 +58,8 @@ export const typeDefs = `#graphql
     entrants: [Entrant!]!
     matches: [Match!]!
     bracket: Bracket
+    streamBackgroundUrl: String
+    sponsorBannerUrl: String
   }
 
   type Entrant {
@@ -144,6 +146,7 @@ export const typeDefs = `#graphql
     declineTournamentInvite(tournamentId: ID!, playerId: ID!): Tournament!
     addTournamentOrganizer(tournamentId: ID!, playerId: ID!): Tournament!
     removeTournamentOrganizer(tournamentId: ID!, playerId: ID!): Tournament!
+    updateTournamentStreamAssets(id: ID!, streamBackgroundUrl: String, sponsorBannerUrl: String): Tournament!
 
     joinTournament(tournamentId: ID!, playerId: ID!): Entrant!
     setPlacement(entrantId: ID!, placement: Int!): Entrant!

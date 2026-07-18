@@ -29,8 +29,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Image must be under 4MB" }, { status: 400 });
   }
 
-  const playerId = (session.user as any).playerId;
-  const filename = `avatars/${playerId}-${Date.now()}-${file.name}`;
+  // "type" picks the folder — avatar uploads are scoped to the uploading
+  // player, stream/banner uploads aren't tied to a player. Authorization for
+  // *attaching* a stream asset URL to a specific tournament happens in the
+  // updateTournamentStreamAssets GraphQL mutation (isOrganizer check), not
+  // here — this route only checks that someone is signed in, same as avatars.
+  const type = (form.get("type") as string) || "avatar";
+  let filename: string;
+  if (type === "stream-bg") {
+    filename = `tournament-backgrounds/${Date.now()}-${file.name}`;
+  } else if (type === "sponsor-banner") {
+    filename = `sponsor-banners/${Date.now()}-${file.name}`;
+  } else {
+    const playerId = (session.user as any).playerId;
+    filename = `avatars/${playerId}-${Date.now()}-${file.name}`;
+  }
 
   const blob = await put(filename, file, {
     access: "public",

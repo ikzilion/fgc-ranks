@@ -397,6 +397,23 @@ export const resolvers = {
       return tournament;
     },
 
+    updateTournamentStreamAssets: async (
+      _: unknown,
+      { id, streamBackgroundUrl, sponsorBannerUrl }: { id: string; streamBackgroundUrl?: string; sponsorBannerUrl?: string },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const tournament = await Tournament.findById(id);
+      if (!tournament) throw new Error("Tournament not found");
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+
+      const update: any = {};
+      if (streamBackgroundUrl !== undefined) update.streamBackgroundUrl = streamBackgroundUrl;
+      if (sponsorBannerUrl !== undefined) update.sponsorBannerUrl = sponsorBannerUrl;
+
+      return Tournament.findByIdAndUpdate(id, update, { new: true });
+    },
+
     // Entrants
     joinTournament: async (
       _: unknown,
