@@ -80,8 +80,6 @@ const GET_TOURNAMENT = `
           player1 { id tag }
           player2 { id tag }
           winner { id tag }
-          nextMatch { id }
-          nextLoserMatch { id }
         }
       }
     }
