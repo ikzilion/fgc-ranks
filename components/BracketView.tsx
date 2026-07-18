@@ -239,8 +239,15 @@ export function BracketView({
       {/* Bounded height so this container's own scrollbars (both axes) stay
           inside a box that's always fully on-screen once the bracket is
           scrolled into view — a large bracket's horizontal scrollbar used to
-          only be reachable at the very bottom of the (unbounded-height) page. */}
-      <div ref={containerRef} className="relative overflow-auto pb-2 max-h-[65vh]" style={{ WebkitOverflowScrolling: "touch" }}>
+          only be reachable at the very bottom of the (unbounded-height) page.
+          A plain vh percentage looked out of place across resolutions: too
+          short on tall desktop monitors relative to everything else on the
+          page, and vh itself is unreliable on mobile (address-bar
+          collapse/expand shifts what 100vh means, dvh doesn't have that
+          problem). min(600px, 70dvh) caps the box at a comfortable absolute
+          size on large screens instead of stretching proportionally forever,
+          while still shrinking gracefully via dvh on shorter viewports. */}
+      <div ref={containerRef} className="relative overflow-auto pb-2 max-h-[min(600px,70dvh)]" style={{ WebkitOverflowScrolling: "touch" }}>
         <svg
           className="absolute top-0 left-0 pointer-events-none"
           width={overlay.width}
