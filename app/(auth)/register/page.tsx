@@ -69,7 +69,7 @@ export default function RegisterPage() {
     <main className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <h1 className="font-rajdhani text-3xl font-bold text-[var(--text-primary)] mb-1">Create account</h1>
-        <p className="text-[13px] text-[var(--text-secondary)] mb-8">Join FGC.HUB and track your tournament history</p>
+        <p className="text-[13px] text-[var(--text-secondary)] mb-8">Join FGC Ranks and track your tournament history</p>
 
         <div className="fgc-card p-6">
           <form onSubmit={handleSubmit}>
