@@ -114,7 +114,6 @@ interface Line {
   y1: number;
   x2: number;
   y2: number;
-  kind: "winner" | "loser";
 }
 
 export function BracketView({
@@ -163,11 +162,11 @@ export function BracketView({
 
         if (m.nextMatch) {
           const to = posById.get(m.nextMatch.id);
-          if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY, kind: "winner" });
+          if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY });
         }
         if (m.nextLoserMatch) {
           const to = posById.get(m.nextLoserMatch.id);
-          if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY, kind: "loser" });
+          if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY });
         }
       }
 
@@ -195,9 +194,8 @@ export function BracketView({
         Seeded: {SEEDING_LABELS[bracket.seedingMethod] ?? bracket.seedingMethod} · Bracket size {bracket.size}
       </p>
       <p className="text-[11px] mb-4" style={{ color: "var(--text-muted)" }}>
-        <span style={{ color: resolvedLineColor }}>―</span> winner advances &nbsp;
-        <span style={{ color: resolvedLineColor, opacity: 0.55 }}>┄</span> loser drops &nbsp;
-        <span style={{ color: "var(--green)" }}>●</span> winner
+        <span style={{ color: "var(--green)" }}>●</span> winner &nbsp;&nbsp;
+        <span style={{ color: resolvedLineColor }}>―</span> match progression
       </p>
 
       <div ref={containerRef} className="relative overflow-x-auto pb-2" style={{ WebkitOverflowScrolling: "touch" }}>
@@ -210,18 +208,7 @@ export function BracketView({
           {overlay.lines.map((line, i) => {
             const midX = (line.x1 + line.x2) / 2;
             const d = `M ${line.x1} ${line.y1} H ${midX} V ${line.y2} H ${line.x2}`;
-            const isWinner = line.kind === "winner";
-            return (
-              <path
-                key={i}
-                d={d}
-                fill="none"
-                stroke={resolvedLineColor}
-                strokeWidth={1.25}
-                strokeOpacity={isWinner ? 1 : 0.55}
-                strokeDasharray={isWinner ? undefined : "4 3"}
-              />
-            );
+            return <path key={i} d={d} fill="none" stroke={resolvedLineColor} strokeWidth={1.25} />;
           })}
         </svg>
 
