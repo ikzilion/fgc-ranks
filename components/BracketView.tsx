@@ -114,6 +114,7 @@ interface Line {
   y1: number;
   x2: number;
   y2: number;
+  midX: number;
 }
 
 export function BracketView({
@@ -167,7 +168,7 @@ export function BracketView({
         // through nextMatchId there (see lib/bracket.ts's wireFeeder).
         if (m.nextMatch) {
           const to = posById.get(m.nextMatch.id);
-          if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY });
+          if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY, midX: 0 });
         }
         // nextLoserMatch normally represents a mid-bracket WB→LB drop, which
         // is visually confusing at real bracket scale — suppress those. The
@@ -179,9 +180,32 @@ export function BracketView({
           const targetSide = matchById.get(m.nextLoserMatch.id)?.bracketSide;
           if (targetSide === "GRAND_FINAL") {
             const to = posById.get(m.nextLoserMatch.id);
-            if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY });
+            if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY, midX: 0 });
           }
         }
+      }
+
+      // Every line between the same pair of columns shares the same x1/x2
+      // (all cards in a column share the same left/right edge), so a plain
+      // (x1+x2)/2 midpoint puts every line's vertical elbow segment at the
+      // identical X position. When a column has fewer visible matches than
+      // its neighbor (e.g. Losers Bracket consolidation rounds, which lose
+      // rows to byes), several lines' vertical segments end up stacked on
+      // top of each other and become visually indistinguishable — a line
+      // can look like it terminates at a different card than it actually
+      // does. Stagger each line's elbow X within its column-transition
+      // group so overlapping lines separate into distinct visual lanes.
+      const byTransition = new Map<string, Line[]>();
+      for (const line of lines) {
+        const key = `${line.x1}|${line.x2}`;
+        if (!byTransition.has(key)) byTransition.set(key, []);
+        byTransition.get(key)!.push(line);
+      }
+      for (const group of byTransition.values()) {
+        group.sort((a, b) => a.y1 - b.y1);
+        group.forEach((line, i) => {
+          line.midX = line.x1 + (line.x2 - line.x1) * ((i + 1) / (group.length + 1));
+        });
       }
 
       setOverlay({ width: containerEl.scrollWidth, height: containerEl.scrollHeight, lines });
@@ -220,8 +244,7 @@ export function BracketView({
           style={{ minWidth: "100%" }}
         >
           {overlay.lines.map((line, i) => {
-            const midX = (line.x1 + line.x2) / 2;
-            const d = `M ${line.x1} ${line.y1} H ${midX} V ${line.y2} H ${line.x2}`;
+            const d = `M ${line.x1} ${line.y1} H ${line.midX} V ${line.y2} H ${line.x2}`;
             return <path key={i} d={d} fill="none" stroke={resolvedLineColor} strokeWidth={1.25} />;
           })}
         </svg>
