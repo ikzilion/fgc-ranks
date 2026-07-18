@@ -25,8 +25,18 @@ export function ReportMatchButton({ match }: { match: Match }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const isEditing = match.status === "COMPLETED";
+
   // Only admins can see these controls at all
   if ((session?.user as any)?.role !== "ADMIN") return null;
+
+  function openModal() {
+    // Pre-fill with the existing scores when editing an already-reported match
+    setP1Score(isEditing ? match.player1Score : 0);
+    setP2Score(isEditing ? match.player2Score : 0);
+    setError("");
+    setOpen(true);
+  }
 
   async function handleSubmit() {
     if (p1Score === p2Score) {
@@ -41,22 +51,32 @@ export function ReportMatchButton({ match }: { match: Match }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          query: `
-            mutation ReportResult($matchId: ID!, $player1Score: Int!, $player2Score: Int!) {
-              reportResult(matchId: $matchId, player1Score: $player1Score, player2Score: $player2Score) {
-                id
-                status
-                winner { tag }
+          query: isEditing
+            ? `
+              mutation EditMatchResult($matchId: ID!, $player1Score: Int!, $player2Score: Int!) {
+                editMatchResult(matchId: $matchId, player1Score: $player1Score, player2Score: $player2Score) {
+                  id
+                  status
+                  winner { tag }
+                }
               }
-            }
-          `,
+            `
+            : `
+              mutation ReportResult($matchId: ID!, $player1Score: Int!, $player2Score: Int!) {
+                reportResult(matchId: $matchId, player1Score: $player1Score, player2Score: $player2Score) {
+                  id
+                  status
+                  winner { tag }
+                }
+              }
+            `,
           variables: { matchId: match.id, player1Score: p1Score, player2Score: p2Score },
         }),
       });
 
       const json = await res.json();
       if (json.errors) {
-        setError(json.errors[0]?.message ?? "Failed to report result");
+        setError(json.errors[0]?.message ?? `Failed to ${isEditing ? "update" : "report"} result`);
       } else {
         setOpen(false);
         router.refresh();
@@ -94,15 +114,13 @@ export function ReportMatchButton({ match }: { match: Match }) {
   return (
     <>
       <div className="flex items-center gap-2">
-        {match.status !== "COMPLETED" && (
-          <button
-            onClick={() => setOpen(true)}
-            className="text-[11px] font-semibold px-2 py-1 rounded"
-            style={{ background: "var(--blue-dim)", color: "var(--blue)", border: "1px solid rgba(79,142,247,0.2)", cursor: "pointer" }}
-          >
-            Report result
-          </button>
-        )}
+        <button
+          onClick={openModal}
+          className="text-[11px] font-semibold px-2 py-1 rounded"
+          style={{ background: "var(--blue-dim)", color: "var(--blue)", border: "1px solid rgba(79,142,247,0.2)", cursor: "pointer" }}
+        >
+          {isEditing ? "Edit result" : "Report result"}
+        </button>
         <button
           onClick={handleDelete}
           className="text-[11px] font-semibold px-2 py-1 rounded"
@@ -122,7 +140,7 @@ export function ReportMatchButton({ match }: { match: Match }) {
             className="fgc-card p-6 w-full max-w-sm"
             onClick={e => e.stopPropagation()}
           >
-            <h2 className="font-rajdhani text-xl font-bold text-[var(--text-primary)] mb-1">Report result</h2>
+            <h2 className="font-rajdhani text-xl font-bold text-[var(--text-primary)] mb-1">{isEditing ? "Edit result" : "Report result"}</h2>
             <p className="text-[12px] text-[var(--text-secondary)] mb-6">{match.round}</p>
 
             {/* Player 1 */}

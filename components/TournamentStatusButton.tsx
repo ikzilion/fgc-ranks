@@ -19,18 +19,8 @@ export function TournamentStatusButton({ tournamentId, status }: { tournamentId:
   if ((session?.user as any)?.role !== "ADMIN") return null;
 
   const transition = STATUS_FLOW[status];
-  if (!transition) return null;
 
-  async function handleClick() {
-    const isEnding = transition!.next === "ENDED";
-    const isReopening = status === "ENDED" && transition!.next === "LIVE";
-
-    const message = isEnding
-      ? `End this tournament? This marks it as finished. Join/Leave stay locked for players; you can reopen it later if needed.`
-      : isReopening
-      ? `Reopen this tournament? This sets it back to LIVE so you can create or report additional matches. Join/Leave remain locked for players either way, since the tournament is underway.`
-      : `${transition!.label}? This will change the status to ${transition!.next}.`;
-
+  async function updateStatus(nextStatus: string, message: string) {
     if (!confirm(message)) return;
 
     setLoading(true);
@@ -44,7 +34,7 @@ export function TournamentStatusButton({ tournamentId, status }: { tournamentId:
               updateTournamentStatus(id: $id, status: $status) { id status }
             }
           `,
-          variables: { id: tournamentId, status: transition!.next },
+          variables: { id: tournamentId, status: nextStatus },
         }),
       });
       const json = await res.json();
@@ -59,27 +49,66 @@ export function TournamentStatusButton({ tournamentId, status }: { tournamentId:
     setLoading(false);
   }
 
-  const isEndingButton = transition.next === "ENDED";
-  const isReopenButton = status === "ENDED" && transition.next === "LIVE";
+  async function handleClick() {
+    const isEnding = transition!.next === "ENDED";
+    const isReopening = status === "ENDED" && transition!.next === "LIVE";
+
+    const message = isEnding
+      ? `End this tournament? This marks it as finished. Join/Leave stay locked for players; you can reopen it later if needed.`
+      : isReopening
+      ? `Reopen this tournament? This sets it back to LIVE so you can create or report additional matches. Join/Leave remain locked for players either way, since the tournament is underway.`
+      : `${transition!.label}? This will change the status to ${transition!.next}.`;
+
+    await updateStatus(transition!.next, message);
+  }
+
+  async function handleRevert() {
+    const message = `Revert this tournament back to Upcoming? This undoes starting it — Join/Leave will unlock again for all players, as if the tournament hadn't started yet. Any matches already reported will stay as-is.`;
+    await updateStatus("UPCOMING", message);
+  }
+
+  const isEndingButton = transition?.next === "ENDED";
+  const isReopenButton = status === "ENDED" && transition?.next === "LIVE";
+  const showRevert = status === "LIVE";
 
   return (
-    <button
-      onClick={handleClick}
-      disabled={loading}
-      className="font-rajdhani text-[13px] font-bold tracking-wide px-3 py-1.5 rounded"
-      style={{
-        background: isEndingButton ? "var(--navy-4)" : isReopenButton ? "var(--blue-dim)" : "var(--green-dim)",
-        color: isEndingButton ? "var(--text-secondary)" : isReopenButton ? "var(--blue)" : "var(--green)",
-        border: isEndingButton
-          ? "1px solid var(--border-strong)"
-          : isReopenButton
-          ? "1px solid rgba(79,142,247,0.25)"
-          : "1px solid rgba(34,197,94,0.25)",
-        cursor: loading ? "not-allowed" : "pointer",
-        opacity: loading ? 0.6 : 1,
-      }}
-    >
-      {loading ? "..." : transition.label}
-    </button>
+    <div className="flex items-center gap-2">
+      {transition && (
+        <button
+          onClick={handleClick}
+          disabled={loading}
+          className="font-rajdhani text-[13px] font-bold tracking-wide px-3 py-1.5 rounded"
+          style={{
+            background: isEndingButton ? "var(--navy-4)" : isReopenButton ? "var(--blue-dim)" : "var(--green-dim)",
+            color: isEndingButton ? "var(--text-secondary)" : isReopenButton ? "var(--blue)" : "var(--green)",
+            border: isEndingButton
+              ? "1px solid var(--border-strong)"
+              : isReopenButton
+              ? "1px solid rgba(79,142,247,0.25)"
+              : "1px solid rgba(34,197,94,0.25)",
+            cursor: loading ? "not-allowed" : "pointer",
+            opacity: loading ? 0.6 : 1,
+          }}
+        >
+          {loading ? "..." : transition.label}
+        </button>
+      )}
+      {showRevert && (
+        <button
+          onClick={handleRevert}
+          disabled={loading}
+          className="font-rajdhani text-[13px] font-bold tracking-wide px-3 py-1.5 rounded"
+          style={{
+            background: "var(--navy-4)",
+            color: "var(--text-secondary)",
+            border: "1px solid var(--border-strong)",
+            cursor: loading ? "not-allowed" : "pointer",
+            opacity: loading ? 0.6 : 1,
+          }}
+        >
+          {loading ? "..." : "Revert to Upcoming"}
+        </button>
+      )}
+    </div>
   );
 }

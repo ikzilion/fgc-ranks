@@ -117,6 +117,7 @@ export const typeDefs = `#graphql
 
     createMatch(tournamentId: ID!, player1Id: ID!, player2Id: ID!, round: String!): Match!
     reportResult(matchId: ID!, player1Score: Int!, player2Score: Int!): Match!
+    editMatchResult(matchId: ID!, player1Score: Int!, player2Score: Int!): Match!
 
     deleteMatch(id: ID!): Boolean!
     deleteTournament(id: ID!): Boolean!

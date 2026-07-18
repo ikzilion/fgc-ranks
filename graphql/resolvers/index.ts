@@ -307,6 +307,49 @@ export const resolvers = {
       return updated;
     },
 
+    editMatchResult: async (
+      _: unknown,
+      { matchId, player1Score, player2Score }: { matchId: string; player1Score: number; player2Score: number },
+      { role }: { role?: string }
+    ) => {
+      if (role !== "ADMIN") throw new Error("Not authorized");
+      if (player1Score === player2Score) throw new Error("Scores cannot be tied.");
+
+      await connectToDatabase();
+      const match = await Match.findById(matchId);
+      if (!match) throw new Error("Match not found");
+      if (match.status !== MatchStatus.COMPLETED) {
+        throw new Error("This match hasn't been reported yet — use reportResult instead");
+      }
+
+      // Reverse the previously-applied win/loss/points effects before applying
+      // the corrected result, so stats don't get double-counted (same pattern
+      // deleteMatch uses).
+      if (match.winnerId) {
+        const previousLoserId =
+          match.winnerId.toString() === match.player1Id.toString() ? match.player2Id : match.player1Id;
+        await Player.findByIdAndUpdate(match.winnerId, { $inc: { wins: -1, points: -100 } });
+        await Player.findByIdAndUpdate(previousLoserId, { $inc: { losses: -1 } });
+      }
+
+      const winnerId = player1Score > player2Score ? match.player1Id : match.player2Id;
+      const loserId = player1Score > player2Score ? match.player2Id : match.player1Id;
+
+      const updated = await Match.findByIdAndUpdate(
+        matchId,
+        { player1Score, player2Score, winnerId, status: MatchStatus.COMPLETED },
+        { new: true }
+      );
+
+      await Player.findByIdAndUpdate(winnerId, { $inc: { wins: 1, points: 100 } });
+      await Player.findByIdAndUpdate(loserId, { $inc: { losses: 1 } });
+
+      // Intentionally no notification here — this is a correction, not a new
+      // reportable event, and would be noisy/confusing for players.
+
+      return updated;
+    },
+
     deleteMatch: async (_: unknown, { id }: { id: string }, { role }: { role?: string }) => {
       if (role !== "ADMIN") throw new Error("Not authorized");
 
