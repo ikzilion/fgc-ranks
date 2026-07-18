@@ -18,6 +18,15 @@ export const registerRateLimit = new Ratelimit({
   prefix: "ratelimit:register",
 });
 
+// Raised in dev so local testing doesn't get stuck waiting out the 1h window — prod stays at 3.
+const passwordResetLimit = process.env.NODE_ENV === "production" ? 3 : 20;
+
+export const passwordResetRateLimit = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(passwordResetLimit, "1 h"),
+  prefix: "ratelimit:password-reset",
+});
+
 // Next.js 15+ dropped NextRequest#ip — Vercel's edge network sets these headers instead.
 // Accepts any Web-standard Request (NextRequest, or the raw Request NextAuth's authorize() receives).
 export function getClientIp(req: Request): string {
