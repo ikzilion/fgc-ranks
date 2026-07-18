@@ -1,15 +1,18 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { randomBytes, createHash } from "crypto";
+import { Types } from "mongoose";
 import { connectToDatabase } from "@/lib/db";
 import { User } from "@/models/User";
 import { Player } from "@/models/Player";
 import { Tournament } from "@/models/Tournament";
 import { Entrant } from "@/models/Entrant";
 import { Match, MatchStatus } from "@/models/Match";
+import { Bracket } from "@/models/Bracket";
 import { Notification } from "@/models/Notification";
 import { loginRateLimit, registerRateLimit, passwordResetRateLimit, getClientIp } from "@/lib/rateLimit";
 import { sendPasswordResetEmail } from "@/lib/email";
+import { buildDoubleEliminationBracket, resolveSeedOrder, advanceBracketMatch, nextPowerOfTwo, SeedingMethod } from "@/lib/bracket";
 import { NextRequest } from "next/server";
 
 const JWT_SECRET = process.env.NEXTAUTH_SECRET || "dev-secret";
@@ -471,6 +474,68 @@ export const resolvers = {
       return Match.create({ tournamentId, player1Id, player2Id, round });
     },
 
+    // Brackets
+    generateBracket: async (
+      _: unknown,
+      { tournamentId, seedingMethod, manualSeedOrder }: { tournamentId: string; seedingMethod: SeedingMethod; manualSeedOrder?: string[] },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const tournament = await Tournament.findById(tournamentId);
+      if (!tournament) throw new Error("Tournament not found");
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+      if (tournament.status === "ENDED" || tournament.status === "CANCELLED") {
+        throw new Error("Cannot generate a bracket for a tournament that has ended or was cancelled");
+      }
+
+      const existing = await Bracket.findOne({ tournamentId });
+      if (existing) throw new Error("This tournament already has a bracket — delete it first to regenerate");
+
+      const entrants = await Entrant.find({ tournamentId });
+      if (entrants.length < 2) throw new Error("Need at least 2 entrants to generate a bracket");
+
+      const orderedPlayerIds = await resolveSeedOrder(seedingMethod, entrants, manualSeedOrder);
+
+      // Reflect the computed seed number back onto each Entrant — reuses the
+      // existing `seed` field already displayed in the entrant sidebar.
+      await Promise.all(
+        orderedPlayerIds.map((pid, i) => Entrant.updateOne({ tournamentId, playerId: pid }, { seed: i + 1 }))
+      );
+
+      const bracketId = new Types.ObjectId();
+      const { matches } = buildDoubleEliminationBracket({ tournamentId, bracketId, orderedPlayerIds });
+
+      const bracket = await Bracket.create({
+        _id: bracketId,
+        tournamentId,
+        seedingMethod,
+        seedOrder: orderedPlayerIds,
+        size: nextPowerOfTwo(orderedPlayerIds.length),
+      });
+
+      if (matches.length > 0) await Match.insertMany(matches);
+
+      return bracket;
+    },
+
+    deleteBracket: async (
+      _: unknown,
+      { tournamentId }: { tournamentId: string },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const tournament = await Tournament.findById(tournamentId);
+      if (!tournament) throw new Error("Tournament not found");
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+
+      const bracket = await Bracket.findOne({ tournamentId });
+      if (!bracket) return false;
+
+      await Match.deleteMany({ bracketId: bracket._id });
+      await Bracket.findByIdAndDelete(bracket._id);
+      return true;
+    },
+
     reportResult: async (
       _: unknown,
       { matchId, player1Score, player2Score }: { matchId: string; player1Score: number; player2Score: number },
@@ -482,6 +547,10 @@ export const resolvers = {
 
       const tournament = await Tournament.findById(match.tournamentId);
       if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+
+      if (!match.player1Id || !match.player2Id) {
+        throw new Error("This match isn't ready to be reported yet — waiting on both players to be determined.");
+      }
 
       const winnerId = player1Score > player2Score ? match.player1Id : match.player2Id;
       const loserId = player1Score > player2Score ? match.player2Id : match.player1Id;
@@ -503,6 +572,12 @@ export const resolvers = {
         { playerId: loserId, type: "MATCH_REPORTED", message: `Your ${match.round} match result was reported.`, link: `/tournaments/${match.tournamentId}` },
       ]);
 
+      // Bracket matches auto-advance the winner/loser into their next slots
+      // (and handle the grand-final bracket-reset case) — see lib/bracket.ts.
+      if (updated.bracketId) {
+        await advanceBracketMatch(updated, winnerId, loserId);
+      }
+
       return updated;
     },
 
@@ -519,6 +594,10 @@ export const resolvers = {
 
       const tournament = await Tournament.findById(match.tournamentId);
       if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+
+      if (match.bracketId) {
+        throw new Error("Editing bracket match results isn't supported yet — bracket progression would need to be reversed and replayed.");
+      }
 
       if (match.status !== MatchStatus.COMPLETED) {
         throw new Error("This match hasn't been reported yet — use reportResult instead");
@@ -560,6 +639,10 @@ export const resolvers = {
       const tournament = await Tournament.findById(match.tournamentId);
       if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
 
+      if (match.bracketId) {
+        throw new Error("Bracket matches can't be deleted individually — delete the whole bracket instead.");
+      }
+
       // Undo the win/loss/points effects reportResult applied, so deleting a
       // completed match doesn't leave stale stats behind.
       if (match.status === MatchStatus.COMPLETED && match.winnerId) {
@@ -591,8 +674,9 @@ export const resolvers = {
         await Player.findByIdAndUpdate(loserId, { $inc: { losses: -1 } });
       }
 
-      // Clean up related matches and entrants first
+      // Clean up related matches, bracket, and entrants first
       await Match.deleteMany({ tournamentId: id });
+      await Bracket.deleteMany({ tournamentId: id });
       await Entrant.deleteMany({ tournamentId: id });
       const result = await Tournament.findByIdAndDelete(id);
       return !!result;
@@ -685,6 +769,7 @@ export const resolvers = {
       if (!playerId || !parent.invitedPlayerIds) return false;
       return parent.invitedPlayerIds.some((id: any) => id.toString() === playerId);
     },
+    bracket: async (parent: { _id: string }) => await Bracket.findOne({ tournamentId: parent._id }),
   },
 
   Entrant: {
@@ -693,10 +778,28 @@ export const resolvers = {
   },
 
   Match: {
-    player1: async (parent: { player1Id: string }) => await Player.findById(parent.player1Id),
-    player2: async (parent: { player2Id: string }) => await Player.findById(parent.player2Id),
+    player1: async (parent: { player1Id?: string }) => (parent.player1Id ? await Player.findById(parent.player1Id) : null),
+    player2: async (parent: { player2Id?: string }) => (parent.player2Id ? await Player.findById(parent.player2Id) : null),
     winner: async (parent: { winnerId?: string }) =>
       parent.winnerId ? await Player.findById(parent.winnerId) : null,
     tournament: async (parent: { tournamentId: string }) => await Tournament.findById(parent.tournamentId),
+    bracket: async (parent: { bracketId?: string }) => (parent.bracketId ? await Bracket.findById(parent.bracketId) : null),
+    nextMatch: async (parent: { nextMatchId?: string }) => (parent.nextMatchId ? await Match.findById(parent.nextMatchId) : null),
+    nextLoserMatch: async (parent: { nextLoserMatchId?: string }) =>
+      parent.nextLoserMatchId ? await Match.findById(parent.nextLoserMatchId) : null,
+  },
+
+  Bracket: {
+    tournament: async (parent: { tournamentId: string }) => await Tournament.findById(parent.tournamentId),
+    seedOrder: async (parent: { seedOrder?: string[] }) => {
+      if (!parent.seedOrder) return [];
+      // Mongo's $in doesn't preserve array order, so re-sort the fetched
+      // players back into seed order (index 0 = seed 1) ourselves.
+      const players = await Player.find({ _id: { $in: parent.seedOrder } });
+      const byId = new Map(players.map((p: any) => [p._id.toString(), p]));
+      return parent.seedOrder.map((id: any) => byId.get(id.toString())).filter(Boolean);
+    },
+    matches: async (parent: { _id: string }) =>
+      await Match.find({ bracketId: parent._id }).sort({ bracketRound: 1, bracketPosition: 1 }),
   },
 };

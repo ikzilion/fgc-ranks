@@ -8,6 +8,8 @@ export const typeDefs = `#graphql
   enum TournamentVisibility { PUBLIC PRIVATE }
   enum MatchStatus      { PENDING IN_PROGRESS COMPLETED }
   enum UserRole         { PLAYER ADMIN }
+  enum SeedingMethod    { RANDOM RANDOM_WITHIN_TIERS MANUAL }
+  enum BracketSide      { WINNERS LOSERS GRAND_FINAL GRAND_FINAL_RESET }
   enum NotificationType {
     MATCH_REPORTED
     TOURNAMENT_LIVE
@@ -55,6 +57,7 @@ export const typeDefs = `#graphql
     invitedPlayers: [Player!]!
     entrants: [Entrant!]!
     matches: [Match!]!
+    bracket: Bracket
   }
 
   type Entrant {
@@ -68,13 +71,29 @@ export const typeDefs = `#graphql
   type Match {
     id: ID!
     tournament: Tournament!
-    player1: Player!
-    player2: Player!
+    player1: Player
+    player2: Player
     player1Score: Int!
     player2Score: Int!
     winner: Player
     round: String!
     status: MatchStatus!
+    bracket: Bracket
+    bracketSide: BracketSide
+    bracketRound: Int
+    bracketPosition: Int
+    nextMatch: Match
+    nextLoserMatch: Match
+  }
+
+  type Bracket {
+    id: ID!
+    tournament: Tournament!
+    seedingMethod: SeedingMethod!
+    seedOrder: [Player!]!
+    size: Int!
+    matches: [Match!]!
+    createdAt: Date!
   }
 
   type AuthPayload {
@@ -132,6 +151,9 @@ export const typeDefs = `#graphql
     createMatch(tournamentId: ID!, player1Id: ID!, player2Id: ID!, round: String!): Match!
     reportResult(matchId: ID!, player1Score: Int!, player2Score: Int!): Match!
     editMatchResult(matchId: ID!, player1Score: Int!, player2Score: Int!): Match!
+
+    generateBracket(tournamentId: ID!, seedingMethod: SeedingMethod!, manualSeedOrder: [ID!]): Bracket!
+    deleteBracket(tournamentId: ID!): Boolean!
 
     deleteMatch(id: ID!): Boolean!
     deleteTournament(id: ID!): Boolean!

@@ -11,6 +11,8 @@ import { ReportMatchButton } from "@/components/ReportMatchButton";
 import { ManageOrganizersButton } from "@/components/ManageOrganizersButton";
 import { InvitePlayerButton } from "@/components/InvitePlayerButton";
 import { RemoveEntrantButton } from "@/components/RemoveEntrantButton";
+import { GenerateBracketButton } from "@/components/GenerateBracketButton";
+import { BracketView } from "@/components/BracketView";
 
 export const dynamic = "force-dynamic";
 
@@ -52,11 +54,30 @@ const GET_TOURNAMENT = `
         id
         round
         status
+        bracketSide
         player1Score
         player2Score
         player1 { id tag avatarUrl }
         player2 { id tag avatarUrl }
         winner { id tag }
+      }
+      bracket {
+        id
+        seedingMethod
+        size
+        matches {
+          id
+          round
+          status
+          bracketSide
+          bracketRound
+          bracketPosition
+          player1Score
+          player2Score
+          player1 { id tag }
+          player2 { id tag }
+          winner { id tag }
+        }
       }
     }
     players(limit: 200) {
@@ -119,9 +140,13 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   const canManage = tournament.isOrganizer || role === "ADMIN";
   const myEntrant = tournament.entrants.find((e: any) => e.player.id === playerId);
 
-  // Group matches by round
+  // Freeform (non-bracket) matches — bracket matches are shown separately in
+  // the TO-only bracket section below.
+  const freeformMatches = tournament.matches.filter((m: any) => !m.bracketSide);
+
+  // Group freeform matches by round
   const rounds: Record<string, any[]> = {};
-  for (const match of tournament.matches) {
+  for (const match of freeformMatches) {
     if (!rounds[match.round]) rounds[match.round] = [];
     rounds[match.round].push(match);
   }
@@ -180,14 +205,37 @@ export default async function TournamentDetailPage({ params }: { params: Promise
         )}
       </div>
 
+      {/* Bracket (TO/Admin only — Phase 1: public/stream views are later phases) */}
+      {canManage && (
+        <div className="fgc-card p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Bracket (organizer view)</p>
+              <p className="text-[11px] text-[var(--text-muted)] mt-0.5">Only visible to organizers and admins.</p>
+            </div>
+            <GenerateBracketButton
+              tournamentId={tournament.id}
+              entrants={tournament.entrants}
+              canManage={canManage}
+              hasBracket={!!tournament.bracket}
+            />
+          </div>
+          {tournament.bracket ? (
+            <BracketView bracket={tournament.bracket} canManage={canManage} />
+          ) : (
+            <p className="text-[13px] text-[var(--text-secondary)]">No bracket generated yet.</p>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {/* Bracket / Matches */}
+        {/* Matches */}
         <div className="col-span-2">
           <div className="flex items-center justify-between mb-3">
-            <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Bracket</p>
+            <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Matches</p>
             <CreateMatchButton tournamentId={tournament.id} entrants={tournament.entrants} canManage={canManage} />
           </div>
-          {tournament.matches.length === 0 ? (
+          {freeformMatches.length === 0 ? (
             <div className="fgc-card p-6 text-[var(--text-secondary)]">No matches yet.</div>
           ) : (
             Object.entries(rounds).map(([round, matches]) => (
