@@ -101,7 +101,14 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
       }}
     >
       {tournament.sponsorBannerUrl && (
-        <div className="w-full flex items-center justify-center py-3 px-4" style={{ background: "rgba(13,15,26,0.75)", borderBottom: "1px solid var(--border-strong)" }}>
+        // Sticky (not fixed) so it stays anchored to the top of the viewport
+        // as the bracket scrolls beneath it, without needing to know the
+        // page's height or take it out of normal flow — a broadcast overlay's
+        // sponsor placement needs to stay visible throughout the stream.
+        <div
+          className="sticky top-0 z-20 w-full flex items-center justify-center py-3 px-4"
+          style={{ background: "rgba(13,15,26,0.75)", borderBottom: "1px solid var(--border-strong)" }}
+        >
           <img src={tournament.sponsorBannerUrl} alt="Sponsor" className="max-h-16 sm:max-h-20 object-contain" />
         </div>
       )}
