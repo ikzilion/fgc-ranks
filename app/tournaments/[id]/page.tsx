@@ -205,20 +205,27 @@ export default async function TournamentDetailPage({ params }: { params: Promise
         )}
       </div>
 
-      {/* Bracket (TO/Admin only — Phase 1: public/stream views are later phases) */}
-      {canManage && (
+      {/* Bracket — visible to everyone once generated (Phase 2: public read-only
+          view). Organizers/admins additionally get generate/edit controls and
+          can see the "no bracket yet" state; non-managers just see nothing
+          until one exists, so spectators aren't shown an empty section. */}
+      {(tournament.bracket || canManage) && (
         <div className="fgc-card p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Bracket (organizer view)</p>
-              <p className="text-[11px] text-[var(--text-muted)] mt-0.5">Only visible to organizers and admins.</p>
+              <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Bracket</p>
+              {canManage && (
+                <p className="text-[11px] text-[var(--text-muted)] mt-0.5">You can report results and manage this bracket.</p>
+              )}
             </div>
-            <GenerateBracketButton
-              tournamentId={tournament.id}
-              entrants={tournament.entrants}
-              canManage={canManage}
-              hasBracket={!!tournament.bracket}
-            />
+            {canManage && (
+              <GenerateBracketButton
+                tournamentId={tournament.id}
+                entrants={tournament.entrants}
+                canManage={canManage}
+                hasBracket={!!tournament.bracket}
+              />
+            )}
           </div>
           {tournament.bracket ? (
             <BracketView bracket={tournament.bracket} canManage={canManage} />

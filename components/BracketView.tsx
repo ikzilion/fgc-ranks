@@ -30,6 +30,22 @@ const SIDE_LABELS: Record<string, string> = {
   GRAND_FINAL_RESET: "Bracket Reset",
 };
 
+function PlayerRow({ player, score, status, isWinner }: { player?: { id: string; tag: string } | null; score: number; status: string; isWinner: boolean }) {
+  return (
+    <div className={`flex items-center justify-between py-1 ${isWinner ? "opacity-100" : "opacity-60"}`}>
+      <span
+        className="font-rajdhani text-[13px] font-semibold truncate"
+        style={{ color: player ? "var(--text-primary)" : "var(--text-muted)", fontStyle: player ? "normal" : "italic" }}
+      >
+        {player ? player.tag : "TBD"}
+      </span>
+      <span className="font-rajdhani text-[13px] font-bold" style={{ color: isWinner ? "var(--green)" : "var(--text-muted)" }}>
+        {status === "COMPLETED" ? score : "—"}
+      </span>
+    </div>
+  );
+}
+
 function MatchCard({ match, canManage }: { match: BracketMatch; canManage: boolean }) {
   const ready = !!match.player1 && !!match.player2;
 
@@ -40,24 +56,8 @@ function MatchCard({ match, canManage }: { match: BracketMatch; canManage: boole
         {ready && <ReportMatchButton match={match as any} canManage={canManage} />}
       </div>
 
-      {!ready ? (
-        <p className="text-[12px] text-[var(--text-muted)] py-2 text-center">Waiting on players…</p>
-      ) : (
-        <>
-          <div className={`flex items-center justify-between py-1 ${match.winner?.id === match.player1!.id ? "opacity-100" : "opacity-60"}`}>
-            <span className="font-rajdhani text-[13px] font-semibold text-[var(--text-primary)] truncate">{match.player1!.tag}</span>
-            <span className="font-rajdhani text-[13px] font-bold" style={{ color: match.winner?.id === match.player1!.id ? "var(--green)" : "var(--text-muted)" }}>
-              {match.status === "COMPLETED" ? match.player1Score : "—"}
-            </span>
-          </div>
-          <div className={`flex items-center justify-between py-1 ${match.winner?.id === match.player2!.id ? "opacity-100" : "opacity-60"}`}>
-            <span className="font-rajdhani text-[13px] font-semibold text-[var(--text-primary)] truncate">{match.player2!.tag}</span>
-            <span className="font-rajdhani text-[13px] font-bold" style={{ color: match.winner?.id === match.player2!.id ? "var(--green)" : "var(--text-muted)" }}>
-              {match.status === "COMPLETED" ? match.player2Score : "—"}
-            </span>
-          </div>
-        </>
-      )}
+      <PlayerRow player={match.player1} score={match.player1Score} status={match.status} isWinner={!!match.winner && match.winner.id === match.player1?.id} />
+      <PlayerRow player={match.player2} score={match.player2Score} status={match.status} isWinner={!!match.winner && match.winner.id === match.player2?.id} />
     </div>
   );
 }
