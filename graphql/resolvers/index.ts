@@ -400,6 +400,11 @@ export const resolvers = {
       if (!entrant) return false;
       if (entrant.playerId.toString() !== playerId && role !== "ADMIN") throw new Error("Not authorized");
 
+      const tournament = await Tournament.findById(entrant.tournamentId);
+      if (tournament && (tournament.status === "LIVE" || tournament.status === "ENDED")) {
+        throw new Error("Cannot leave a tournament that is already live or has ended");
+      }
+
       await Entrant.findByIdAndDelete(entrantId);
       await Tournament.findByIdAndUpdate(entrant.tournamentId, { $inc: { entrantCount: -1 } });
       return true;
