@@ -15,8 +15,9 @@ export function CreateTournamentButton() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Only admins can create tournaments
-  if ((session?.user as any)?.role !== "ADMIN") return null;
+  // Any signed-in player can create a tournament — they become its first
+  // organizer automatically (see createTournament resolver).
+  if (!session) return null;
 
   async function handleSubmit() {
     if (!name.trim() || !game.trim() || !startDate) {

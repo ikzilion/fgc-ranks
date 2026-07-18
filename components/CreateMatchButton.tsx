@@ -2,7 +2,6 @@
 "use client";
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
 interface Entrant {
@@ -10,8 +9,7 @@ interface Entrant {
   player: { id: string; tag: string };
 }
 
-export function CreateMatchButton({ tournamentId, entrants }: { tournamentId: string; entrants: Entrant[] }) {
-  const { data: session } = useSession();
+export function CreateMatchButton({ tournamentId, entrants, canManage }: { tournamentId: string; entrants: Entrant[]; canManage: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [player1Id, setPlayer1Id] = useState("");
@@ -20,7 +18,7 @@ export function CreateMatchButton({ tournamentId, entrants }: { tournamentId: st
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  if ((session?.user as any)?.role !== "ADMIN") return null;
+  if (!canManage) return null;
   if (entrants.length < 2) return null;
 
   async function handleSubmit() {

@@ -17,6 +17,10 @@ const TournamentSchema = new Schema(
     },
     // Cached count — updated when entrants join/leave
     entrantCount: { type: Number, default: 0 },
+    // Players with management access to this specific tournament (create/edit
+    // matches, change status, etc.) — distinct from the global ADMIN role.
+    // The creator is automatically added as the first organizer.
+    organizers: [{ type: Schema.Types.ObjectId, ref: "Player" }],
     startDate: { type: Date, required: true },
     endDate: { type: Date },
   },

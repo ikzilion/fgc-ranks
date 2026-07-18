@@ -46,6 +46,8 @@ export const typeDefs = `#graphql
     startDate: Date!
     endDate: Date
     isEntered(playerId: ID): Boolean!
+    isOrganizer(playerId: ID): Boolean!
+    organizers: [Player!]!
     entrants: [Entrant!]!
     matches: [Match!]!
   }
@@ -111,6 +113,8 @@ export const typeDefs = `#graphql
 
     createTournament(name: String!, game: String!, startDate: Date!): Tournament!
     updateTournamentStatus(id: ID!, status: TournamentStatus!): Tournament!
+    addTournamentOrganizer(tournamentId: ID!, playerId: ID!): Tournament!
+    removeTournamentOrganizer(tournamentId: ID!, playerId: ID!): Tournament!
 
     joinTournament(tournamentId: ID!, playerId: ID!): Entrant!
     setPlacement(entrantId: ID!, placement: Int!): Entrant!

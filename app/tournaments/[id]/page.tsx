@@ -8,6 +8,7 @@ import { JoinTournamentButton } from "@/components/JoinTournamentButton";
 import { TournamentStatusButton } from "@/components/TournamentStatusButton";
 import { CreateMatchButton } from "@/components/CreateMatchButton";
 import { ReportMatchButton } from "@/components/ReportMatchButton";
+import { ManageOrganizersButton } from "@/components/ManageOrganizersButton";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,11 @@ const GET_TOURNAMENT = `
       startDate
       endDate
       isEntered(playerId: $playerId)
+      isOrganizer(playerId: $playerId)
+      organizers {
+        id
+        tag
+      }
       entrants {
         id
         seed
@@ -84,9 +90,11 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   const { id } = await params;
   const session = await auth();
   const playerId = (session?.user as any)?.playerId ?? undefined;
+  const role = (session?.user as any)?.role;
   const tournament = await getTournament(id, playerId);
   if (!tournament) notFound();
 
+  const canManage = tournament.isOrganizer || role === "ADMIN";
   const myEntrant = tournament.entrants.find((e: any) => e.player.id === playerId);
 
   // Group matches by round
@@ -111,7 +119,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
           </div>
           <div className="flex items-center gap-3">
             {statusBadge(tournament.status)}
-            <TournamentStatusButton tournamentId={tournament.id} status={tournament.status} />
+            <TournamentStatusButton tournamentId={tournament.id} status={tournament.status} canManage={canManage} />
             <JoinTournamentButton
               tournamentId={tournament.id}
               isEntered={tournament.isEntered}
@@ -120,6 +128,16 @@ export default async function TournamentDetailPage({ params }: { params: Promise
             />
           </div>
         </div>
+        {canManage && (
+          <div className="mt-4">
+            <ManageOrganizersButton
+              tournamentId={tournament.id}
+              organizers={tournament.organizers}
+              entrants={tournament.entrants}
+              canManage={canManage}
+            />
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -127,7 +145,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
         <div className="col-span-2">
           <div className="flex items-center justify-between mb-3">
             <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Bracket</p>
-            <CreateMatchButton tournamentId={tournament.id} entrants={tournament.entrants} />
+            <CreateMatchButton tournamentId={tournament.id} entrants={tournament.entrants} canManage={canManage} />
           </div>
           {tournament.matches.length === 0 ? (
             <div className="fgc-card p-6 text-[var(--text-secondary)]">No matches yet.</div>
@@ -139,7 +157,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                   {matches.map((match: any) => (
                     <div key={match.id} className="px-4 py-3 border-b border-[var(--border)] last:border-0">
                       <div className="flex items-center justify-end mb-1">
-                        <ReportMatchButton match={match} />
+                        <ReportMatchButton match={match} canManage={canManage} />
                       </div>
                       {/* Player 1 */}
                       <div className={`flex items-center justify-between py-1 ${match.winner?.id === match.player1.id ? "opacity-100" : "opacity-50"}`}>

@@ -14,6 +14,15 @@ import { NextRequest } from "next/server";
 
 const JWT_SECRET = process.env.NEXTAUTH_SECRET || "dev-secret";
 
+// A player can manage a tournament if they're a global ADMIN, or if their
+// playerId is in that specific tournament's organizers list (Tournament
+// Organizer / TO access — scoped per-tournament, not a global role).
+function isOrganizer(tournament: any, playerId?: string, role?: string): boolean {
+  if (role === "ADMIN") return true;
+  if (!playerId || !tournament?.organizers) return false;
+  return tournament.organizers.some((orgId: any) => orgId.toString() === playerId);
+}
+
 export const resolvers = {
   // ─── Queries ───────────────────────────────────────────────────────────────
 
@@ -186,22 +195,25 @@ export const resolvers = {
     createTournament: async (
       _: unknown,
       { name, game, startDate }: { name: string; game: string; startDate: Date },
-      { role }: { role?: string }
+      { playerId }: { playerId?: string }
     ) => {
-      if (role !== "ADMIN") throw new Error("Not authorized");
+      if (!playerId) throw new Error("Not authorized");
 
       await connectToDatabase();
-      return Tournament.create({ name, game, startDate });
+      // The creator automatically becomes the tournament's first organizer.
+      return Tournament.create({ name, game, startDate, organizers: [playerId] });
     },
 
     updateTournamentStatus: async (
       _: unknown,
       { id, status }: { id: string; status: string },
-      { role }: { role?: string }
+      { playerId, role }: { playerId?: string; role?: string }
     ) => {
-      if (role !== "ADMIN") throw new Error("Not authorized");
-
       await connectToDatabase();
+      const tournament = await Tournament.findById(id);
+      if (!tournament) throw new Error("Tournament not found");
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+
       const updated = await Tournament.findByIdAndUpdate(id, { status }, { new: true });
 
       // Notify all entrants when a tournament goes live or ends
@@ -215,6 +227,57 @@ export const resolvers = {
       }
 
       return updated;
+    },
+
+    addTournamentOrganizer: async (
+      _: unknown,
+      { tournamentId, playerId: newOrganizerId }: { tournamentId: string; playerId: string },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const tournament = await Tournament.findById(tournamentId);
+      if (!tournament) throw new Error("Tournament not found");
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+
+      const newPlayer = await Player.findById(newOrganizerId);
+      if (!newPlayer) throw new Error("Player not found");
+
+      const alreadyOrganizer = tournament.organizers.some((id: any) => id.toString() === newOrganizerId);
+      if (!alreadyOrganizer) {
+        tournament.organizers.push(newOrganizerId);
+        await tournament.save();
+
+        await Notification.create({
+          playerId: newOrganizerId,
+          type: "PLAYER_JOINED",
+          message: `You've been made a Tournament Organizer for ${tournament.name}`,
+          link: `/tournaments/${tournamentId}`,
+        });
+      }
+
+      return tournament;
+    },
+
+    removeTournamentOrganizer: async (
+      _: unknown,
+      { tournamentId, playerId: targetOrganizerId }: { tournamentId: string; playerId: string },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const tournament = await Tournament.findById(tournamentId);
+      if (!tournament) throw new Error("Tournament not found");
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+
+      if (tournament.organizers.length <= 1) {
+        throw new Error("Cannot remove the last organizer from a tournament");
+      }
+
+      tournament.organizers = tournament.organizers.filter(
+        (id: any) => id.toString() !== targetOrganizerId
+      );
+      await tournament.save();
+
+      return tournament;
     },
 
     // Entrants
@@ -265,24 +328,27 @@ export const resolvers = {
     createMatch: async (
       _: unknown,
       { tournamentId, player1Id, player2Id, round }: { tournamentId: string; player1Id: string; player2Id: string; round: string },
-      { role }: { role?: string }
+      { playerId, role }: { playerId?: string; role?: string }
     ) => {
-      if (role !== "ADMIN") throw new Error("Not authorized");
-
       await connectToDatabase();
+      const tournament = await Tournament.findById(tournamentId);
+      if (!tournament) throw new Error("Tournament not found");
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+
       return Match.create({ tournamentId, player1Id, player2Id, round });
     },
 
     reportResult: async (
       _: unknown,
       { matchId, player1Score, player2Score }: { matchId: string; player1Score: number; player2Score: number },
-      { role }: { role?: string }
+      { playerId, role }: { playerId?: string; role?: string }
     ) => {
-      if (role !== "ADMIN") throw new Error("Not authorized");
-
       await connectToDatabase();
       const match = await Match.findById(matchId);
       if (!match) throw new Error("Match not found");
+
+      const tournament = await Tournament.findById(match.tournamentId);
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
 
       const winnerId = player1Score > player2Score ? match.player1Id : match.player2Id;
       const loserId = player1Score > player2Score ? match.player2Id : match.player1Id;
@@ -310,14 +376,17 @@ export const resolvers = {
     editMatchResult: async (
       _: unknown,
       { matchId, player1Score, player2Score }: { matchId: string; player1Score: number; player2Score: number },
-      { role }: { role?: string }
+      { playerId, role }: { playerId?: string; role?: string }
     ) => {
-      if (role !== "ADMIN") throw new Error("Not authorized");
       if (player1Score === player2Score) throw new Error("Scores cannot be tied.");
 
       await connectToDatabase();
       const match = await Match.findById(matchId);
       if (!match) throw new Error("Match not found");
+
+      const tournament = await Tournament.findById(match.tournamentId);
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+
       if (match.status !== MatchStatus.COMPLETED) {
         throw new Error("This match hasn't been reported yet — use reportResult instead");
       }
@@ -350,12 +419,13 @@ export const resolvers = {
       return updated;
     },
 
-    deleteMatch: async (_: unknown, { id }: { id: string }, { role }: { role?: string }) => {
-      if (role !== "ADMIN") throw new Error("Not authorized");
-
+    deleteMatch: async (_: unknown, { id }: { id: string }, { playerId, role }: { playerId?: string; role?: string }) => {
       await connectToDatabase();
       const match = await Match.findById(id);
       if (!match) return false;
+
+      const tournament = await Tournament.findById(match.tournamentId);
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
 
       // Undo the win/loss/points effects reportResult applied, so deleting a
       // completed match doesn't leave stale stats behind.
@@ -448,6 +518,12 @@ export const resolvers = {
       if (!playerId) return false;
       const entrant = await Entrant.findOne({ tournamentId: parent._id, playerId });
       return !!entrant;
+    },
+    organizers: async (parent: { organizers?: string[] }) =>
+      parent.organizers ? await Player.find({ _id: { $in: parent.organizers } }) : [],
+    isOrganizer: (parent: { organizers?: string[] }, { playerId }: { playerId?: string }) => {
+      if (!playerId || !parent.organizers) return false;
+      return parent.organizers.some((id: any) => id.toString() === playerId);
     },
   },
 

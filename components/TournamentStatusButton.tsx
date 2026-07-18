@@ -2,7 +2,6 @@
 "use client";
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
 const STATUS_FLOW: Record<string, { next: string; label: string } | null> = {
@@ -11,12 +10,11 @@ const STATUS_FLOW: Record<string, { next: string; label: string } | null> = {
   ENDED: { next: "LIVE", label: "Reopen tournament" },
 };
 
-export function TournamentStatusButton({ tournamentId, status }: { tournamentId: string; status: string }) {
-  const { data: session } = useSession();
+export function TournamentStatusButton({ tournamentId, status, canManage }: { tournamentId: string; status: string; canManage: boolean }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
-  if ((session?.user as any)?.role !== "ADMIN") return null;
+  if (!canManage) return null;
 
   const transition = STATUS_FLOW[status];
 

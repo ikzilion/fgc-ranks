@@ -2,7 +2,6 @@
 "use client";
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
 interface Match {
@@ -16,8 +15,7 @@ interface Match {
   winner?: { id: string; tag: string };
 }
 
-export function ReportMatchButton({ match }: { match: Match }) {
-  const { data: session } = useSession();
+export function ReportMatchButton({ match, canManage }: { match: Match; canManage: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [p1Score, setP1Score] = useState(0);
@@ -27,8 +25,8 @@ export function ReportMatchButton({ match }: { match: Match }) {
 
   const isEditing = match.status === "COMPLETED";
 
-  // Only admins can see these controls at all
-  if ((session?.user as any)?.role !== "ADMIN") return null;
+  // Only tournament organizers (or admins) can see these controls at all
+  if (!canManage) return null;
 
   function openModal() {
     // Pre-fill with the existing scores when editing an already-reported match
