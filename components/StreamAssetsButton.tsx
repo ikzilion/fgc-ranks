@@ -23,7 +23,13 @@ export function StreamAssetsButton({
   const [open, setOpen] = useState(false);
   const [backgroundUrl, setBackgroundUrl] = useState(streamBackgroundUrl || "");
   const [bannerUrl, setBannerUrl] = useState(sponsorBannerUrl || "");
+  // lineColor is the confirmed value — what gets saved and what the preview
+  // swatch shows. draftColor tracks the native color input while the user is
+  // actively picking, so a color choice needs an explicit "OK" to become the
+  // confirmed value (and can be backed out of via "Cancel") rather than
+  // committing the instant the native picker fires onChange.
   const [lineColor, setLineColor] = useState(bracketLineColor || DEFAULT_LINE_COLOR);
+  const [draftColor, setDraftColor] = useState(bracketLineColor || DEFAULT_LINE_COLOR);
   const [uploadingBg, setUploadingBg] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -35,6 +41,7 @@ export function StreamAssetsButton({
     setBackgroundUrl(streamBackgroundUrl || "");
     setBannerUrl(sponsorBannerUrl || "");
     setLineColor(bracketLineColor || DEFAULT_LINE_COLOR);
+    setDraftColor(bracketLineColor || DEFAULT_LINE_COLOR);
     setError("");
     setOpen(true);
   }
@@ -47,8 +54,17 @@ export function StreamAssetsButton({
     setBackgroundUrl(streamBackgroundUrl || "");
     setBannerUrl(sponsorBannerUrl || "");
     setLineColor(bracketLineColor || DEFAULT_LINE_COLOR);
+    setDraftColor(bracketLineColor || DEFAULT_LINE_COLOR);
     setError("");
     setOpen(false);
+  }
+
+  function confirmDraftColor() {
+    setLineColor(draftColor);
+  }
+
+  function cancelDraftColor() {
+    setDraftColor(lineColor);
   }
 
   async function uploadImage(file: File, type: "stream-bg" | "sponsor-banner"): Promise<string | null> {
@@ -219,18 +235,57 @@ export function StreamAssetsButton({
 
             <div className="mb-6">
               <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Bracket connector line color</label>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <input
                   type="color"
-                  value={lineColor}
-                  onChange={e => setLineColor(e.target.value)}
+                  value={draftColor}
+                  onChange={e => setDraftColor(e.target.value)}
                   className="w-10 h-9 rounded cursor-pointer"
                   style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)", padding: 2 }}
                 />
-                <span className="text-[12px] text-[var(--text-secondary)]">
-                  Pick a color that stays visible against your background — applies to the bracket lines on all views.
-                </span>
+                <button
+                  type="button"
+                  onClick={confirmDraftColor}
+                  disabled={draftColor === lineColor}
+                  className="text-[12px] font-bold px-3 py-2 rounded"
+                  style={{
+                    background: "var(--green)",
+                    color: "var(--navy)",
+                    border: "none",
+                    cursor: draftColor === lineColor ? "not-allowed" : "pointer",
+                    opacity: draftColor === lineColor ? 0.4 : 1,
+                  }}
+                >
+                  OK
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelDraftColor}
+                  disabled={draftColor === lineColor}
+                  className="text-[12px] font-semibold px-3 py-2 rounded"
+                  style={{
+                    background: "var(--coral-dim)",
+                    color: "var(--coral)",
+                    border: "1px solid rgba(255,77,77,0.2)",
+                    cursor: draftColor === lineColor ? "not-allowed" : "pointer",
+                    opacity: draftColor === lineColor ? 0.4 : 1,
+                  }}
+                >
+                  Cancel
+                </button>
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className="w-4 h-4 rounded-full flex-shrink-0"
+                    style={{ background: lineColor, border: "1px solid var(--border-strong)" }}
+                  />
+                  <span className="text-[11px] text-[var(--text-muted)]">current</span>
+                </div>
               </div>
+              <p className="text-[11px] text-[var(--text-secondary)] mt-2">
+                {draftColor === lineColor
+                  ? "Pick a color that stays visible against your background — applies to the bracket lines on all views."
+                  : "Unconfirmed pick — click OK to apply it here, or Cancel to revert. Either way, the overall Save button below still persists it."}
+              </p>
             </div>
 
             {error && (
