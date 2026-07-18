@@ -39,6 +39,18 @@ export function StreamAssetsButton({
     setOpen(true);
   }
 
+  // Explicitly discard any in-progress edits (background/banner/color) back
+  // to the tournament's actual saved values, rather than relying on the next
+  // openModal() call to reset them — closing via the backdrop click uses the
+  // same handler, so this is the single source of truth for "cancel".
+  function closeWithoutSaving() {
+    setBackgroundUrl(streamBackgroundUrl || "");
+    setBannerUrl(sponsorBannerUrl || "");
+    setLineColor(bracketLineColor || DEFAULT_LINE_COLOR);
+    setError("");
+    setOpen(false);
+  }
+
   async function uploadImage(file: File, type: "stream-bg" | "sponsor-banner"): Promise<string | null> {
     setError("");
     try {
@@ -139,7 +151,7 @@ export function StreamAssetsButton({
         <div
           className="fixed inset-0 flex items-center justify-center z-50 px-4"
           style={{ background: "rgba(0,0,0,0.7)" }}
-          onClick={() => setOpen(false)}
+          onClick={closeWithoutSaving}
         >
           <div className="fgc-card p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
             <h2 className="font-rajdhani text-xl font-bold text-[var(--text-primary)] mb-1">Stream settings</h2>
@@ -229,7 +241,7 @@ export function StreamAssetsButton({
 
             <div className="flex gap-2">
               <button
-                onClick={() => setOpen(false)}
+                onClick={closeWithoutSaving}
                 className="flex-1 py-2 rounded font-rajdhani text-[14px] font-bold"
                 style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border)", cursor: "pointer" }}
               >
