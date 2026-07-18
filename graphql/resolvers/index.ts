@@ -460,6 +460,14 @@ export const resolvers = {
       if (!tournament) throw new Error("Tournament not found");
       if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
 
+      // Both players must actually be entrants of this tournament — the UI only
+      // offers entrants as options, but a raw GraphQL call could bypass that.
+      const [entrant1, entrant2] = await Promise.all([
+        Entrant.findOne({ tournamentId, playerId: player1Id }),
+        Entrant.findOne({ tournamentId, playerId: player2Id }),
+      ]);
+      if (!entrant1 || !entrant2) throw new Error("Both players must be entrants of this tournament");
+
       return Match.create({ tournamentId, player1Id, player2Id, round });
     },
 
