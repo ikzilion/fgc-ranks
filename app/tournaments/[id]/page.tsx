@@ -180,6 +180,20 @@ export default async function TournamentDetailPage({ params }: { params: Promise
           </div>
           <div className="flex items-center gap-3">
             {statusBadge(tournament.status)}
+            {/* Public shortcut to the read-only broadcast view — deliberately
+                NOT gated behind canManage, unlike everything else in this
+                header row's second block below. It's just navigation to an
+                already-public page, not a management action, so anyone
+                (including signed-out visitors) should be able to jump to it. */}
+            <Link
+              href={`/tournaments/${tournament.id}/stream`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-rajdhani text-[13px] font-bold tracking-wide px-3 py-1.5 rounded"
+              style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)" }}
+            >
+              📺 Streamer Mode
+            </Link>
             <TournamentStatusButton tournamentId={tournament.id} status={tournament.status} canManage={canManage} />
             <JoinTournamentButton
               tournamentId={tournament.id}
