@@ -204,9 +204,9 @@ export function BracketView({
                 d={d}
                 fill="none"
                 stroke={isWinner ? "var(--border-strong)" : "var(--coral)"}
-                strokeWidth={1.5}
+                strokeWidth={3}
                 strokeOpacity={isWinner ? 1 : 0.55}
-                strokeDasharray={isWinner ? undefined : "4 3"}
+                strokeDasharray={isWinner ? undefined : "7 5"}
               />
             );
           })}
