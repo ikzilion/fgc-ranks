@@ -34,6 +34,7 @@ const GET_TOURNAMENT = `
       isInvited(playerId: $playerId)
       streamBackgroundUrl
       sponsorBannerUrl
+      bracketLineColor
       organizers {
         id
         tag
@@ -80,6 +81,8 @@ const GET_TOURNAMENT = `
           player1 { id tag }
           player2 { id tag }
           winner { id tag }
+          nextMatch { id }
+          nextLoserMatch { id }
         }
       }
     }
@@ -208,6 +211,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
               tournamentId={tournament.id}
               streamBackgroundUrl={tournament.streamBackgroundUrl}
               sponsorBannerUrl={tournament.sponsorBannerUrl}
+              bracketLineColor={tournament.bracketLineColor}
               canManage={canManage}
             />
           </div>
@@ -237,7 +241,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
             )}
           </div>
           {tournament.bracket ? (
-            <BracketView bracket={tournament.bracket} canManage={canManage} />
+            <BracketView bracket={tournament.bracket} canManage={canManage} lineColor={tournament.bracketLineColor} />
           ) : (
             <p className="text-[13px] text-[var(--text-secondary)]">No bracket generated yet.</p>
           )}

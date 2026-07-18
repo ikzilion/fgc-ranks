@@ -47,6 +47,10 @@ const TournamentSchema = new Schema(
     // stream view falls back to design system defaults.
     streamBackgroundUrl: { type: String, default: "" },
     sponsorBannerUrl: { type: String, default: "" },
+    // Bracket connector-line color, TO-customizable so it stays visible
+    // against whatever stream background they pick. Empty = unset, bracket
+    // rendering falls back to the design system default.
+    bracketLineColor: { type: String, default: "" },
   },
   { timestamps: true }
 );

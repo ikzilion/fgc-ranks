@@ -4,21 +4,26 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+const DEFAULT_LINE_COLOR = "#3a4066"; // matches BracketView's var(--border-strong) fallback
+
 export function StreamAssetsButton({
   tournamentId,
   streamBackgroundUrl,
   sponsorBannerUrl,
+  bracketLineColor,
   canManage,
 }: {
   tournamentId: string;
   streamBackgroundUrl?: string;
   sponsorBannerUrl?: string;
+  bracketLineColor?: string;
   canManage: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [backgroundUrl, setBackgroundUrl] = useState(streamBackgroundUrl || "");
   const [bannerUrl, setBannerUrl] = useState(sponsorBannerUrl || "");
+  const [lineColor, setLineColor] = useState(bracketLineColor || DEFAULT_LINE_COLOR);
   const [uploadingBg, setUploadingBg] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -29,6 +34,7 @@ export function StreamAssetsButton({
   function openModal() {
     setBackgroundUrl(streamBackgroundUrl || "");
     setBannerUrl(sponsorBannerUrl || "");
+    setLineColor(bracketLineColor || DEFAULT_LINE_COLOR);
     setError("");
     setOpen(true);
   }
@@ -77,23 +83,37 @@ export function StreamAssetsButton({
     setError("");
 
     try {
-      const res = await fetch("/api/graphql", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query: `
-            mutation UpdateStreamAssets($id: ID!, $streamBackgroundUrl: String, $sponsorBannerUrl: String) {
-              updateTournamentStreamAssets(id: $id, streamBackgroundUrl: $streamBackgroundUrl, sponsorBannerUrl: $sponsorBannerUrl) { id }
-            }
-          `,
-          variables: { id: tournamentId, streamBackgroundUrl: backgroundUrl, sponsorBannerUrl: bannerUrl },
+      const [assetsRes, colorRes] = await Promise.all([
+        fetch("/api/graphql", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: `
+              mutation UpdateStreamAssets($id: ID!, $streamBackgroundUrl: String, $sponsorBannerUrl: String) {
+                updateTournamentStreamAssets(id: $id, streamBackgroundUrl: $streamBackgroundUrl, sponsorBannerUrl: $sponsorBannerUrl) { id }
+              }
+            `,
+            variables: { id: tournamentId, streamBackgroundUrl: backgroundUrl, sponsorBannerUrl: bannerUrl },
+          }),
         }),
-      });
+        fetch("/api/graphql", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: `
+              mutation UpdateBracketLineColor($id: ID!, $bracketLineColor: String!) {
+                updateTournamentBracketLineColor(id: $id, bracketLineColor: $bracketLineColor) { id }
+              }
+            `,
+            variables: { id: tournamentId, bracketLineColor: lineColor },
+          }),
+        }),
+      ]);
 
-      const json = await res.json();
+      const [assetsJson, colorJson] = await Promise.all([assetsRes.json(), colorRes.json()]);
 
-      if (json.errors) {
-        setError(json.errors[0]?.message ?? "Failed to save stream settings");
+      if (assetsJson.errors || colorJson.errors) {
+        setError(assetsJson.errors?.[0]?.message ?? colorJson.errors?.[0]?.message ?? "Failed to save stream settings");
       } else {
         setOpen(false);
         router.refresh();
@@ -182,6 +202,22 @@ export function StreamAssetsButton({
                     Remove
                   </button>
                 )}
+              </div>
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Bracket connector line color</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={lineColor}
+                  onChange={e => setLineColor(e.target.value)}
+                  className="w-10 h-9 rounded cursor-pointer"
+                  style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)", padding: 2 }}
+                />
+                <span className="text-[12px] text-[var(--text-secondary)]">
+                  Pick a color that stays visible against your background — applies to the bracket lines on all views.
+                </span>
               </div>
             </div>
 

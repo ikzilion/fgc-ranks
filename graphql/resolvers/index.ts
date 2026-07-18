@@ -414,6 +414,19 @@ export const resolvers = {
       return Tournament.findByIdAndUpdate(id, update, { new: true });
     },
 
+    updateTournamentBracketLineColor: async (
+      _: unknown,
+      { id, bracketLineColor }: { id: string; bracketLineColor: string },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const tournament = await Tournament.findById(id);
+      if (!tournament) throw new Error("Tournament not found");
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+
+      return Tournament.findByIdAndUpdate(id, { bracketLineColor }, { new: true });
+    },
+
     // Entrants
     joinTournament: async (
       _: unknown,

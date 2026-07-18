@@ -1,6 +1,7 @@
 // components/BracketView.tsx
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { ReportMatchButton } from "./ReportMatchButton";
 
 interface BracketMatch {
@@ -15,6 +16,8 @@ interface BracketMatch {
   player1?: { id: string; tag: string } | null;
   player2?: { id: string; tag: string } | null;
   winner?: { id: string; tag: string } | null;
+  nextMatch?: { id: string } | null;
+  nextLoserMatch?: { id: string } | null;
 }
 
 const SEEDING_LABELS: Record<string, string> = {
@@ -29,6 +32,9 @@ const SIDE_LABELS: Record<string, string> = {
   GRAND_FINAL: "Grand Finals",
   GRAND_FINAL_RESET: "Bracket Reset",
 };
+
+// Design system default when a tournament hasn't set a custom line color.
+const DEFAULT_LINE_COLOR = "var(--border-strong)";
 
 function PlayerRow({ player, score, status, isWinner }: { player?: { id: string; tag: string } | null; score: number; status: string; isWinner: boolean }) {
   return (
@@ -51,11 +57,11 @@ function PlayerRow({ player, score, status, isWinner }: { player?: { id: string;
   );
 }
 
-function MatchCard({ match, canManage }: { match: BracketMatch; canManage: boolean }) {
+function MatchCard({ match, canManage, registerRef }: { match: BracketMatch; canManage: boolean; registerRef: (id: string, el: HTMLDivElement | null) => void }) {
   const ready = !!match.player1 && !!match.player2;
 
   return (
-    <div className="fgc-card p-3 w-56 flex-shrink-0">
+    <div ref={el => registerRef(match.id, el)} className="fgc-card p-3 w-56 flex-shrink-0">
       <div className="flex items-center justify-between mb-2">
         <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">{match.round}</p>
         {ready && <ReportMatchButton match={match as any} canManage={canManage} />}
@@ -67,7 +73,17 @@ function MatchCard({ match, canManage }: { match: BracketMatch; canManage: boole
   );
 }
 
-function BracketSideSection({ side, matches, canManage }: { side: string; matches: BracketMatch[]; canManage: boolean }) {
+function BracketSideSection({
+  side,
+  matches,
+  canManage,
+  registerRef,
+}: {
+  side: string;
+  matches: BracketMatch[];
+  canManage: boolean;
+  registerRef: (id: string, el: HTMLDivElement | null) => void;
+}) {
   const rounds = new Map<number, BracketMatch[]>();
   for (const m of matches) {
     if (!rounds.has(m.bracketRound)) rounds.set(m.bracketRound, []);
@@ -84,7 +100,7 @@ function BracketSideSection({ side, matches, canManage }: { side: string; matche
             {rounds.get(r)!
               .sort((a, b) => a.bracketPosition - b.bracketPosition)
               .map(m => (
-                <MatchCard key={m.id} match={m} canManage={canManage} />
+                <MatchCard key={m.id} match={m} canManage={canManage} registerRef={registerRef} />
               ))}
           </div>
         ))}
@@ -93,13 +109,81 @@ function BracketSideSection({ side, matches, canManage }: { side: string; matche
   );
 }
 
+interface Line {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  kind: "winner" | "loser";
+}
+
 export function BracketView({
   bracket,
   canManage,
+  lineColor,
 }: {
   bracket: { seedingMethod: string; size: number; matches: BracketMatch[] };
   canManage: boolean;
+  lineColor?: string;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const cardEls = useRef<Map<string, HTMLDivElement>>(new Map());
+  const [overlay, setOverlay] = useState<{ width: number; height: number; lines: Line[] }>({ width: 0, height: 0, lines: [] });
+
+  const resolvedLineColor = lineColor && lineColor.trim() ? lineColor : DEFAULT_LINE_COLOR;
+
+  function registerRef(id: string, el: HTMLDivElement | null) {
+    if (el) cardEls.current.set(id, el);
+    else cardEls.current.delete(id);
+  }
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    function measure() {
+      const containerEl = containerRef.current;
+      if (!containerEl) return;
+      const containerRect = containerEl.getBoundingClientRect();
+
+      const posById = new Map<string, { top: number; bottom: number; left: number; right: number; midY: number }>();
+      for (const m of bracket.matches) {
+        const el = cardEls.current.get(m.id);
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        const top = r.top - containerRect.top + containerEl.scrollTop;
+        const left = r.left - containerRect.left + containerEl.scrollLeft;
+        posById.set(m.id, { top, bottom: top + r.height, left, right: left + r.width, midY: top + r.height / 2 });
+      }
+
+      const lines: Line[] = [];
+      for (const m of bracket.matches) {
+        const from = posById.get(m.id);
+        if (!from) continue;
+
+        if (m.nextMatch) {
+          const to = posById.get(m.nextMatch.id);
+          if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY, kind: "winner" });
+        }
+        if (m.nextLoserMatch) {
+          const to = posById.get(m.nextLoserMatch.id);
+          if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY, kind: "loser" });
+        }
+      }
+
+      setOverlay({ width: containerEl.scrollWidth, height: containerEl.scrollHeight, lines });
+    }
+
+    measure();
+    const resizeObserver = new ResizeObserver(() => measure());
+    resizeObserver.observe(container);
+    window.addEventListener("resize", measure);
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [bracket.matches]);
+
   const bySide: Record<string, BracketMatch[]> = { WINNERS: [], LOSERS: [], GRAND_FINAL: [], GRAND_FINAL_RESET: [] };
   for (const m of bracket.matches) {
     if (bySide[m.bracketSide]) bySide[m.bracketSide].push(m);
@@ -107,16 +191,45 @@ export function BracketView({
 
   return (
     <div>
-      <p className="text-[12px] mb-4" style={{ color: "var(--text-secondary)" }}>
+      <p className="text-[12px] mb-1" style={{ color: "var(--text-secondary)" }}>
         Seeded: {SEEDING_LABELS[bracket.seedingMethod] ?? bracket.seedingMethod} · Bracket size {bracket.size}
       </p>
+      <p className="text-[11px] mb-4" style={{ color: "var(--text-muted)" }}>
+        <span style={{ color: resolvedLineColor }}>―</span> winner advances &nbsp;
+        <span style={{ color: resolvedLineColor, opacity: 0.55 }}>┄</span> loser drops &nbsp;
+        <span style={{ color: "var(--green)" }}>●</span> winner
+      </p>
 
-      <div className="overflow-x-auto pb-2" style={{ WebkitOverflowScrolling: "touch" }}>
-        <div style={{ minWidth: "max-content" }}>
-          {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} canManage={canManage} />}
-          {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} canManage={canManage} />}
-          {bySide.GRAND_FINAL.length > 0 && <BracketSideSection side="GRAND_FINAL" matches={bySide.GRAND_FINAL} canManage={canManage} />}
-          {bySide.GRAND_FINAL_RESET.length > 0 && <BracketSideSection side="GRAND_FINAL_RESET" matches={bySide.GRAND_FINAL_RESET} canManage={canManage} />}
+      <div ref={containerRef} className="relative overflow-x-auto pb-2" style={{ WebkitOverflowScrolling: "touch" }}>
+        <svg
+          className="absolute top-0 left-0 pointer-events-none"
+          width={overlay.width}
+          height={overlay.height}
+          style={{ minWidth: "100%" }}
+        >
+          {overlay.lines.map((line, i) => {
+            const midX = (line.x1 + line.x2) / 2;
+            const d = `M ${line.x1} ${line.y1} H ${midX} V ${line.y2} H ${line.x2}`;
+            const isWinner = line.kind === "winner";
+            return (
+              <path
+                key={i}
+                d={d}
+                fill="none"
+                stroke={resolvedLineColor}
+                strokeWidth={1.25}
+                strokeOpacity={isWinner ? 1 : 0.55}
+                strokeDasharray={isWinner ? undefined : "4 3"}
+              />
+            );
+          })}
+        </svg>
+
+        <div className="relative" style={{ minWidth: "max-content" }}>
+          {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} canManage={canManage} registerRef={registerRef} />}
+          {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} canManage={canManage} registerRef={registerRef} />}
+          {bySide.GRAND_FINAL.length > 0 && <BracketSideSection side="GRAND_FINAL" matches={bySide.GRAND_FINAL} canManage={canManage} registerRef={registerRef} />}
+          {bySide.GRAND_FINAL_RESET.length > 0 && <BracketSideSection side="GRAND_FINAL_RESET" matches={bySide.GRAND_FINAL_RESET} canManage={canManage} registerRef={registerRef} />}
         </div>
       </div>
     </div>

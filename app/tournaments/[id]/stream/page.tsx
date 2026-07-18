@@ -17,6 +17,7 @@ const GET_STREAM_TOURNAMENT = `
       status
       streamBackgroundUrl
       sponsorBannerUrl
+      bracketLineColor
       bracket {
         id
         seedingMethod
@@ -33,6 +34,8 @@ const GET_STREAM_TOURNAMENT = `
           player1 { id tag }
           player2 { id tag }
           winner { id tag }
+          nextMatch { id }
+          nextLoserMatch { id }
         }
       }
     }
