@@ -146,6 +146,7 @@ export function BracketView({
       const containerRect = containerEl.getBoundingClientRect();
 
       const posById = new Map<string, { top: number; bottom: number; left: number; right: number; midY: number }>();
+      const matchById = new Map(bracket.matches.map(m => [m.id, m]));
       for (const m of bracket.matches) {
         const el = cardEls.current.get(m.id);
         if (!el) continue;
@@ -160,13 +161,26 @@ export function BracketView({
         const from = posById.get(m.id);
         if (!from) continue;
 
+        // Winner-advance lines (same-side progression, WB→WB or LB→LB) always
+        // draw — this is also how the WB Final and LB Final converge into
+        // Grand Finals in the normal (3+ entrant) case, since both resolve
+        // through nextMatchId there (see lib/bracket.ts's wireFeeder).
         if (m.nextMatch) {
           const to = posById.get(m.nextMatch.id);
           if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY });
         }
+        // nextLoserMatch normally represents a mid-bracket WB→LB drop, which
+        // is visually confusing at real bracket scale — suppress those. The
+        // one exception: the trivial 2-entrant bracket has no Losers Bracket
+        // at all, so the sole WB match's loser feeds Grand Finals directly
+        // via nextLoserMatch — that's an intentional convergence line, not a
+        // drop, so it's still drawn (detected by checking the target's side).
         if (m.nextLoserMatch) {
-          const to = posById.get(m.nextLoserMatch.id);
-          if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY });
+          const targetSide = matchById.get(m.nextLoserMatch.id)?.bracketSide;
+          if (targetSide === "GRAND_FINAL") {
+            const to = posById.get(m.nextLoserMatch.id);
+            if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY });
+          }
         }
       }
 
@@ -212,11 +226,23 @@ export function BracketView({
           })}
         </svg>
 
-        <div className="relative" style={{ minWidth: "max-content" }}>
-          {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} canManage={canManage} registerRef={registerRef} />}
-          {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} canManage={canManage} registerRef={registerRef} />}
-          {bySide.GRAND_FINAL.length > 0 && <BracketSideSection side="GRAND_FINAL" matches={bySide.GRAND_FINAL} canManage={canManage} registerRef={registerRef} />}
-          {bySide.GRAND_FINAL_RESET.length > 0 && <BracketSideSection side="GRAND_FINAL_RESET" matches={bySide.GRAND_FINAL_RESET} canManage={canManage} registerRef={registerRef} />}
+        <div className="relative flex gap-10" style={{ minWidth: "max-content" }}>
+          {/* Winners Bracket stacked above Losers Bracket, both reading
+              left-to-right by round. */}
+          <div className="flex flex-col">
+            {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} canManage={canManage} registerRef={registerRef} />}
+            {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} canManage={canManage} registerRef={registerRef} />}
+          </div>
+          {/* Grand Finals is its own final column to the right of both
+              brackets — not interleaved — vertically centered between them,
+              matching where its two converging lines (WB Final + LB Final
+              winners) actually land. */}
+          {(bySide.GRAND_FINAL.length > 0 || bySide.GRAND_FINAL_RESET.length > 0) && (
+            <div className="flex flex-col justify-center">
+              {bySide.GRAND_FINAL.length > 0 && <BracketSideSection side="GRAND_FINAL" matches={bySide.GRAND_FINAL} canManage={canManage} registerRef={registerRef} />}
+              {bySide.GRAND_FINAL_RESET.length > 0 && <BracketSideSection side="GRAND_FINAL_RESET" matches={bySide.GRAND_FINAL_RESET} canManage={canManage} registerRef={registerRef} />}
+            </div>
+          )}
         </div>
       </div>
     </div>
