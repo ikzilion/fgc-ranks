@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { HexColorPicker, HexColorInput } from "react-colorful";
 
 const DEFAULT_LINE_COLOR = "#3a4066"; // matches BracketView's var(--border-strong) fallback
 
@@ -235,50 +236,68 @@ export function StreamAssetsButton({
 
             <div className="mb-6">
               <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Bracket connector line color</label>
-              <div className="flex items-center gap-2 flex-wrap">
-                <input
-                  type="color"
-                  value={draftColor}
-                  onChange={e => setDraftColor(e.target.value)}
-                  className="w-10 h-9 rounded cursor-pointer"
-                  style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)", padding: 2 }}
-                />
-                <button
-                  type="button"
-                  onClick={confirmDraftColor}
-                  disabled={draftColor === lineColor}
-                  className="text-[12px] font-bold px-3 py-2 rounded"
-                  style={{
-                    background: "var(--green)",
-                    color: "var(--navy)",
-                    border: "none",
-                    cursor: draftColor === lineColor ? "not-allowed" : "pointer",
-                    opacity: draftColor === lineColor ? 0.4 : 1,
-                  }}
-                >
-                  OK
-                </button>
-                <button
-                  type="button"
-                  onClick={cancelDraftColor}
-                  disabled={draftColor === lineColor}
-                  className="text-[12px] font-semibold px-3 py-2 rounded"
-                  style={{
-                    background: "var(--coral-dim)",
-                    color: "var(--coral)",
-                    border: "1px solid rgba(255,77,77,0.2)",
-                    cursor: draftColor === lineColor ? "not-allowed" : "pointer",
-                    opacity: draftColor === lineColor ? 0.4 : 1,
-                  }}
-                >
-                  Cancel
-                </button>
-                <div className="flex items-center gap-1.5">
-                  <span
-                    className="w-4 h-4 rounded-full flex-shrink-0"
-                    style={{ background: lineColor, border: "1px solid var(--border-strong)" }}
-                  />
-                  <span className="text-[11px] text-[var(--text-muted)]">current</span>
+              {/* react-colorful instead of a native <input type="color">: the
+                  native input pops the OS/browser's own color dialog, which
+                  has its own built-in OK/Cancel — fighting with this modal's
+                  OK/Cancel right next to it was the actual source of the
+                  "feels off" reports, not button placement. Rendering the
+                  picker fully in-page means our OK/Cancel is the only
+                  confirmation UI involved, full stop. */}
+              <div className="flex items-start gap-3 flex-wrap">
+                <HexColorPicker color={draftColor} onChange={setDraftColor} style={{ width: 160, height: 140 }} />
+                <div className="flex flex-col gap-2 min-w-[140px]">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="w-8 h-8 rounded flex-shrink-0"
+                      style={{ background: draftColor, border: "1px solid var(--border-strong)" }}
+                    />
+                    <span style={{ color: "var(--text-muted)" }}>#</span>
+                    <HexColorInput
+                      color={draftColor}
+                      onChange={setDraftColor}
+                      className="text-[12px] font-semibold px-2 py-1.5 rounded w-20"
+                      style={{ background: "var(--navy-3)", color: "var(--text-primary)", border: "1px solid var(--border-strong)" }}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={confirmDraftColor}
+                      disabled={draftColor === lineColor}
+                      className="text-[12px] font-bold px-3 py-2 rounded"
+                      style={{
+                        background: "var(--green)",
+                        color: "var(--navy)",
+                        border: "none",
+                        cursor: draftColor === lineColor ? "not-allowed" : "pointer",
+                        opacity: draftColor === lineColor ? 0.4 : 1,
+                      }}
+                    >
+                      OK
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelDraftColor}
+                      disabled={draftColor === lineColor}
+                      className="text-[12px] font-semibold px-3 py-2 rounded"
+                      style={{
+                        background: "var(--coral-dim)",
+                        color: "var(--coral)",
+                        border: "1px solid rgba(255,77,77,0.2)",
+                        cursor: draftColor === lineColor ? "not-allowed" : "pointer",
+                        opacity: draftColor === lineColor ? 0.4 : 1,
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className="w-4 h-4 rounded-full flex-shrink-0"
+                      style={{ background: lineColor, border: "1px solid var(--border-strong)" }}
+                    />
+                    <span className="text-[11px] text-[var(--text-muted)]">current</span>
+                  </div>
                 </div>
               </div>
               <p className="text-[11px] text-[var(--text-secondary)] mt-2">
