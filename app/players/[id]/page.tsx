@@ -2,6 +2,7 @@
 // Individual player profile — stats, characters, and tournament history.
 
 import { notFound } from "next/navigation";
+import { QRCodeSVG } from "qrcode.react";
 import { EditProfileButton } from "@/components/EditProfileButton";
 
 const GET_PLAYER = `
@@ -9,6 +10,7 @@ const GET_PLAYER = `
     player(id: $id) {
       id
       tag
+      displayId
       region
       avatarUrl
       characters
@@ -104,6 +106,22 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
           </div>
         </div>
       </div>
+
+      {/* Player ID + QR code — foundation for the separately-planned
+          QR-based tournament check-in feature. Plain-text encoding of the
+          formatted ID for now; check-in can decide later if it needs a
+          richer payload. */}
+      {player.displayId && (
+        <div className="fgc-card p-4 mb-6 flex items-center gap-4">
+          <div className="bg-white p-2 rounded flex-shrink-0">
+            <QRCodeSVG value={player.displayId} size={72} />
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-1">Player ID</p>
+            <p className="font-rajdhani text-xl font-bold text-[var(--text-primary)] tracking-wide">{player.displayId}</p>
+          </div>
+        </div>
+      )}
 
       {/* Stats row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">

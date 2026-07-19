@@ -14,6 +14,8 @@ import { NewsPost } from "@/models/NewsPost";
 import { loginRateLimit, registerRateLimit, passwordResetRateLimit, getClientIp } from "@/lib/rateLimit";
 import { sendPasswordResetEmail } from "@/lib/email";
 import { buildDoubleEliminationBracket, resolveSeedOrder, advanceBracketMatch, nextPowerOfTwo, SeedingMethod } from "@/lib/bracket";
+import { getNextSequence } from "@/lib/counter";
+import { formatPlayerNumber } from "@/lib/playerId";
 import { NextRequest } from "next/server";
 
 const JWT_SECRET = process.env.NEXTAUTH_SECRET || "dev-secret";
@@ -175,7 +177,8 @@ export const resolvers = {
       await connectToDatabase();
       const passwordHash = await bcrypt.hash(password, 10);
       const user = await User.create({ email, passwordHash });
-      const player = await Player.create({ userId: user._id, tag });
+      const playerNumber = await getNextSequence("playerNumber");
+      const player = await Player.create({ userId: user._id, tag, playerNumber });
       await User.findByIdAndUpdate(user._id, { playerId: player._id });
       const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: "7d" });
       return { token, user };
@@ -895,6 +898,8 @@ export const resolvers = {
   Player: {
     user: async (parent: { userId: string }) => await User.findById(parent.userId),
     tournaments: async (parent: { _id: string }) => await Entrant.find({ playerId: parent._id }),
+    displayId: (parent: { playerNumber?: number }) =>
+      parent.playerNumber != null ? formatPlayerNumber(parent.playerNumber) : null,
     winRate: (parent: { wins: number; losses: number }) => {
       const total = parent.wins + parent.losses;
       return total === 0 ? 0 : Math.round((parent.wins / total) * 100) / 100;

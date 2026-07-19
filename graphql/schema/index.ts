@@ -29,6 +29,8 @@ export const typeDefs = `#graphql
     id: ID!
     user: User
     tag: String!
+    playerNumber: Int
+    displayId: String
     region: String
     avatarUrl: String
     characters: [String!]!

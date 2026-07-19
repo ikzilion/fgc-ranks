@@ -6,6 +6,7 @@ const GET_PLAYERS = `
     players(limit: 50) {
       id
       tag
+      displayId
       region
       avatarUrl
       characters
