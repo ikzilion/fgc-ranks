@@ -93,6 +93,7 @@ function BracketSideSection({
   registerRef,
   emphasized,
   dividerAbove,
+  accentColor,
 }: {
   side: string;
   matches: BracketMatch[];
@@ -106,6 +107,11 @@ function BracketSideSection({
   // Renders a border-top rule above the section's heading, for the seam
   // between Winners and Losers specifically — see the usage below.
   dividerAbove?: boolean;
+  // The same TO-configurable color already used for the connector lines
+  // (BracketView's resolvedLineColor) — reused here so a TO's color choice
+  // applies consistently across the bracket's accents, not just the
+  // connector lines. Only read when emphasized/dividerAbove is set.
+  accentColor?: string;
 }) {
   const rounds = new Map<number, BracketMatch[]>();
   for (const m of matches) {
@@ -115,9 +121,9 @@ function BracketSideSection({
   const roundNumbers = [...rounds.keys()].sort((a, b) => a - b);
 
   return (
-    <div className={`mb-6 ${dividerAbove ? "pt-6 mt-2 border-t" : ""}`} style={dividerAbove ? { borderColor: "var(--border-strong)" } : undefined}>
+    <div className="mb-6" style={dividerAbove ? { borderTop: `3px solid ${accentColor}`, paddingTop: 24, marginTop: 8 } : undefined}>
       {emphasized ? (
-        <p className="font-rajdhani text-lg font-bold uppercase tracking-wide text-[var(--text-primary)] mb-3">{SIDE_LABELS[side] ?? side}</p>
+        <p className="font-rajdhani text-2xl font-bold uppercase tracking-wide mb-3" style={{ color: accentColor }}>{SIDE_LABELS[side] ?? side}</p>
       ) : (
         <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">{SIDE_LABELS[side] ?? side}</p>
       )}
@@ -363,8 +369,8 @@ export function BracketView({
           {/* Winners Bracket stacked above Losers Bracket, both reading
               left-to-right by round. */}
           <div className="flex flex-col">
-            {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} canManage={canManage} registerRef={registerRef} emphasized />}
-            {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} canManage={canManage} registerRef={registerRef} emphasized dividerAbove={bySide.WINNERS.length > 0} />}
+            {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} canManage={canManage} registerRef={registerRef} emphasized accentColor={resolvedLineColor} />}
+            {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} canManage={canManage} registerRef={registerRef} emphasized dividerAbove={bySide.WINNERS.length > 0} accentColor={resolvedLineColor} />}
           </div>
           {/* Grand Finals is its own final column to the right of both
               brackets — not interleaved — vertically centered between them,
