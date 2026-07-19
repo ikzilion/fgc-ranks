@@ -137,7 +137,7 @@ interface Line {
   x2: number;
   y2: number;
   midX: number;
-  side: string;
+  targetId: string;
 }
 
 export function BracketView({
@@ -200,7 +200,7 @@ export function BracketView({
         // through nextMatchId there (see lib/bracket.ts's wireFeeder).
         if (m.nextMatch) {
           const to = posById.get(m.nextMatch.id);
-          if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY, midX: 0, side: m.bracketSide });
+          if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY, midX: 0, targetId: m.nextMatch.id });
         }
         // nextLoserMatch normally represents a mid-bracket WB→LB drop, which
         // is visually confusing at real bracket scale — suppress those. The
@@ -212,38 +212,37 @@ export function BracketView({
           const targetSide = matchById.get(m.nextLoserMatch.id)?.bracketSide;
           if (targetSide === "GRAND_FINAL") {
             const to = posById.get(m.nextLoserMatch.id);
-            if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY, midX: 0, side: m.bracketSide });
+            if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY, midX: 0, targetId: m.nextLoserMatch.id });
           }
         }
       }
 
-      // Every line between the same pair of columns shares the same x1/x2
-      // (all cards in a column share the same left/right edge), so a plain
-      // (x1+x2)/2 midpoint puts every line's vertical elbow segment at the
-      // identical X position. When a column has fewer visible matches than
-      // its neighbor (e.g. Losers Bracket consolidation rounds, which lose
-      // rows to byes), several lines' vertical segments end up stacked on
-      // top of each other and become visually indistinguishable — a line
-      // can look like it terminates at a different card than it actually
-      // does. Stagger each line's elbow X within its column-transition
-      // group so overlapping lines separate into distinct visual lanes.
+      // Every line's vertical elbow segment needs an X position that keeps
+      // it visually distinct from unrelated lines. The naive approach —
+      // stagger every line sharing the same x1/x2 column pair, in one
+      // shared lane group — over-shares: a whole round transition can have
+      // many matches (e.g. 8 Losers Round 2 -> Round 3 lines feeding 4
+      // targets, 2 each), and dividing the column gap into that many lanes
+      // packs unrelated lines only ~9px apart. Lines bound for DIFFERENT
+      // targets don't actually need separation from each other — they
+      // don't share an endpoint and don't visually compete — but because
+      // every line in the group used the same "how many total lines share
+      // this column gap" divisor, their vertical runs ended up close enough,
+      // and spanning overlapping enough Y ranges, that several unrelated
+      // elbows read as one continuous grid/rectangle rather than distinct
+      // branches (reported as a "box" artifact around Losers Round 2 -> 3).
       //
-      // Group by bracketSide too, not just x1/x2: Winners and Losers
-      // sections are stacked vertically with no horizontal offset between
-      // them (see the "flex flex-col" wrapper below), so a WB round
-      // transition and an LB round transition at the same depth land on
-      // the identical x1/x2 pair. Without the side in the key, both sides'
-      // lines got crammed into one shared lane group — at bracket sizes
-      // like 32 entrants that's up to ~20 lines squeezed into a single
-      // 35px column gap, sub-2px apart, which is what actually rendered
-      // as a fused solid bar (this was never a width/container issue).
-      const byTransition = new Map<string, Line[]>();
+      // Fix: group by target match instead of by column pair. Only lines
+      // that actually converge on the SAME downstream match need staggered
+      // lanes relative to each other (almost always just 2, its two feeder
+      // slots) — every other target gets its own independent pair of lanes
+      // in the same column gap, decoupled from lines converging elsewhere.
+      const byTarget = new Map<string, Line[]>();
       for (const line of lines) {
-        const key = `${line.side}|${line.x1}|${line.x2}`;
-        if (!byTransition.has(key)) byTransition.set(key, []);
-        byTransition.get(key)!.push(line);
+        if (!byTarget.has(line.targetId)) byTarget.set(line.targetId, []);
+        byTarget.get(line.targetId)!.push(line);
       }
-      for (const group of byTransition.values()) {
+      for (const group of byTarget.values()) {
         group.sort((a, b) => a.y1 - b.y1);
         group.forEach((line, i) => {
           line.midX = line.x1 + (line.x2 - line.x1) * ((i + 1) / (group.length + 1));
