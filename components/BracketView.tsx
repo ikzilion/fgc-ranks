@@ -91,11 +91,21 @@ function BracketSideSection({
   matches,
   canManage,
   registerRef,
+  emphasized,
+  dividerAbove,
 }: {
   side: string;
   matches: BracketMatch[];
   canManage: boolean;
   registerRef: (id: string, el: HTMLDivElement | null) => void;
+  // Winners/Losers are the two big top-level sections of the tree and get
+  // a bigger, bolder heading than the default — Grand Finals/Bracket Reset
+  // stay at the small muted style since they read fine as a single column,
+  // not a whole side someone needs to visually locate while scanning.
+  emphasized?: boolean;
+  // Renders a border-top rule above the section's heading, for the seam
+  // between Winners and Losers specifically — see the usage below.
+  dividerAbove?: boolean;
 }) {
   const rounds = new Map<number, BracketMatch[]>();
   for (const m of matches) {
@@ -105,8 +115,12 @@ function BracketSideSection({
   const roundNumbers = [...rounds.keys()].sort((a, b) => a - b);
 
   return (
-    <div className="mb-6">
-      <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">{SIDE_LABELS[side] ?? side}</p>
+    <div className={`mb-6 ${dividerAbove ? "pt-6 mt-2 border-t" : ""}`} style={dividerAbove ? { borderColor: "var(--border-strong)" } : undefined}>
+      {emphasized ? (
+        <p className="font-rajdhani text-lg font-bold uppercase tracking-wide text-[var(--text-primary)] mb-3">{SIDE_LABELS[side] ?? side}</p>
+      ) : (
+        <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">{SIDE_LABELS[side] ?? side}</p>
+      )}
       {/* Back to the site's standard gap-10 — the wider gap-24 from an
           earlier pass existed only to spread out a lane-staggering scheme
           that fanned every line sharing a column pair across the gap. The
@@ -349,8 +363,8 @@ export function BracketView({
           {/* Winners Bracket stacked above Losers Bracket, both reading
               left-to-right by round. */}
           <div className="flex flex-col">
-            {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} canManage={canManage} registerRef={registerRef} />}
-            {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} canManage={canManage} registerRef={registerRef} />}
+            {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} canManage={canManage} registerRef={registerRef} emphasized />}
+            {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} canManage={canManage} registerRef={registerRef} emphasized dividerAbove={bySide.WINNERS.length > 0} />}
           </div>
           {/* Grand Finals is its own final column to the right of both
               brackets — not interleaved — vertically centered between them,
