@@ -128,7 +128,16 @@ export function BracketView({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cardEls = useRef<Map<string, HTMLDivElement>>(new Map());
-  const [overlay, setOverlay] = useState<{ width: number; height: number; lines: Line[] }>({ width: 0, height: 0, lines: [] });
+  const [overlay, setOverlay] = useState<{ width: number; height: number; clientWidth: number; lines: Line[] }>({
+    width: 0,
+    height: 0,
+    clientWidth: 0,
+    lines: [],
+  });
+  // Mirrors containerRef's scrollLeft so the sticky range-slider scrollbar
+  // below can show/drive the current scroll position without re-measuring
+  // the whole bracket on every scroll tick.
+  const [scrollLeft, setScrollLeft] = useState(0);
 
   const resolvedLineColor = lineColor && lineColor.trim() ? lineColor : DEFAULT_LINE_COLOR;
 
@@ -208,16 +217,26 @@ export function BracketView({
         });
       }
 
-      setOverlay({ width: containerEl.scrollWidth, height: containerEl.scrollHeight, lines });
+      setOverlay({ width: containerEl.scrollWidth, height: containerEl.scrollHeight, clientWidth: containerEl.clientWidth, lines });
     }
 
     measure();
     const resizeObserver = new ResizeObserver(() => measure());
     resizeObserver.observe(container);
     window.addEventListener("resize", measure);
+
+    // Keep the sticky scrollbar's thumb in sync when the user scrolls the
+    // bracket directly (trackpad, touch, arrow keys) rather than dragging
+    // the slider itself.
+    function onScroll() {
+      setScrollLeft(container!.scrollLeft);
+    }
+    container.addEventListener("scroll", onScroll, { passive: true });
+
     return () => {
       resizeObserver.disconnect();
       window.removeEventListener("resize", measure);
+      container!.removeEventListener("scroll", onScroll);
     };
   }, [bracket.matches]);
 
@@ -236,18 +255,18 @@ export function BracketView({
         <span style={{ color: resolvedLineColor }}>―</span> match progression
       </p>
 
-      {/* Bounded height so this container's own scrollbars (both axes) stay
-          inside a box that's always fully on-screen once the bracket is
-          scrolled into view — a large bracket's horizontal scrollbar used to
-          only be reachable at the very bottom of the (unbounded-height) page.
-          A plain vh percentage looked out of place across resolutions: too
-          short on tall desktop monitors relative to everything else on the
-          page, and vh itself is unreliable on mobile (address-bar
-          collapse/expand shifts what 100vh means, dvh doesn't have that
-          problem). min(600px, 70dvh) caps the box at a comfortable absolute
-          size on large screens instead of stretching proportionally forever,
-          while still shrinking gracefully via dvh on shorter viewports. */}
-      <div ref={containerRef} className="relative overflow-auto pb-2 max-h-[min(600px,70dvh)]" style={{ WebkitOverflowScrolling: "touch" }}>
+      {/* No vertical clipping — a fixed vh-based cap kept looking out of
+          place once tested against the real 30-entrant bracket (4 Winners
+          rounds + 7 Losers rounds is a lot taller than the smaller brackets
+          this was first tuned against), whatever the percentage. The
+          bracket now flows to its natural height like any other page
+          content. Horizontal panning is still needed at that width though,
+          so instead of relying on the container's own scrollbar (unreachable
+          without scrolling to wherever the bottom of a very tall box lands)
+          there's a custom range-slider scrollbar right below, kept sticky to
+          the bottom of the viewport for as long as any part of the bracket
+          is on screen — see the sticky div after this one. */}
+      <div ref={containerRef} className="relative overflow-x-auto no-scrollbar pb-2" style={{ WebkitOverflowScrolling: "touch" }}>
         <svg
           className="absolute top-0 left-0 pointer-events-none"
           width={overlay.width}
@@ -279,6 +298,25 @@ export function BracketView({
           )}
         </div>
       </div>
+
+      {overlay.width > overlay.clientWidth && (
+        <div className="sticky bottom-2 z-10 mt-2 px-3 py-2 rounded-md" style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}>
+          <input
+            type="range"
+            aria-label="Scroll bracket horizontally"
+            min={0}
+            max={overlay.width - overlay.clientWidth}
+            value={scrollLeft}
+            onChange={e => {
+              const v = Number(e.target.value);
+              setScrollLeft(v);
+              if (containerRef.current) containerRef.current.scrollLeft = v;
+            }}
+            className="w-full block cursor-pointer"
+            style={{ accentColor: resolvedLineColor }}
+          />
+        </div>
+      )}
     </div>
   );
 }

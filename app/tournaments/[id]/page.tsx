@@ -237,7 +237,13 @@ export default async function TournamentDetailPage({ params }: { params: Promise
           can see the "no bracket yet" state; non-managers just see nothing
           until one exists, so spectators aren't shown an empty section. */}
       {(tournament.bracket || canManage) && (
-        <div className="fgc-card p-6 mb-6">
+        // overflow: visible override — .fgc-card's overflow:hidden (for
+        // rounded-corner clipping elsewhere) becomes BracketView's sticky
+        // scrollbar's containing block otherwise, and since this card never
+        // scrolls internally (the whole page does), the sticky element would
+        // never actually track viewport scroll — a well-known overflow +
+        // position:sticky interaction, not a BracketView-side bug.
+        <div className="fgc-card p-6 mb-6" style={{ overflow: "visible" }}>
           <div className="flex items-center justify-between mb-4">
             <div>
               <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Bracket</p>

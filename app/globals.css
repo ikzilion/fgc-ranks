@@ -33,6 +33,13 @@ html, body {
 
 .font-rajdhani { font-family: 'Rajdhani', sans-serif; }
 
+/* Hides the native scrollbar on an overflow container that has its own
+   custom scrollbar UI instead (see BracketView's sticky range-slider
+   scrollbar) — the element stays fully scrollable, only the native
+   browser-drawn scrollbar visual is suppressed. */
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
 /* Scanline signature texture */
 .scanline {
   position: relative;
