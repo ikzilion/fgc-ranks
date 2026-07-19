@@ -6,31 +6,134 @@ import { useRouter } from "next/navigation";
 import { HexColorPicker, HexColorInput } from "react-colorful";
 
 const DEFAULT_LINE_COLOR = "#3a4066"; // matches BracketView's var(--border-strong) fallback
+const DEFAULT_BOX_COLOR = "#13162a"; // matches BracketView's .fgc-card background (var(--navy-2))
+const DEFAULT_FONT_COLOR = "#f0f2ff"; // matches BracketView's player-tag text (var(--text-primary))
+
+// One react-colorful picker + draft-state-until-Save + OK/Cancel-per-picker
+// widget, shared by all three bracket color pickers below so their behavior
+// can't drift from each other — see the "Bracket connector line color"
+// picker's original comment for why react-colorful over a native
+// <input type="color"> in the first place (competing OK/Cancel dialogs).
+function ColorPickerField({
+  label,
+  helpText,
+  confirmedColor,
+  draftColor,
+  onDraftChange,
+  onConfirm,
+  onCancel,
+}: {
+  label: string;
+  helpText: string;
+  confirmedColor: string;
+  draftColor: string;
+  onDraftChange: (color: string) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const isDirty = draftColor !== confirmedColor;
+
+  return (
+    <div className="mb-6">
+      <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">{label}</label>
+      <div className="flex items-start gap-3 flex-wrap">
+        <HexColorPicker color={draftColor} onChange={onDraftChange} style={{ width: 160, height: 140 }} />
+        <div className="flex flex-col gap-2 min-w-[140px]">
+          <div className="flex items-center gap-2">
+            <span
+              className="w-8 h-8 rounded flex-shrink-0"
+              style={{ background: draftColor, border: "1px solid var(--border-strong)" }}
+            />
+            <span style={{ color: "var(--text-muted)" }}>#</span>
+            <HexColorInput
+              color={draftColor}
+              onChange={onDraftChange}
+              className="text-[12px] font-semibold px-2 py-1.5 rounded w-20"
+              style={{ background: "var(--navy-3)", color: "var(--text-primary)", border: "1px solid var(--border-strong)" }}
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={!isDirty}
+              className="text-[12px] font-bold px-3 py-2 rounded"
+              style={{
+                background: "var(--green)",
+                color: "var(--navy)",
+                border: "none",
+                cursor: isDirty ? "pointer" : "not-allowed",
+                opacity: isDirty ? 1 : 0.4,
+              }}
+            >
+              OK
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={!isDirty}
+              className="text-[12px] font-semibold px-3 py-2 rounded"
+              style={{
+                background: "var(--coral-dim)",
+                color: "var(--coral)",
+                border: "1px solid rgba(255,77,77,0.2)",
+                cursor: isDirty ? "pointer" : "not-allowed",
+                opacity: isDirty ? 1 : 0.4,
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span
+              className="w-4 h-4 rounded-full flex-shrink-0"
+              style={{ background: confirmedColor, border: "1px solid var(--border-strong)" }}
+            />
+            <span className="text-[11px] text-[var(--text-muted)]">current</span>
+          </div>
+        </div>
+      </div>
+      <p className="text-[11px] text-[var(--text-secondary)] mt-2">
+        {isDirty
+          ? "Unconfirmed pick — click OK to apply it here, or Cancel to revert. Either way, the overall Save button below still persists it."
+          : helpText}
+      </p>
+    </div>
+  );
+}
 
 export function StreamAssetsButton({
   tournamentId,
   streamBackgroundUrl,
   sponsorBannerUrl,
   bracketLineColor,
+  bracketBoxColor,
+  bracketFontColor,
   canManage,
 }: {
   tournamentId: string;
   streamBackgroundUrl?: string;
   sponsorBannerUrl?: string;
   bracketLineColor?: string;
+  bracketBoxColor?: string;
+  bracketFontColor?: string;
   canManage: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [backgroundUrl, setBackgroundUrl] = useState(streamBackgroundUrl || "");
   const [bannerUrl, setBannerUrl] = useState(sponsorBannerUrl || "");
-  // lineColor is the confirmed value — what gets saved and what the preview
-  // swatch shows. draftColor tracks the native color input while the user is
-  // actively picking, so a color choice needs an explicit "OK" to become the
-  // confirmed value (and can be backed out of via "Cancel") rather than
-  // committing the instant the native picker fires onChange.
+  // Each confirmed/draft pair follows the same rule: the confirmed value is
+  // what gets saved and what the "current" swatch shows; the draft value
+  // tracks the picker while the user is actively choosing, so a pick needs
+  // an explicit "OK" to become the confirmed value (and can be backed out of
+  // via "Cancel") rather than committing the instant onChange fires.
   const [lineColor, setLineColor] = useState(bracketLineColor || DEFAULT_LINE_COLOR);
-  const [draftColor, setDraftColor] = useState(bracketLineColor || DEFAULT_LINE_COLOR);
+  const [draftLineColor, setDraftLineColor] = useState(bracketLineColor || DEFAULT_LINE_COLOR);
+  const [boxColor, setBoxColor] = useState(bracketBoxColor || DEFAULT_BOX_COLOR);
+  const [draftBoxColor, setDraftBoxColor] = useState(bracketBoxColor || DEFAULT_BOX_COLOR);
+  const [fontColor, setFontColor] = useState(bracketFontColor || DEFAULT_FONT_COLOR);
+  const [draftFontColor, setDraftFontColor] = useState(bracketFontColor || DEFAULT_FONT_COLOR);
   const [uploadingBg, setUploadingBg] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -42,12 +145,16 @@ export function StreamAssetsButton({
     setBackgroundUrl(streamBackgroundUrl || "");
     setBannerUrl(sponsorBannerUrl || "");
     setLineColor(bracketLineColor || DEFAULT_LINE_COLOR);
-    setDraftColor(bracketLineColor || DEFAULT_LINE_COLOR);
+    setDraftLineColor(bracketLineColor || DEFAULT_LINE_COLOR);
+    setBoxColor(bracketBoxColor || DEFAULT_BOX_COLOR);
+    setDraftBoxColor(bracketBoxColor || DEFAULT_BOX_COLOR);
+    setFontColor(bracketFontColor || DEFAULT_FONT_COLOR);
+    setDraftFontColor(bracketFontColor || DEFAULT_FONT_COLOR);
     setError("");
     setOpen(true);
   }
 
-  // Explicitly discard any in-progress edits (background/banner/color) back
+  // Explicitly discard any in-progress edits (background/banner/colors) back
   // to the tournament's actual saved values, rather than relying on the next
   // openModal() call to reset them — closing via the backdrop click uses the
   // same handler, so this is the single source of truth for "cancel".
@@ -55,17 +162,13 @@ export function StreamAssetsButton({
     setBackgroundUrl(streamBackgroundUrl || "");
     setBannerUrl(sponsorBannerUrl || "");
     setLineColor(bracketLineColor || DEFAULT_LINE_COLOR);
-    setDraftColor(bracketLineColor || DEFAULT_LINE_COLOR);
+    setDraftLineColor(bracketLineColor || DEFAULT_LINE_COLOR);
+    setBoxColor(bracketBoxColor || DEFAULT_BOX_COLOR);
+    setDraftBoxColor(bracketBoxColor || DEFAULT_BOX_COLOR);
+    setFontColor(bracketFontColor || DEFAULT_FONT_COLOR);
+    setDraftFontColor(bracketFontColor || DEFAULT_FONT_COLOR);
     setError("");
     setOpen(false);
-  }
-
-  function confirmDraftColor() {
-    setLineColor(draftColor);
-  }
-
-  function cancelDraftColor() {
-    setDraftColor(lineColor);
   }
 
   async function uploadImage(file: File, type: "stream-bg" | "sponsor-banner"): Promise<string | null> {
@@ -130,11 +233,11 @@ export function StreamAssetsButton({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             query: `
-              mutation UpdateBracketLineColor($id: ID!, $bracketLineColor: String!) {
-                updateTournamentBracketLineColor(id: $id, bracketLineColor: $bracketLineColor) { id }
+              mutation UpdateBracketColors($id: ID!, $bracketLineColor: String!, $bracketBoxColor: String, $bracketFontColor: String) {
+                updateTournamentBracketLineColor(id: $id, bracketLineColor: $bracketLineColor, bracketBoxColor: $bracketBoxColor, bracketFontColor: $bracketFontColor) { id }
               }
             `,
-            variables: { id: tournamentId, bracketLineColor: lineColor },
+            variables: { id: tournamentId, bracketLineColor: lineColor, bracketBoxColor: boxColor, bracketFontColor: fontColor },
           }),
         }),
       ]);
@@ -234,78 +337,35 @@ export function StreamAssetsButton({
               </div>
             </div>
 
-            <div className="mb-6">
-              <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Bracket connector line color</label>
-              {/* react-colorful instead of a native <input type="color">: the
-                  native input pops the OS/browser's own color dialog, which
-                  has its own built-in OK/Cancel — fighting with this modal's
-                  OK/Cancel right next to it was the actual source of the
-                  "feels off" reports, not button placement. Rendering the
-                  picker fully in-page means our OK/Cancel is the only
-                  confirmation UI involved, full stop. */}
-              <div className="flex items-start gap-3 flex-wrap">
-                <HexColorPicker color={draftColor} onChange={setDraftColor} style={{ width: 160, height: 140 }} />
-                <div className="flex flex-col gap-2 min-w-[140px]">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="w-8 h-8 rounded flex-shrink-0"
-                      style={{ background: draftColor, border: "1px solid var(--border-strong)" }}
-                    />
-                    <span style={{ color: "var(--text-muted)" }}>#</span>
-                    <HexColorInput
-                      color={draftColor}
-                      onChange={setDraftColor}
-                      className="text-[12px] font-semibold px-2 py-1.5 rounded w-20"
-                      style={{ background: "var(--navy-3)", color: "var(--text-primary)", border: "1px solid var(--border-strong)" }}
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={confirmDraftColor}
-                      disabled={draftColor === lineColor}
-                      className="text-[12px] font-bold px-3 py-2 rounded"
-                      style={{
-                        background: "var(--green)",
-                        color: "var(--navy)",
-                        border: "none",
-                        cursor: draftColor === lineColor ? "not-allowed" : "pointer",
-                        opacity: draftColor === lineColor ? 0.4 : 1,
-                      }}
-                    >
-                      OK
-                    </button>
-                    <button
-                      type="button"
-                      onClick={cancelDraftColor}
-                      disabled={draftColor === lineColor}
-                      className="text-[12px] font-semibold px-3 py-2 rounded"
-                      style={{
-                        background: "var(--coral-dim)",
-                        color: "var(--coral)",
-                        border: "1px solid rgba(255,77,77,0.2)",
-                        cursor: draftColor === lineColor ? "not-allowed" : "pointer",
-                        opacity: draftColor === lineColor ? 0.4 : 1,
-                      }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span
-                      className="w-4 h-4 rounded-full flex-shrink-0"
-                      style={{ background: lineColor, border: "1px solid var(--border-strong)" }}
-                    />
-                    <span className="text-[11px] text-[var(--text-muted)]">current</span>
-                  </div>
-                </div>
-              </div>
-              <p className="text-[11px] text-[var(--text-secondary)] mt-2">
-                {draftColor === lineColor
-                  ? "Pick a color that stays visible against your background — applies to the bracket lines on all views."
-                  : "Unconfirmed pick — click OK to apply it here, or Cancel to revert. Either way, the overall Save button below still persists it."}
-              </p>
-            </div>
+            <ColorPickerField
+              label="Bracket connector line color"
+              helpText="Pick a color that stays visible against your background — applies to the bracket lines (and the Winners/Losers divider) on all views."
+              confirmedColor={lineColor}
+              draftColor={draftLineColor}
+              onDraftChange={setDraftLineColor}
+              onConfirm={() => setLineColor(draftLineColor)}
+              onCancel={() => setDraftLineColor(lineColor)}
+            />
+
+            <ColorPickerField
+              label="Match card background color"
+              helpText="Applies to every match/score box's background across TO, public, and stream views."
+              confirmedColor={boxColor}
+              draftColor={draftBoxColor}
+              onDraftChange={setDraftBoxColor}
+              onConfirm={() => setBoxColor(draftBoxColor)}
+              onCancel={() => setDraftBoxColor(boxColor)}
+            />
+
+            <ColorPickerField
+              label="Match card text color"
+              helpText="Pick a color that stays readable against the match card background above."
+              confirmedColor={fontColor}
+              draftColor={draftFontColor}
+              onDraftChange={setDraftFontColor}
+              onConfirm={() => setFontColor(draftFontColor)}
+              onCancel={() => setDraftFontColor(fontColor)}
+            />
 
             {error && (
               <p className="text-[12px] mb-4 px-3 py-2 rounded" style={{ background: "var(--coral-dim)", color: "var(--coral)" }}>

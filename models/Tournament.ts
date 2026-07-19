@@ -51,6 +51,12 @@ const TournamentSchema = new Schema(
     // against whatever stream background they pick. Empty = unset, bracket
     // rendering falls back to the design system default.
     bracketLineColor: { type: String, default: "" },
+    // Match-card box background + text color, same TO-customizable/empty-is-
+    // unset pattern as bracketLineColor above. Empty = unset, match cards
+    // fall back to the design system defaults (.fgc-card background,
+    // var(--text-primary) player-tag text).
+    bracketBoxColor: { type: String, default: "" },
+    bracketFontColor: { type: String, default: "" },
   },
   { timestamps: true }
 );

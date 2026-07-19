@@ -61,6 +61,8 @@ export const typeDefs = `#graphql
     streamBackgroundUrl: String
     sponsorBannerUrl: String
     bracketLineColor: String
+    bracketBoxColor: String
+    bracketFontColor: String
   }
 
   type Entrant {
@@ -160,7 +162,7 @@ export const typeDefs = `#graphql
     addTournamentOrganizer(tournamentId: ID!, playerId: ID!): Tournament!
     removeTournamentOrganizer(tournamentId: ID!, playerId: ID!): Tournament!
     updateTournamentStreamAssets(id: ID!, streamBackgroundUrl: String, sponsorBannerUrl: String): Tournament!
-    updateTournamentBracketLineColor(id: ID!, bracketLineColor: String!): Tournament!
+    updateTournamentBracketLineColor(id: ID!, bracketLineColor: String!, bracketBoxColor: String, bracketFontColor: String): Tournament!
 
     joinTournament(tournamentId: ID!, playerId: ID!): Entrant!
     setPlacement(entrantId: ID!, placement: Int!): Entrant!

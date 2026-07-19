@@ -43,12 +43,18 @@ function PlayerRow({
   status,
   isWinner,
   isForfeit,
+  fontColor,
 }: {
   player?: { id: string; tag: string } | null;
   score: number;
   status: string;
   isWinner: boolean;
   isForfeit: boolean;
+  // TO-configurable, applied only to an actual player's tag — TBD text stays
+  // its own muted/italic styling (a status indicator, not decorative text),
+  // and the winner dot + score coloring stay green/muted regardless, same as
+  // the divider work left the winner indicator alone (see BracketSideSection).
+  fontColor?: string;
 }) {
   return (
     <div className={`flex items-center justify-between py-1 ${isWinner ? "opacity-100" : "opacity-60"}`}>
@@ -58,7 +64,7 @@ function PlayerRow({
         )}
         <span
           className="font-rajdhani text-[13px] font-semibold truncate"
-          style={{ color: player ? "var(--text-primary)" : "var(--text-muted)", fontStyle: player ? "normal" : "italic" }}
+          style={{ color: player ? (fontColor || "var(--text-primary)") : "var(--text-muted)", fontStyle: player ? "normal" : "italic" }}
         >
           {player ? player.tag : "TBD"}
         </span>
@@ -70,18 +76,32 @@ function PlayerRow({
   );
 }
 
-function MatchCard({ match, canManage, registerRef }: { match: BracketMatch; canManage: boolean; registerRef: (id: string, el: HTMLDivElement | null) => void }) {
+function MatchCard({
+  match,
+  canManage,
+  registerRef,
+  boxColor,
+  fontColor,
+}: {
+  match: BracketMatch;
+  canManage: boolean;
+  registerRef: (id: string, el: HTMLDivElement | null) => void;
+  // TO-configurable card background — only applied when set, otherwise the
+  // .fgc-card class's own default background applies as before.
+  boxColor?: string;
+  fontColor?: string;
+}) {
   const ready = !!match.player1 && !!match.player2;
 
   return (
-    <div ref={el => registerRef(match.id, el)} className="fgc-card p-3 w-56 flex-shrink-0">
+    <div ref={el => registerRef(match.id, el)} className="fgc-card p-3 w-56 flex-shrink-0" style={boxColor ? { background: boxColor } : undefined}>
       <div className="flex items-center justify-between mb-2">
         <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">{match.round}</p>
         {ready && <ReportMatchButton match={match as any} canManage={canManage} />}
       </div>
 
-      <PlayerRow player={match.player1} score={match.player1Score} status={match.status} isForfeit={match.isForfeit} isWinner={!!match.winner && match.winner.id === match.player1?.id} />
-      <PlayerRow player={match.player2} score={match.player2Score} status={match.status} isForfeit={match.isForfeit} isWinner={!!match.winner && match.winner.id === match.player2?.id} />
+      <PlayerRow player={match.player1} score={match.player1Score} status={match.status} isForfeit={match.isForfeit} isWinner={!!match.winner && match.winner.id === match.player1?.id} fontColor={fontColor} />
+      <PlayerRow player={match.player2} score={match.player2Score} status={match.status} isForfeit={match.isForfeit} isWinner={!!match.winner && match.winner.id === match.player2?.id} fontColor={fontColor} />
     </div>
   );
 }
@@ -94,6 +114,8 @@ function BracketSideSection({
   emphasized,
   dividerAbove,
   accentColor,
+  boxColor,
+  fontColor,
 }: {
   side: string;
   matches: BracketMatch[];
@@ -112,6 +134,10 @@ function BracketSideSection({
   // applies consistently across the bracket's accents, not just the
   // connector lines. Only read when emphasized/dividerAbove is set.
   accentColor?: string;
+  // TO-configurable match-card background/text colors — passed straight
+  // through to every MatchCard in this section.
+  boxColor?: string;
+  fontColor?: string;
 }) {
   const rounds = new Map<number, BracketMatch[]>();
   for (const m of matches) {
@@ -140,7 +166,7 @@ function BracketSideSection({
             {rounds.get(r)!
               .sort((a, b) => a.bracketPosition - b.bracketPosition)
               .map(m => (
-                <MatchCard key={m.id} match={m} canManage={canManage} registerRef={registerRef} />
+                <MatchCard key={m.id} match={m} canManage={canManage} registerRef={registerRef} boxColor={boxColor} fontColor={fontColor} />
               ))}
           </div>
         ))}
@@ -153,10 +179,18 @@ export function BracketView({
   bracket,
   canManage,
   lineColor,
+  boxColor,
+  fontColor,
 }: {
   bracket: { seedingMethod: string; size: number; matches: BracketMatch[] };
   canManage: boolean;
   lineColor?: string;
+  // Unlike lineColor, these have no JS-level default constant here — when
+  // unset, MatchCard/PlayerRow simply don't apply an inline style, so their
+  // own existing CSS-class/hardcoded defaults (.fgc-card background,
+  // var(--text-primary)) apply exactly as before this feature existed.
+  boxColor?: string;
+  fontColor?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cardEls = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -172,6 +206,8 @@ export function BracketView({
   const [scrollLeft, setScrollLeft] = useState(0);
 
   const resolvedLineColor = lineColor && lineColor.trim() ? lineColor : DEFAULT_LINE_COLOR;
+  const resolvedBoxColor = boxColor && boxColor.trim() ? boxColor : undefined;
+  const resolvedFontColor = fontColor && fontColor.trim() ? fontColor : undefined;
 
   function registerRef(id: string, el: HTMLDivElement | null) {
     if (el) cardEls.current.set(id, el);
@@ -369,8 +405,8 @@ export function BracketView({
           {/* Winners Bracket stacked above Losers Bracket, both reading
               left-to-right by round. */}
           <div className="flex flex-col">
-            {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} canManage={canManage} registerRef={registerRef} emphasized accentColor={resolvedLineColor} />}
-            {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} canManage={canManage} registerRef={registerRef} emphasized dividerAbove={bySide.WINNERS.length > 0} accentColor={resolvedLineColor} />}
+            {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} canManage={canManage} registerRef={registerRef} emphasized accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
+            {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} canManage={canManage} registerRef={registerRef} emphasized dividerAbove={bySide.WINNERS.length > 0} accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
           </div>
           {/* Grand Finals is its own final column to the right of both
               brackets — not interleaved — vertically centered between them,
@@ -378,8 +414,8 @@ export function BracketView({
               winners) actually land. */}
           {(bySide.GRAND_FINAL.length > 0 || bySide.GRAND_FINAL_RESET.length > 0) && (
             <div className="flex flex-col justify-center">
-              {bySide.GRAND_FINAL.length > 0 && <BracketSideSection side="GRAND_FINAL" matches={bySide.GRAND_FINAL} canManage={canManage} registerRef={registerRef} />}
-              {bySide.GRAND_FINAL_RESET.length > 0 && <BracketSideSection side="GRAND_FINAL_RESET" matches={bySide.GRAND_FINAL_RESET} canManage={canManage} registerRef={registerRef} />}
+              {bySide.GRAND_FINAL.length > 0 && <BracketSideSection side="GRAND_FINAL" matches={bySide.GRAND_FINAL} canManage={canManage} registerRef={registerRef} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
+              {bySide.GRAND_FINAL_RESET.length > 0 && <BracketSideSection side="GRAND_FINAL_RESET" matches={bySide.GRAND_FINAL_RESET} canManage={canManage} registerRef={registerRef} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
             </div>
           )}
         </div>

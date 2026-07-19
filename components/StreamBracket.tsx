@@ -16,6 +16,8 @@ const GET_STREAM_TOURNAMENT = `
       streamBackgroundUrl
       sponsorBannerUrl
       bracketLineColor
+      bracketBoxColor
+      bracketFontColor
       bracket {
         id
         seedingMethod
@@ -49,6 +51,8 @@ interface StreamTournament {
   streamBackgroundUrl?: string | null;
   sponsorBannerUrl?: string | null;
   bracketLineColor?: string | null;
+  bracketBoxColor?: string | null;
+  bracketFontColor?: string | null;
   bracket: any;
 }
 
@@ -138,7 +142,13 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
         </p>
 
         {tournament.bracket ? (
-          <BracketView bracket={tournament.bracket} canManage={false} lineColor={tournament.bracketLineColor ?? undefined} />
+          <BracketView
+            bracket={tournament.bracket}
+            canManage={false}
+            lineColor={tournament.bracketLineColor ?? undefined}
+            boxColor={tournament.bracketBoxColor ?? undefined}
+            fontColor={tournament.bracketFontColor ?? undefined}
+          />
         ) : (
           <p className="text-[14px]" style={{ color: "rgba(255,255,255,0.7)" }}>
             Bracket not yet generated.

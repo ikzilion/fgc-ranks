@@ -18,6 +18,8 @@ const GET_STREAM_TOURNAMENT = `
       streamBackgroundUrl
       sponsorBannerUrl
       bracketLineColor
+      bracketBoxColor
+      bracketFontColor
       bracket {
         id
         seedingMethod
