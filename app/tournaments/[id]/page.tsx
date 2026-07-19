@@ -161,6 +161,52 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     rounds[match.round].push(match);
   }
 
+  // Defined once, used in two spots below: as the left sidebar next to the
+  // Bracket section when one is shown, or standalone (full width, not a
+  // cramped sidebar with nothing beside it) when it isn't.
+  const entrantsSidebar = (
+    <>
+      <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">Entrants</p>
+      <div className="fgc-card">
+        {tournament.entrants.length === 0 ? (
+          <p className="p-4 text-[var(--text-secondary)] text-[13px]">No entrants yet.</p>
+        ) : (
+          [...tournament.entrants]
+            .sort((a: any, b: any) => (a.seed ?? 999) - (b.seed ?? 999))
+            .map((entrant: any) => (
+              <div
+                key={entrant.id}
+                className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--border)] last:border-0 hover:bg-[var(--navy-3)] transition-colors"
+              >
+                <Link href={`/players/${entrant.player.id}`} className="flex items-center gap-3 flex-1 min-w-0">
+                  <span className="text-[11px] text-[var(--text-muted)] w-5 flex-shrink-0">{entrant.seed ?? "—"}</span>
+                  <div
+                    className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 font-rajdhani text-[10px] font-bold overflow-hidden"
+                    style={{ background: "var(--blue-dim)", color: "var(--blue)", border: "1px solid rgba(79,142,247,0.3)" }}
+                  >
+                    {entrant.player.avatarUrl ? (
+                      <img src={entrant.player.avatarUrl} alt={entrant.player.tag} className="w-full h-full object-cover" />
+                    ) : (
+                      entrant.player.tag.slice(0, 2).toUpperCase()
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-rajdhani text-[13px] font-semibold text-[var(--text-primary)] truncate">{entrant.player.tag}</p>
+                    {entrant.placement && (
+                      <p className="text-[11px]" style={{ color: entrant.placement === 1 ? "var(--gold)" : "var(--text-muted)" }}>
+                        {entrant.placement === 1 ? "🏆 Champion" : `${entrant.placement}th place`}
+                      </p>
+                    )}
+                  </div>
+                </Link>
+                <RemoveEntrantButton entrantId={entrant.id} playerTag={entrant.player.tag} canManage={canManage} status={tournament.status} />
+              </div>
+            ))
+        )}
+      </div>
+    </>
+  );
+
   return (
     <main className="mx-auto px-4 py-8">
       {/* Header — kept at the site's standard content width. Only the
@@ -255,152 +301,127 @@ export default async function TournamentDetailPage({ params }: { params: Promise
           Organizers/admins additionally get generate/edit controls and can
           see the "no bracket yet" state; non-managers just see nothing until
           one exists, so spectators aren't shown an empty section. */}
-      {(tournament.bracket || canManage) && (
-        <div className="max-w-[1800px] mx-auto">
-          {/* overflow: visible override — .fgc-card's overflow:hidden (for
-              rounded-corner clipping elsewhere) becomes BracketView's sticky
-              scrollbar's containing block otherwise, and since this card never
-              scrolls internally (the whole page does), the sticky element would
-              never actually track viewport scroll — a well-known overflow +
-              position:sticky interaction, not a BracketView-side bug. */}
-          <div className="fgc-card p-6 mb-6" style={{ overflow: "visible" }}>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Bracket</p>
-                {canManage && (
-                  <p className="text-[11px] text-[var(--text-muted)] mt-0.5">You can report results and manage this bracket.</p>
+      {(tournament.bracket || canManage) ? (
+        <div className="max-w-[1800px] mx-auto mb-6">
+          <div className="flex flex-col sm:flex-row gap-4 items-start">
+            {/* Entrants — left sidebar next to the Bracket instead of down
+                with Matches, so both are visible together without scrolling
+                past the (often very tall) bracket to check who's entered. */}
+            <div className="w-full sm:w-72 sm:flex-shrink-0">{entrantsSidebar}</div>
+
+            {/* min-w-0 is load-bearing: a flex item's default min-width:auto
+                would let the bracket's intrinsic content width stretch this
+                column (pushing the sidebar off-layout) instead of shrinking
+                to the space actually available and scrolling internally via
+                its own overflow-x-auto + sticky scrollbar — same class of
+                gotcha as the min-h-0 fix on the Stream Settings modal's
+                scroll container, just the width axis instead of height. */}
+            <div className="flex-1 min-w-0">
+              {/* overflow: visible override — .fgc-card's overflow:hidden (for
+                  rounded-corner clipping elsewhere) becomes BracketView's sticky
+                  scrollbar's containing block otherwise, and since this card never
+                  scrolls internally (the whole page does), the sticky element would
+                  never actually track viewport scroll — a well-known overflow +
+                  position:sticky interaction, not a BracketView-side bug. */}
+              <div className="fgc-card p-6" style={{ overflow: "visible" }}>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Bracket</p>
+                    {canManage && (
+                      <p className="text-[11px] text-[var(--text-muted)] mt-0.5">You can report results and manage this bracket.</p>
+                    )}
+                  </div>
+                  {canManage && (
+                    <GenerateBracketButton
+                      tournamentId={tournament.id}
+                      entrants={tournament.entrants}
+                      canManage={canManage}
+                      hasBracket={!!tournament.bracket}
+                    />
+                  )}
+                </div>
+                {tournament.bracket ? (
+                  <BracketView bracket={tournament.bracket} canManage={canManage} lineColor={tournament.bracketLineColor} boxColor={tournament.bracketBoxColor} fontColor={tournament.bracketFontColor} />
+                ) : (
+                  <p className="text-[13px] text-[var(--text-secondary)]">No bracket generated yet.</p>
                 )}
               </div>
-              {canManage && (
-                <GenerateBracketButton
-                  tournamentId={tournament.id}
-                  entrants={tournament.entrants}
-                  canManage={canManage}
-                  hasBracket={!!tournament.bracket}
-                />
-              )}
             </div>
-            {tournament.bracket ? (
-              <BracketView bracket={tournament.bracket} canManage={canManage} lineColor={tournament.bracketLineColor} boxColor={tournament.bracketBoxColor} fontColor={tournament.bracketFontColor} />
-            ) : (
-              <p className="text-[13px] text-[var(--text-secondary)]">No bracket generated yet.</p>
-            )}
           </div>
         </div>
+      ) : (
+        // No bracket section to sit beside (spectator view, bracket not
+        // generated yet) — Entrants renders on its own at the standard
+        // content width instead of being a lone sidebar with nothing next to it.
+        <div className="max-w-5xl mx-auto mb-6">{entrantsSidebar}</div>
       )}
 
       <div className="max-w-5xl mx-auto">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {/* Matches */}
-          <div className="col-span-2">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Matches</p>
-              <CreateMatchButton tournamentId={tournament.id} entrants={tournament.entrants} canManage={canManage} />
-            </div>
-            {freeformMatches.length === 0 ? (
-              <div className="fgc-card p-6 text-[var(--text-secondary)]">No matches yet.</div>
-            ) : (
-              Object.entries(rounds).map(([round, matches]) => (
-                <div key={round} className="mb-4">
-                  <p className="text-[11px] uppercase tracking-wider text-[var(--text-muted)] mb-2 px-1">{round}</p>
-                  <div className="fgc-card">
-                    {matches.map((match: any) => (
-                      <div key={match.id} className="px-4 py-3 border-b border-[var(--border)] last:border-0">
-                        <div className="flex items-center justify-end mb-1">
-                          <ReportMatchButton match={match} canManage={canManage} />
-                        </div>
-                        {/* Player 1 */}
-                        <div className={`flex items-center justify-between py-1 ${match.winner?.id === match.player1.id ? "opacity-100" : "opacity-50"}`}>
-                          <div className="flex items-center gap-2">
-                            {match.winner?.id === match.player1.id && (
-                              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "var(--green)" }} />
-                            )}
-                            <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ background: "var(--navy-4)", border: "1px solid var(--border-strong)" }}>
-                              {match.player1.avatarUrl ? (
-                                <img src={match.player1.avatarUrl} alt={match.player1.tag} className="w-full h-full object-cover" />
-                              ) : (
-                                <span className="text-[8px] font-bold" style={{ color: "var(--text-secondary)" }}>{match.player1.tag.slice(0, 2).toUpperCase()}</span>
-                              )}
-                            </div>
-                            <Link href={`/players/${match.player1.id}`} className="font-rajdhani text-[14px] font-semibold text-[var(--text-primary)] hover:text-[var(--blue)]">
-                              {match.player1.tag}
-                            </Link>
-                          </div>
-                          <span className="font-rajdhani text-[14px] font-bold" style={{ color: match.winner?.id === match.player1.id ? "var(--green)" : "var(--text-muted)" }}>
-                            {match.status === "COMPLETED" ? (match.isForfeit ? "FF" : match.player1Score) : "—"}
-                          </span>
-                        </div>
-                        {/* Player 2 */}
-                        <div className={`flex items-center justify-between py-1 ${match.winner?.id === match.player2.id ? "opacity-100" : "opacity-50"}`}>
-                          <div className="flex items-center gap-2">
-                            {match.winner?.id === match.player2.id && (
-                              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "var(--green)" }} />
-                            )}
-                            <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ background: "var(--navy-4)", border: "1px solid var(--border-strong)" }}>
-                              {match.player2.avatarUrl ? (
-                                <img src={match.player2.avatarUrl} alt={match.player2.tag} className="w-full h-full object-cover" />
-                              ) : (
-                                <span className="text-[8px] font-bold" style={{ color: "var(--text-secondary)" }}>{match.player2.tag.slice(0, 2).toUpperCase()}</span>
-                              )}
-                            </div>
-                            <Link href={`/players/${match.player2.id}`} className="font-rajdhani text-[14px] font-semibold text-[var(--text-primary)] hover:text-[var(--blue)]">
-                              {match.player2.tag}
-                            </Link>
-                          </div>
-                          <span className="font-rajdhani text-[14px] font-bold" style={{ color: match.winner?.id === match.player2.id ? "var(--green)" : "var(--text-muted)" }}>
-                            {match.status === "COMPLETED" ? (match.isForfeit ? "FF" : match.player2Score) : "—"}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-
-          {/* Entrants sidebar */}
-          <div>
-            <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">Entrants</p>
-            <div className="fgc-card">
-              {tournament.entrants.length === 0 ? (
-                <p className="p-4 text-[var(--text-secondary)] text-[13px]">No entrants yet.</p>
-              ) : (
-                [...tournament.entrants]
-                  .sort((a: any, b: any) => (a.seed ?? 999) - (b.seed ?? 999))
-                  .map((entrant: any) => (
-                    <div
-                      key={entrant.id}
-                      className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--border)] last:border-0 hover:bg-[var(--navy-3)] transition-colors"
-                    >
-                      <Link href={`/players/${entrant.player.id}`} className="flex items-center gap-3 flex-1 min-w-0">
-                        <span className="text-[11px] text-[var(--text-muted)] w-5 flex-shrink-0">{entrant.seed ?? "—"}</span>
-                        <div
-                          className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 font-rajdhani text-[10px] font-bold overflow-hidden"
-                          style={{ background: "var(--blue-dim)", color: "var(--blue)", border: "1px solid rgba(79,142,247,0.3)" }}
-                        >
-                          {entrant.player.avatarUrl ? (
-                            <img src={entrant.player.avatarUrl} alt={entrant.player.tag} className="w-full h-full object-cover" />
-                          ) : (
-                            entrant.player.tag.slice(0, 2).toUpperCase()
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-rajdhani text-[13px] font-semibold text-[var(--text-primary)] truncate">{entrant.player.tag}</p>
-                          {entrant.placement && (
-                            <p className="text-[11px]" style={{ color: entrant.placement === 1 ? "var(--gold)" : "var(--text-muted)" }}>
-                              {entrant.placement === 1 ? "🏆 Champion" : `${entrant.placement}th place`}
-                            </p>
-                          )}
-                        </div>
-                      </Link>
-                      <RemoveEntrantButton entrantId={entrant.id} playerTag={entrant.player.tag} canManage={canManage} status={tournament.status} />
-                    </div>
-                  ))
-              )}
-            </div>
-          </div>
+        {/* Matches */}
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Matches</p>
+          <CreateMatchButton tournamentId={tournament.id} entrants={tournament.entrants} canManage={canManage} />
         </div>
+        {freeformMatches.length === 0 ? (
+          <div className="fgc-card p-6 text-[var(--text-secondary)]">No matches yet.</div>
+        ) : (
+          Object.entries(rounds).map(([round, matches]) => (
+            <div key={round} className="mb-4">
+              <p className="text-[11px] uppercase tracking-wider text-[var(--text-muted)] mb-2 px-1">{round}</p>
+              <div className="fgc-card">
+                {matches.map((match: any) => (
+                  <div key={match.id} className="px-4 py-3 border-b border-[var(--border)] last:border-0">
+                    <div className="flex items-center justify-end mb-1">
+                      <ReportMatchButton match={match} canManage={canManage} />
+                    </div>
+                    {/* Player 1 */}
+                    <div className={`flex items-center justify-between py-1 ${match.winner?.id === match.player1.id ? "opacity-100" : "opacity-50"}`}>
+                      <div className="flex items-center gap-2">
+                        {match.winner?.id === match.player1.id && (
+                          <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "var(--green)" }} />
+                        )}
+                        <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ background: "var(--navy-4)", border: "1px solid var(--border-strong)" }}>
+                          {match.player1.avatarUrl ? (
+                            <img src={match.player1.avatarUrl} alt={match.player1.tag} className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-[8px] font-bold" style={{ color: "var(--text-secondary)" }}>{match.player1.tag.slice(0, 2).toUpperCase()}</span>
+                          )}
+                        </div>
+                        <Link href={`/players/${match.player1.id}`} className="font-rajdhani text-[14px] font-semibold text-[var(--text-primary)] hover:text-[var(--blue)]">
+                          {match.player1.tag}
+                        </Link>
+                      </div>
+                      <span className="font-rajdhani text-[14px] font-bold" style={{ color: match.winner?.id === match.player1.id ? "var(--green)" : "var(--text-muted)" }}>
+                        {match.status === "COMPLETED" ? (match.isForfeit ? "FF" : match.player1Score) : "—"}
+                      </span>
+                    </div>
+                    {/* Player 2 */}
+                    <div className={`flex items-center justify-between py-1 ${match.winner?.id === match.player2.id ? "opacity-100" : "opacity-50"}`}>
+                      <div className="flex items-center gap-2">
+                        {match.winner?.id === match.player2.id && (
+                          <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "var(--green)" }} />
+                        )}
+                        <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ background: "var(--navy-4)", border: "1px solid var(--border-strong)" }}>
+                          {match.player2.avatarUrl ? (
+                            <img src={match.player2.avatarUrl} alt={match.player2.tag} className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-[8px] font-bold" style={{ color: "var(--text-secondary)" }}>{match.player2.tag.slice(0, 2).toUpperCase()}</span>
+                          )}
+                        </div>
+                        <Link href={`/players/${match.player2.id}`} className="font-rajdhani text-[14px] font-semibold text-[var(--text-primary)] hover:text-[var(--blue)]">
+                          {match.player2.tag}
+                        </Link>
+                      </div>
+                      <span className="font-rajdhani text-[14px] font-bold" style={{ color: match.winner?.id === match.player2.id ? "var(--green)" : "var(--text-muted)" }}>
+                        {match.status === "COMPLETED" ? (match.isForfeit ? "FF" : match.player2Score) : "—"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
 
         {/* Back link */}
         <div className="mt-6">
