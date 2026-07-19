@@ -107,7 +107,16 @@ function BracketSideSection({
   return (
     <div className="mb-6">
       <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">{SIDE_LABELS[side] ?? side}</p>
-      <div className="flex gap-10">
+      {/* Wider than the site's usual gap-10: this is the column gap the
+          staggered connector lines fan out across (see BracketView's
+          elbow-staggering effect above). Early rounds of a large bracket can
+          have well over a dozen lines converging through one column gap
+          (e.g. 16 lines for a 32-entrant bracket's Round 1 -> Round 2), and
+          gap-10 (35px) only gives each staggered line ~2px of separation —
+          thinner than the line stroke itself, so they visually fuse into a
+          solid bar regardless of how correctly they're grouped/staggered.
+          gap-24 (84px) keeps even a 16-way fan-in comfortably separated. */}
+      <div className="flex gap-24">
         {roundNumbers.map(r => (
           <div key={r} className="flex flex-col gap-6 justify-center">
             {rounds.get(r)!
@@ -128,6 +137,7 @@ interface Line {
   x2: number;
   y2: number;
   midX: number;
+  side: string;
 }
 
 export function BracketView({
@@ -190,7 +200,7 @@ export function BracketView({
         // through nextMatchId there (see lib/bracket.ts's wireFeeder).
         if (m.nextMatch) {
           const to = posById.get(m.nextMatch.id);
-          if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY, midX: 0 });
+          if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY, midX: 0, side: m.bracketSide });
         }
         // nextLoserMatch normally represents a mid-bracket WB→LB drop, which
         // is visually confusing at real bracket scale — suppress those. The
@@ -202,7 +212,7 @@ export function BracketView({
           const targetSide = matchById.get(m.nextLoserMatch.id)?.bracketSide;
           if (targetSide === "GRAND_FINAL") {
             const to = posById.get(m.nextLoserMatch.id);
-            if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY, midX: 0 });
+            if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY, midX: 0, side: m.bracketSide });
           }
         }
       }
@@ -217,9 +227,19 @@ export function BracketView({
       // can look like it terminates at a different card than it actually
       // does. Stagger each line's elbow X within its column-transition
       // group so overlapping lines separate into distinct visual lanes.
+      //
+      // Group by bracketSide too, not just x1/x2: Winners and Losers
+      // sections are stacked vertically with no horizontal offset between
+      // them (see the "flex flex-col" wrapper below), so a WB round
+      // transition and an LB round transition at the same depth land on
+      // the identical x1/x2 pair. Without the side in the key, both sides'
+      // lines got crammed into one shared lane group — at bracket sizes
+      // like 32 entrants that's up to ~20 lines squeezed into a single
+      // 35px column gap, sub-2px apart, which is what actually rendered
+      // as a fused solid bar (this was never a width/container issue).
       const byTransition = new Map<string, Line[]>();
       for (const line of lines) {
-        const key = `${line.x1}|${line.x2}`;
+        const key = `${line.side}|${line.x1}|${line.x2}`;
         if (!byTransition.has(key)) byTransition.set(key, []);
         byTransition.get(key)!.push(line);
       }

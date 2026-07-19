@@ -160,233 +160,250 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   }
 
   return (
-    <main className="max-w-5xl mx-auto px-4 py-8">
-      {/* Header */}
-      <div className="fgc-card p-6 mb-6">
-        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-          <div>
-            <h1 className="font-rajdhani text-3xl font-bold text-[var(--text-primary)] leading-tight">
-              {tournament.name}
-              {tournament.visibility === "PRIVATE" && (
-                <span className="ml-2 text-[13px] align-middle" style={{ color: "var(--text-muted)" }}>🔒 Private</span>
-              )}
-            </h1>
-            <p className="text-[13px] text-[var(--text-secondary)] mt-1">
-              {tournament.game} · {tournament.entrantCount} entrants · {new Date(tournament.startDate).toLocaleDateString()}
-            </p>
-            {tournament.status === "CANCELLED" && tournament.cancellationReason && (
-              <p className="text-[13px] mt-1" style={{ color: "var(--coral)" }}>
-                Cancelled: {tournament.cancellationReason}
-              </p>
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            {statusBadge(tournament.status)}
-            {/* Public shortcut to the read-only broadcast view — deliberately
-                NOT gated behind canManage, unlike everything else in this
-                header row's second block below. It's just navigation to an
-                already-public page, not a management action, so anyone
-                (including signed-out visitors) should be able to jump to it. */}
-            <Link
-              href={`/tournaments/${tournament.id}/stream`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-rajdhani text-[13px] font-bold tracking-wide px-3 py-1.5 rounded"
-              style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)" }}
-            >
-              📺 Streamer Mode
-            </Link>
-            <TournamentStatusButton tournamentId={tournament.id} status={tournament.status} canManage={canManage} />
-            <JoinTournamentButton
-              tournamentId={tournament.id}
-              isEntered={tournament.isEntered}
-              entrantId={myEntrant?.id}
-              status={tournament.status}
-              visibility={tournament.visibility}
-              isInvited={tournament.isInvited}
-            />
-          </div>
-        </div>
-        {canManage && (
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <ManageOrganizersButton
-              tournamentId={tournament.id}
-              organizers={tournament.organizers}
-              entrants={tournament.entrants}
-              canManage={canManage}
-            />
-            <InvitePlayerButton
-              tournamentId={tournament.id}
-              visibility={tournament.visibility}
-              invitedPlayers={tournament.invitedPlayers}
-              entrants={tournament.entrants}
-              allPlayers={players}
-              canManage={canManage}
-            />
-            <StreamAssetsButton
-              tournamentId={tournament.id}
-              streamBackgroundUrl={tournament.streamBackgroundUrl}
-              sponsorBannerUrl={tournament.sponsorBannerUrl}
-              bracketLineColor={tournament.bracketLineColor}
-              canManage={canManage}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Bracket — visible to everyone once generated (Phase 2: public read-only
-          view). Organizers/admins additionally get generate/edit controls and
-          can see the "no bracket yet" state; non-managers just see nothing
-          until one exists, so spectators aren't shown an empty section. */}
-      {(tournament.bracket || canManage) && (
-        // overflow: visible override — .fgc-card's overflow:hidden (for
-        // rounded-corner clipping elsewhere) becomes BracketView's sticky
-        // scrollbar's containing block otherwise, and since this card never
-        // scrolls internally (the whole page does), the sticky element would
-        // never actually track viewport scroll — a well-known overflow +
-        // position:sticky interaction, not a BracketView-side bug.
-        <div className="fgc-card p-6 mb-6" style={{ overflow: "visible" }}>
-          <div className="flex items-center justify-between mb-4">
+    <main className="mx-auto px-4 py-8">
+      {/* Header — kept at the site's standard content width. Only the
+          bracket section below gets a wider wrapper, since it's the one
+          part of this page with inherently wide, horizontally-scrollable
+          content (see the bracket wrapper comment further down). */}
+      <div className="max-w-5xl mx-auto">
+        <div className="fgc-card p-6 mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
             <div>
-              <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Bracket</p>
-              {canManage && (
-                <p className="text-[11px] text-[var(--text-muted)] mt-0.5">You can report results and manage this bracket.</p>
+              <h1 className="font-rajdhani text-3xl font-bold text-[var(--text-primary)] leading-tight">
+                {tournament.name}
+                {tournament.visibility === "PRIVATE" && (
+                  <span className="ml-2 text-[13px] align-middle" style={{ color: "var(--text-muted)" }}>🔒 Private</span>
+                )}
+              </h1>
+              <p className="text-[13px] text-[var(--text-secondary)] mt-1">
+                {tournament.game} · {tournament.entrantCount} entrants · {new Date(tournament.startDate).toLocaleDateString()}
+              </p>
+              {tournament.status === "CANCELLED" && tournament.cancellationReason && (
+                <p className="text-[13px] mt-1" style={{ color: "var(--coral)" }}>
+                  Cancelled: {tournament.cancellationReason}
+                </p>
               )}
             </div>
-            {canManage && (
-              <GenerateBracketButton
+            <div className="flex items-center gap-3">
+              {statusBadge(tournament.status)}
+              {/* Public shortcut to the read-only broadcast view — deliberately
+                  NOT gated behind canManage, unlike everything else in this
+                  header row's second block below. It's just navigation to an
+                  already-public page, not a management action, so anyone
+                  (including signed-out visitors) should be able to jump to it. */}
+              <Link
+                href={`/tournaments/${tournament.id}/stream`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-rajdhani text-[13px] font-bold tracking-wide px-3 py-1.5 rounded"
+                style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)" }}
+              >
+                📺 Streamer Mode
+              </Link>
+              <TournamentStatusButton tournamentId={tournament.id} status={tournament.status} canManage={canManage} />
+              <JoinTournamentButton
                 tournamentId={tournament.id}
+                isEntered={tournament.isEntered}
+                entrantId={myEntrant?.id}
+                status={tournament.status}
+                visibility={tournament.visibility}
+                isInvited={tournament.isInvited}
+              />
+            </div>
+          </div>
+          {canManage && (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <ManageOrganizersButton
+                tournamentId={tournament.id}
+                organizers={tournament.organizers}
                 entrants={tournament.entrants}
                 canManage={canManage}
-                hasBracket={!!tournament.bracket}
               />
+              <InvitePlayerButton
+                tournamentId={tournament.id}
+                visibility={tournament.visibility}
+                invitedPlayers={tournament.invitedPlayers}
+                entrants={tournament.entrants}
+                allPlayers={players}
+                canManage={canManage}
+              />
+              <StreamAssetsButton
+                tournamentId={tournament.id}
+                streamBackgroundUrl={tournament.streamBackgroundUrl}
+                sponsorBannerUrl={tournament.sponsorBannerUrl}
+                bracketLineColor={tournament.bracketLineColor}
+                canManage={canManage}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Bracket — deliberately NOT wrapped in the max-w-5xl container above.
+          Unlike the rest of this page, the bracket is inherently wide,
+          horizontally-scrollable content (it already has its own internal
+          overflow-x scroll + sticky range-slider scrollbar for whatever
+          exceeds even this width), so constraining it to the same
+          paragraph-width column as everything else squishes it into a
+          narrow strip with unused space on both sides. Give it its own much
+          wider (near full-bleed) centered container instead — visible to
+          everyone once generated (Phase 2: public read-only view).
+          Organizers/admins additionally get generate/edit controls and can
+          see the "no bracket yet" state; non-managers just see nothing until
+          one exists, so spectators aren't shown an empty section. */}
+      {(tournament.bracket || canManage) && (
+        <div className="max-w-[1800px] mx-auto">
+          {/* overflow: visible override — .fgc-card's overflow:hidden (for
+              rounded-corner clipping elsewhere) becomes BracketView's sticky
+              scrollbar's containing block otherwise, and since this card never
+              scrolls internally (the whole page does), the sticky element would
+              never actually track viewport scroll — a well-known overflow +
+              position:sticky interaction, not a BracketView-side bug. */}
+          <div className="fgc-card p-6 mb-6" style={{ overflow: "visible" }}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Bracket</p>
+                {canManage && (
+                  <p className="text-[11px] text-[var(--text-muted)] mt-0.5">You can report results and manage this bracket.</p>
+                )}
+              </div>
+              {canManage && (
+                <GenerateBracketButton
+                  tournamentId={tournament.id}
+                  entrants={tournament.entrants}
+                  canManage={canManage}
+                  hasBracket={!!tournament.bracket}
+                />
+              )}
+            </div>
+            {tournament.bracket ? (
+              <BracketView bracket={tournament.bracket} canManage={canManage} lineColor={tournament.bracketLineColor} />
+            ) : (
+              <p className="text-[13px] text-[var(--text-secondary)]">No bracket generated yet.</p>
             )}
           </div>
-          {tournament.bracket ? (
-            <BracketView bracket={tournament.bracket} canManage={canManage} lineColor={tournament.bracketLineColor} />
-          ) : (
-            <p className="text-[13px] text-[var(--text-secondary)]">No bracket generated yet.</p>
-          )}
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {/* Matches */}
-        <div className="col-span-2">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Matches</p>
-            <CreateMatchButton tournamentId={tournament.id} entrants={tournament.entrants} canManage={canManage} />
-          </div>
-          {freeformMatches.length === 0 ? (
-            <div className="fgc-card p-6 text-[var(--text-secondary)]">No matches yet.</div>
-          ) : (
-            Object.entries(rounds).map(([round, matches]) => (
-              <div key={round} className="mb-4">
-                <p className="text-[11px] uppercase tracking-wider text-[var(--text-muted)] mb-2 px-1">{round}</p>
-                <div className="fgc-card">
-                  {matches.map((match: any) => (
-                    <div key={match.id} className="px-4 py-3 border-b border-[var(--border)] last:border-0">
-                      <div className="flex items-center justify-end mb-1">
-                        <ReportMatchButton match={match} canManage={canManage} />
-                      </div>
-                      {/* Player 1 */}
-                      <div className={`flex items-center justify-between py-1 ${match.winner?.id === match.player1.id ? "opacity-100" : "opacity-50"}`}>
-                        <div className="flex items-center gap-2">
-                          {match.winner?.id === match.player1.id && (
-                            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "var(--green)" }} />
-                          )}
-                          <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ background: "var(--navy-4)", border: "1px solid var(--border-strong)" }}>
-                            {match.player1.avatarUrl ? (
-                              <img src={match.player1.avatarUrl} alt={match.player1.tag} className="w-full h-full object-cover" />
-                            ) : (
-                              <span className="text-[8px] font-bold" style={{ color: "var(--text-secondary)" }}>{match.player1.tag.slice(0, 2).toUpperCase()}</span>
-                            )}
-                          </div>
-                          <Link href={`/players/${match.player1.id}`} className="font-rajdhani text-[14px] font-semibold text-[var(--text-primary)] hover:text-[var(--blue)]">
-                            {match.player1.tag}
-                          </Link>
-                        </div>
-                        <span className="font-rajdhani text-[14px] font-bold" style={{ color: match.winner?.id === match.player1.id ? "var(--green)" : "var(--text-muted)" }}>
-                          {match.status === "COMPLETED" ? (match.isForfeit ? "FF" : match.player1Score) : "—"}
-                        </span>
-                      </div>
-                      {/* Player 2 */}
-                      <div className={`flex items-center justify-between py-1 ${match.winner?.id === match.player2.id ? "opacity-100" : "opacity-50"}`}>
-                        <div className="flex items-center gap-2">
-                          {match.winner?.id === match.player2.id && (
-                            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "var(--green)" }} />
-                          )}
-                          <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ background: "var(--navy-4)", border: "1px solid var(--border-strong)" }}>
-                            {match.player2.avatarUrl ? (
-                              <img src={match.player2.avatarUrl} alt={match.player2.tag} className="w-full h-full object-cover" />
-                            ) : (
-                              <span className="text-[8px] font-bold" style={{ color: "var(--text-secondary)" }}>{match.player2.tag.slice(0, 2).toUpperCase()}</span>
-                            )}
-                          </div>
-                          <Link href={`/players/${match.player2.id}`} className="font-rajdhani text-[14px] font-semibold text-[var(--text-primary)] hover:text-[var(--blue)]">
-                            {match.player2.tag}
-                          </Link>
-                        </div>
-                        <span className="font-rajdhani text-[14px] font-bold" style={{ color: match.winner?.id === match.player2.id ? "var(--green)" : "var(--text-muted)" }}>
-                          {match.status === "COMPLETED" ? (match.isForfeit ? "FF" : match.player2Score) : "—"}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        {/* Entrants sidebar */}
-        <div>
-          <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">Entrants</p>
-          <div className="fgc-card">
-            {tournament.entrants.length === 0 ? (
-              <p className="p-4 text-[var(--text-secondary)] text-[13px]">No entrants yet.</p>
+      <div className="max-w-5xl mx-auto">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* Matches */}
+          <div className="col-span-2">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Matches</p>
+              <CreateMatchButton tournamentId={tournament.id} entrants={tournament.entrants} canManage={canManage} />
+            </div>
+            {freeformMatches.length === 0 ? (
+              <div className="fgc-card p-6 text-[var(--text-secondary)]">No matches yet.</div>
             ) : (
-              [...tournament.entrants]
-                .sort((a: any, b: any) => (a.seed ?? 999) - (b.seed ?? 999))
-                .map((entrant: any) => (
-                  <div
-                    key={entrant.id}
-                    className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--border)] last:border-0 hover:bg-[var(--navy-3)] transition-colors"
-                  >
-                    <Link href={`/players/${entrant.player.id}`} className="flex items-center gap-3 flex-1 min-w-0">
-                      <span className="text-[11px] text-[var(--text-muted)] w-5 flex-shrink-0">{entrant.seed ?? "—"}</span>
-                      <div
-                        className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 font-rajdhani text-[10px] font-bold overflow-hidden"
-                        style={{ background: "var(--blue-dim)", color: "var(--blue)", border: "1px solid rgba(79,142,247,0.3)" }}
-                      >
-                        {entrant.player.avatarUrl ? (
-                          <img src={entrant.player.avatarUrl} alt={entrant.player.tag} className="w-full h-full object-cover" />
-                        ) : (
-                          entrant.player.tag.slice(0, 2).toUpperCase()
-                        )}
+              Object.entries(rounds).map(([round, matches]) => (
+                <div key={round} className="mb-4">
+                  <p className="text-[11px] uppercase tracking-wider text-[var(--text-muted)] mb-2 px-1">{round}</p>
+                  <div className="fgc-card">
+                    {matches.map((match: any) => (
+                      <div key={match.id} className="px-4 py-3 border-b border-[var(--border)] last:border-0">
+                        <div className="flex items-center justify-end mb-1">
+                          <ReportMatchButton match={match} canManage={canManage} />
+                        </div>
+                        {/* Player 1 */}
+                        <div className={`flex items-center justify-between py-1 ${match.winner?.id === match.player1.id ? "opacity-100" : "opacity-50"}`}>
+                          <div className="flex items-center gap-2">
+                            {match.winner?.id === match.player1.id && (
+                              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "var(--green)" }} />
+                            )}
+                            <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ background: "var(--navy-4)", border: "1px solid var(--border-strong)" }}>
+                              {match.player1.avatarUrl ? (
+                                <img src={match.player1.avatarUrl} alt={match.player1.tag} className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="text-[8px] font-bold" style={{ color: "var(--text-secondary)" }}>{match.player1.tag.slice(0, 2).toUpperCase()}</span>
+                              )}
+                            </div>
+                            <Link href={`/players/${match.player1.id}`} className="font-rajdhani text-[14px] font-semibold text-[var(--text-primary)] hover:text-[var(--blue)]">
+                              {match.player1.tag}
+                            </Link>
+                          </div>
+                          <span className="font-rajdhani text-[14px] font-bold" style={{ color: match.winner?.id === match.player1.id ? "var(--green)" : "var(--text-muted)" }}>
+                            {match.status === "COMPLETED" ? (match.isForfeit ? "FF" : match.player1Score) : "—"}
+                          </span>
+                        </div>
+                        {/* Player 2 */}
+                        <div className={`flex items-center justify-between py-1 ${match.winner?.id === match.player2.id ? "opacity-100" : "opacity-50"}`}>
+                          <div className="flex items-center gap-2">
+                            {match.winner?.id === match.player2.id && (
+                              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "var(--green)" }} />
+                            )}
+                            <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ background: "var(--navy-4)", border: "1px solid var(--border-strong)" }}>
+                              {match.player2.avatarUrl ? (
+                                <img src={match.player2.avatarUrl} alt={match.player2.tag} className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="text-[8px] font-bold" style={{ color: "var(--text-secondary)" }}>{match.player2.tag.slice(0, 2).toUpperCase()}</span>
+                              )}
+                            </div>
+                            <Link href={`/players/${match.player2.id}`} className="font-rajdhani text-[14px] font-semibold text-[var(--text-primary)] hover:text-[var(--blue)]">
+                              {match.player2.tag}
+                            </Link>
+                          </div>
+                          <span className="font-rajdhani text-[14px] font-bold" style={{ color: match.winner?.id === match.player2.id ? "var(--green)" : "var(--text-muted)" }}>
+                            {match.status === "COMPLETED" ? (match.isForfeit ? "FF" : match.player2Score) : "—"}
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-rajdhani text-[13px] font-semibold text-[var(--text-primary)] truncate">{entrant.player.tag}</p>
-                        {entrant.placement && (
-                          <p className="text-[11px]" style={{ color: entrant.placement === 1 ? "var(--gold)" : "var(--text-muted)" }}>
-                            {entrant.placement === 1 ? "🏆 Champion" : `${entrant.placement}th place`}
-                          </p>
-                        )}
-                      </div>
-                    </Link>
-                    <RemoveEntrantButton entrantId={entrant.id} playerTag={entrant.player.tag} canManage={canManage} status={tournament.status} />
+                    ))}
                   </div>
-                ))
+                </div>
+              ))
             )}
           </div>
-        </div>
-      </div>
 
-      {/* Back link */}
-      <div className="mt-6">
-        <Link href="/tournaments" className="text-[13px] text-[var(--text-secondary)] hover:text-[var(--blue)]">
-          ← Back to tournaments
-        </Link>
+          {/* Entrants sidebar */}
+          <div>
+            <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">Entrants</p>
+            <div className="fgc-card">
+              {tournament.entrants.length === 0 ? (
+                <p className="p-4 text-[var(--text-secondary)] text-[13px]">No entrants yet.</p>
+              ) : (
+                [...tournament.entrants]
+                  .sort((a: any, b: any) => (a.seed ?? 999) - (b.seed ?? 999))
+                  .map((entrant: any) => (
+                    <div
+                      key={entrant.id}
+                      className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--border)] last:border-0 hover:bg-[var(--navy-3)] transition-colors"
+                    >
+                      <Link href={`/players/${entrant.player.id}`} className="flex items-center gap-3 flex-1 min-w-0">
+                        <span className="text-[11px] text-[var(--text-muted)] w-5 flex-shrink-0">{entrant.seed ?? "—"}</span>
+                        <div
+                          className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 font-rajdhani text-[10px] font-bold overflow-hidden"
+                          style={{ background: "var(--blue-dim)", color: "var(--blue)", border: "1px solid rgba(79,142,247,0.3)" }}
+                        >
+                          {entrant.player.avatarUrl ? (
+                            <img src={entrant.player.avatarUrl} alt={entrant.player.tag} className="w-full h-full object-cover" />
+                          ) : (
+                            entrant.player.tag.slice(0, 2).toUpperCase()
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-rajdhani text-[13px] font-semibold text-[var(--text-primary)] truncate">{entrant.player.tag}</p>
+                          {entrant.placement && (
+                            <p className="text-[11px]" style={{ color: entrant.placement === 1 ? "var(--gold)" : "var(--text-muted)" }}>
+                              {entrant.placement === 1 ? "🏆 Champion" : `${entrant.placement}th place`}
+                            </p>
+                          )}
+                        </div>
+                      </Link>
+                      <RemoveEntrantButton entrantId={entrant.id} playerTag={entrant.player.tag} canManage={canManage} status={tournament.status} />
+                    </div>
+                  ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Back link */}
+        <div className="mt-6">
+          <Link href="/tournaments" className="text-[13px] text-[var(--text-secondary)] hover:text-[var(--blue)]">
+            ← Back to tournaments
+          </Link>
+        </div>
       </div>
     </main>
   );
