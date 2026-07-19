@@ -21,14 +21,21 @@
   --border-strong:  rgba(255,255,255,0.14);
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+/* These base-level resets must live in Tailwind's "base" layer, not as plain
+   unlayered rules — unlayered CSS always wins the cascade over ANY layered
+   rule regardless of specificity, so a plain `* { margin: 0 }` here would
+   silently beat every Tailwind margin/padding utility (mx-auto, px-4, etc.)
+   site-wide instead of just providing a default they can override. */
+@layer base {
+  * { box-sizing: border-box; margin: 0; padding: 0; }
 
-html, body {
-  background: var(--navy);
-  color: var(--text-primary);
-  font-family: 'Inter', sans-serif;
-  font-size: 14px;
-  min-height: 100%;
+  html, body {
+    background: var(--navy);
+    color: var(--text-primary);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    min-height: 100%;
+  }
 }
 
 .font-rajdhani { font-family: 'Rajdhani', sans-serif; }
