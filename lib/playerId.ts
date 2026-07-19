@@ -2,9 +2,8 @@
 // place since both the GraphQL resolver and the one-off backfill script need
 // the exact same format.
 //
-// 4 digits (FGC-0001 .. FGC-9999) gives room for 9999 players before a
-// format change is needed — a reasonable starting point for this project's
-// current scale.
+// 6 digits (FGC-000001 .. FGC-999999) gives room for 999,999 players before
+// a format change is needed.
 export function formatPlayerNumber(n: number): string {
-  return `FGC-${String(n).padStart(4, "0")}`;
+  return `FGC-${String(n).padStart(6, "0")}`;
 }

@@ -5,7 +5,7 @@ const PlayerSchema = new Schema(
     // Link back to the auth User account
     userId: { type: Schema.Types.ObjectId, ref: "User" },
     tag: { type: String, required: true, unique: true },
-    // Human-friendly sequential ID (displayed as e.g. "FGC-0001" — see
+    // Human-friendly sequential ID (displayed as e.g. "FGC-000001" — see
     // lib/playerId.ts for the formatter), assigned atomically via
     // lib/counter.ts on creation. Foundation for the separately-backlogged
     // QR-based tournament check-in feature. `sparse` so the unique index

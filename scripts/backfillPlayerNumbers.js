@@ -1,7 +1,7 @@
 // scripts/backfillPlayerNumbers.js
 //
 // One-off backfill: assigns a sequential playerNumber (displayed as e.g.
-// "FGC-0001" — see lib/playerId.ts) to every existing Player that doesn't
+// "FGC-000001" — see lib/playerId.ts) to every existing Player that doesn't
 // have one yet, ordered by createdAt so the oldest accounts get the lowest
 // numbers. Uses the same Counter-based atomic sequence
 // (lib/counter.ts/getNextSequence) that the register resolver now uses for
