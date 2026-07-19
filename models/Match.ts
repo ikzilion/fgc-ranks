@@ -27,6 +27,11 @@ const MatchSchema = new Schema(
     player2Score: { type: Number, default: 0 },
     // Populated after reportResult mutation resolves the winner
     winnerId: { type: Schema.Types.ObjectId, ref: "Player" },
+    // True when this result came from a forfeit rather than a played score —
+    // the UI shows "FF" instead of player1Score/player2Score (left at their
+    // 0 defaults). The forfeiting player is just whichever of player1/player2
+    // isn't winnerId — no separate field needed to track that.
+    isForfeit: { type: Boolean, default: false },
     // e.g. "Top 8", "Semifinals", "Grand Finals" — bracket matches get an
     // auto-generated label (see lib/bracket.ts) instead of a free-text one.
     round: { type: String, required: true },

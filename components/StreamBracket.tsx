@@ -29,6 +29,7 @@ const GET_STREAM_TOURNAMENT = `
           bracketPosition
           player1Score
           player2Score
+          isForfeit
           player1 { id tag }
           player2 { id tag }
           winner { id tag }

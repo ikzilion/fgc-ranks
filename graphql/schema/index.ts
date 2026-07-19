@@ -78,6 +78,7 @@ export const typeDefs = `#graphql
     player2: Player
     player1Score: Int!
     player2Score: Int!
+    isForfeit: Boolean!
     winner: Player
     round: String!
     status: MatchStatus!
@@ -154,8 +155,8 @@ export const typeDefs = `#graphql
     setPlacement(entrantId: ID!, placement: Int!): Entrant!
 
     createMatch(tournamentId: ID!, player1Id: ID!, player2Id: ID!, round: String!): Match!
-    reportResult(matchId: ID!, player1Score: Int!, player2Score: Int!): Match!
-    editMatchResult(matchId: ID!, player1Score: Int!, player2Score: Int!): Match!
+    reportResult(matchId: ID!, player1Score: Int, player2Score: Int, isForfeit: Boolean, forfeitingPlayerId: ID): Match!
+    editMatchResult(matchId: ID!, player1Score: Int, player2Score: Int, isForfeit: Boolean, forfeitingPlayerId: ID): Match!
 
     generateBracket(tournamentId: ID!, seedingMethod: SeedingMethod!, manualSeedOrder: [ID!]): Bracket!
     deleteBracket(tournamentId: ID!): Boolean!

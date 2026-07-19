@@ -61,6 +61,7 @@ const GET_TOURNAMENT = `
         bracketSide
         player1Score
         player2Score
+        isForfeit
         player1 { id tag avatarUrl }
         player2 { id tag avatarUrl }
         winner { id tag }
@@ -78,6 +79,7 @@ const GET_TOURNAMENT = `
           bracketPosition
           player1Score
           player2Score
+          isForfeit
           player1 { id tag }
           player2 { id tag }
           winner { id tag }
@@ -305,7 +307,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                           </Link>
                         </div>
                         <span className="font-rajdhani text-[14px] font-bold" style={{ color: match.winner?.id === match.player1.id ? "var(--green)" : "var(--text-muted)" }}>
-                          {match.status === "COMPLETED" ? match.player1Score : "—"}
+                          {match.status === "COMPLETED" ? (match.isForfeit ? "FF" : match.player1Score) : "—"}
                         </span>
                       </div>
                       {/* Player 2 */}
@@ -326,7 +328,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                           </Link>
                         </div>
                         <span className="font-rajdhani text-[14px] font-bold" style={{ color: match.winner?.id === match.player2.id ? "var(--green)" : "var(--text-muted)" }}>
-                          {match.status === "COMPLETED" ? match.player2Score : "—"}
+                          {match.status === "COMPLETED" ? (match.isForfeit ? "FF" : match.player2Score) : "—"}
                         </span>
                       </div>
                     </div>

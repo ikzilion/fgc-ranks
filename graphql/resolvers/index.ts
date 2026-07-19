@@ -26,6 +26,37 @@ function isOrganizer(tournament: any, playerId?: string, role?: string): boolean
   return tournament.organizers.some((orgId: any) => orgId.toString() === playerId);
 }
 
+// Shared by reportResult/editMatchResult — resolves the winner/loser and the
+// fields to persist, for either a normally-scored result or a forfeit. A
+// forfeit skips score validation entirely (no numeric score is stored) and
+// derives the winner as whichever player didn't forfeit.
+function resolveMatchOutcome(
+  match: { player1Id: any; player2Id: any },
+  args: { player1Score?: number | null; player2Score?: number | null; isForfeit?: boolean | null; forfeitingPlayerId?: string | null }
+) {
+  const { player1Score, player2Score, isForfeit, forfeitingPlayerId } = args;
+
+  if (isForfeit) {
+    if (!forfeitingPlayerId) throw new Error("forfeitingPlayerId is required when reporting a forfeit");
+    const p1 = match.player1Id.toString();
+    const p2 = match.player2Id.toString();
+    if (forfeitingPlayerId !== p1 && forfeitingPlayerId !== p2) {
+      throw new Error("forfeitingPlayerId must be one of this match's players");
+    }
+    const winnerId = forfeitingPlayerId === p1 ? match.player2Id : match.player1Id;
+    const loserId = forfeitingPlayerId === p1 ? match.player1Id : match.player2Id;
+    return { winnerId, loserId, updateFields: { winnerId, isForfeit: true, player1Score: 0, player2Score: 0, status: MatchStatus.COMPLETED } };
+  }
+
+  if (player1Score == null || player2Score == null) {
+    throw new Error("player1Score and player2Score are required unless reporting a forfeit");
+  }
+  if (player1Score === player2Score) throw new Error("Scores cannot be tied.");
+  const winnerId = player1Score > player2Score ? match.player1Id : match.player2Id;
+  const loserId = player1Score > player2Score ? match.player2Id : match.player1Id;
+  return { winnerId, loserId, updateFields: { winnerId, isForfeit: false, player1Score, player2Score, status: MatchStatus.COMPLETED } };
+}
+
 export const resolvers = {
   // ─── Queries ───────────────────────────────────────────────────────────────
 
@@ -568,7 +599,7 @@ export const resolvers = {
 
     reportResult: async (
       _: unknown,
-      { matchId, player1Score, player2Score }: { matchId: string; player1Score: number; player2Score: number },
+      { matchId, player1Score, player2Score, isForfeit, forfeitingPlayerId }: { matchId: string; player1Score?: number | null; player2Score?: number | null; isForfeit?: boolean | null; forfeitingPlayerId?: string | null },
       { playerId, role }: { playerId?: string; role?: string }
     ) => {
       await connectToDatabase();
@@ -582,15 +613,10 @@ export const resolvers = {
         throw new Error("This match isn't ready to be reported yet — waiting on both players to be determined.");
       }
 
-      const winnerId = player1Score > player2Score ? match.player1Id : match.player2Id;
-      const loserId = player1Score > player2Score ? match.player2Id : match.player1Id;
+      const { winnerId, loserId, updateFields } = resolveMatchOutcome(match, { player1Score, player2Score, isForfeit, forfeitingPlayerId });
 
       // Update match result
-      const updated = await Match.findByIdAndUpdate(
-        matchId,
-        { player1Score, player2Score, winnerId, status: MatchStatus.COMPLETED },
-        { new: true }
-      );
+      const updated = await Match.findByIdAndUpdate(matchId, updateFields, { new: true });
 
       // Update win/loss records on both players
       await Player.findByIdAndUpdate(winnerId, { $inc: { wins: 1, points: 100 } });
@@ -613,11 +639,9 @@ export const resolvers = {
 
     editMatchResult: async (
       _: unknown,
-      { matchId, player1Score, player2Score }: { matchId: string; player1Score: number; player2Score: number },
+      { matchId, player1Score, player2Score, isForfeit, forfeitingPlayerId }: { matchId: string; player1Score?: number | null; player2Score?: number | null; isForfeit?: boolean | null; forfeitingPlayerId?: string | null },
       { playerId, role }: { playerId?: string; role?: string }
     ) => {
-      if (player1Score === player2Score) throw new Error("Scores cannot be tied.");
-
       await connectToDatabase();
       const match = await Match.findById(matchId);
       if (!match) throw new Error("Match not found");
@@ -643,14 +667,9 @@ export const resolvers = {
         await Player.findByIdAndUpdate(previousLoserId, { $inc: { losses: -1 } });
       }
 
-      const winnerId = player1Score > player2Score ? match.player1Id : match.player2Id;
-      const loserId = player1Score > player2Score ? match.player2Id : match.player1Id;
+      const { winnerId, loserId, updateFields } = resolveMatchOutcome(match, { player1Score, player2Score, isForfeit, forfeitingPlayerId });
 
-      const updated = await Match.findByIdAndUpdate(
-        matchId,
-        { player1Score, player2Score, winnerId, status: MatchStatus.COMPLETED },
-        { new: true }
-      );
+      const updated = await Match.findByIdAndUpdate(matchId, updateFields, { new: true });
 
       await Player.findByIdAndUpdate(winnerId, { $inc: { wins: 1, points: 100 } });
       await Player.findByIdAndUpdate(loserId, { $inc: { losses: 1 } });

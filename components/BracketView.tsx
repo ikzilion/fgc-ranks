@@ -13,6 +13,7 @@ interface BracketMatch {
   bracketPosition: number;
   player1Score: number;
   player2Score: number;
+  isForfeit: boolean;
   player1?: { id: string; tag: string } | null;
   player2?: { id: string; tag: string } | null;
   winner?: { id: string; tag: string } | null;
@@ -36,7 +37,19 @@ const SIDE_LABELS: Record<string, string> = {
 // Design system default when a tournament hasn't set a custom line color.
 const DEFAULT_LINE_COLOR = "var(--border-strong)";
 
-function PlayerRow({ player, score, status, isWinner }: { player?: { id: string; tag: string } | null; score: number; status: string; isWinner: boolean }) {
+function PlayerRow({
+  player,
+  score,
+  status,
+  isWinner,
+  isForfeit,
+}: {
+  player?: { id: string; tag: string } | null;
+  score: number;
+  status: string;
+  isWinner: boolean;
+  isForfeit: boolean;
+}) {
   return (
     <div className={`flex items-center justify-between py-1 ${isWinner ? "opacity-100" : "opacity-60"}`}>
       <div className="flex items-center gap-1.5 min-w-0">
@@ -51,7 +64,7 @@ function PlayerRow({ player, score, status, isWinner }: { player?: { id: string;
         </span>
       </div>
       <span className="font-rajdhani text-[13px] font-bold" style={{ color: isWinner ? "var(--green)" : "var(--text-muted)" }}>
-        {status === "COMPLETED" ? score : "—"}
+        {status === "COMPLETED" ? (isForfeit ? "FF" : score) : "—"}
       </span>
     </div>
   );
@@ -67,8 +80,8 @@ function MatchCard({ match, canManage, registerRef }: { match: BracketMatch; can
         {ready && <ReportMatchButton match={match as any} canManage={canManage} />}
       </div>
 
-      <PlayerRow player={match.player1} score={match.player1Score} status={match.status} isWinner={!!match.winner && match.winner.id === match.player1?.id} />
-      <PlayerRow player={match.player2} score={match.player2Score} status={match.status} isWinner={!!match.winner && match.winner.id === match.player2?.id} />
+      <PlayerRow player={match.player1} score={match.player1Score} status={match.status} isForfeit={match.isForfeit} isWinner={!!match.winner && match.winner.id === match.player1?.id} />
+      <PlayerRow player={match.player2} score={match.player2Score} status={match.status} isForfeit={match.isForfeit} isWinner={!!match.winner && match.winner.id === match.player2?.id} />
     </div>
   );
 }
