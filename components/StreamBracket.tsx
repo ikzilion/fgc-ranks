@@ -93,14 +93,31 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
   const hasBackground = !!tournament.streamBackgroundUrl;
 
   return (
-    <div
-      className="min-h-screen w-full"
-      style={{
-        background: hasBackground
-          ? `linear-gradient(rgba(13,15,26,0.55), rgba(13,15,26,0.55)), center / cover no-repeat url(${tournament.streamBackgroundUrl})`
-          : "var(--navy)",
-      }}
-    >
+    <div className="min-h-screen w-full isolate">
+      {/* Fixed backdrop — the bracket can be much taller than one viewport,
+          so a `background` painted directly on this scrolling wrapper would
+          scroll along with it. position:fixed decouples the two: this layer
+          stays pinned to the viewport while everything else scrolls over it.
+          No ancestor here sets transform/filter/perspective (checked
+          app/layout.tsx's body and this component's own tree), so `fixed`
+          resolves against the viewport as expected — same class of gotcha
+          that broke the sponsor banner's sticky positioning previously,
+          just via a different property (overflow there, transform here).
+          `isolate` on this wrapper is load-bearing: without a stacking
+          context boundary here, this div's negative z-index escapes all the
+          way up past <body>'s own opaque background (`var(--navy)`) instead
+          of just going behind the bracket content — the classic
+          negative-z-index-background gotcha, confirmed by screenshot before
+          this was added (backdrop was invisible, hidden behind body's bg). */}
+      <div
+        className="fixed inset-0 -z-10"
+        style={{
+          background: hasBackground
+            ? `linear-gradient(rgba(13,15,26,0.55), rgba(13,15,26,0.55)), center / cover no-repeat url(${tournament.streamBackgroundUrl})`
+            : "var(--navy)",
+        }}
+      />
+
       {tournament.sponsorBannerUrl && (
         // Sticky (not fixed) so it stays anchored to the top of the viewport
         // as the bracket scrolls beneath it, without needing to know the
