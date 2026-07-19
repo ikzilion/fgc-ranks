@@ -57,6 +57,34 @@ function resolveMatchOutcome(
   return { winnerId, loserId, updateFields: { winnerId, isForfeit: false, player1Score, player2Score, status: MatchStatus.COMPLETED } };
 }
 
+// A bracket match can only be edited if nothing downstream has been played
+// yet — a full cascade-reversal (unwinding a whole chain of subsequent
+// results) is explicitly out of scope for now. Checks the winner's next
+// match and the loser's next-losers-bracket match, plus the Grand Final's
+// reset match as a special case: the Grand Final itself has no nextMatchId
+// of its own, so a reset having already been created (meaning a second game
+// was played) wouldn't show up in either of the other two checks.
+async function assertBracketMatchEditable(match: any) {
+  if (match.nextMatchId) {
+    const next = await Match.findById(match.nextMatchId);
+    if (next && next.status === MatchStatus.COMPLETED) {
+      throw new Error(`Can't edit this result — "${next.round}" has already been played. Editing would require reversing that result too, which isn't supported.`);
+    }
+  }
+  if (match.nextLoserMatchId) {
+    const nextLoser = await Match.findById(match.nextLoserMatchId);
+    if (nextLoser && nextLoser.status === MatchStatus.COMPLETED) {
+      throw new Error(`Can't edit this result — "${nextLoser.round}" has already been played. Editing would require reversing that result too, which isn't supported.`);
+    }
+  }
+  if (match.bracketSide === "GRAND_FINAL") {
+    const reset = await Match.findOne({ bracketId: match.bracketId, bracketSide: "GRAND_FINAL_RESET" });
+    if (reset) {
+      throw new Error("Can't edit this result — the bracket already went to a reset match (a second game was played). Editing would require unwinding that too, which isn't supported.");
+    }
+  }
+}
+
 export const resolvers = {
   // ─── Queries ───────────────────────────────────────────────────────────────
 
@@ -650,7 +678,9 @@ export const resolvers = {
       if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
 
       if (match.bracketId) {
-        throw new Error("Editing bracket match results isn't supported yet — bracket progression would need to be reversed and replayed.");
+        // Allowed only if nothing downstream has been played yet — full
+        // cascade-reversal is out of scope. Throws with a specific reason if not.
+        await assertBracketMatchEditable(match);
       }
 
       if (match.status !== MatchStatus.COMPLETED) {
@@ -660,11 +690,28 @@ export const resolvers = {
       // Reverse the previously-applied win/loss/points effects before applying
       // the corrected result, so stats don't get double-counted (same pattern
       // deleteMatch uses).
+      let previousLoserId: any;
       if (match.winnerId) {
-        const previousLoserId =
+        previousLoserId =
           match.winnerId.toString() === match.player1Id.toString() ? match.player2Id : match.player1Id;
         await Player.findByIdAndUpdate(match.winnerId, { $inc: { wins: -1, points: -100 } });
         await Player.findByIdAndUpdate(previousLoserId, { $inc: { losses: -1 } });
+
+        // Bracket matches: undo this match's OLD contribution to its
+        // downstream match(es) — clear only the slot our old winner/loser
+        // actually filled, leaving whatever's in the other slot (fed by a
+        // different match) untouched. advanceBracketMatch below re-fills
+        // these with the new result.
+        if (match.bracketId) {
+          if (match.nextMatchId) {
+            const field = match.nextMatchSlot === 1 ? "player1Id" : "player2Id";
+            await Match.findOneAndUpdate({ _id: match.nextMatchId, [field]: match.winnerId }, { [field]: null });
+          }
+          if (match.nextLoserMatchId) {
+            const field = match.nextLoserMatchSlot === 1 ? "player1Id" : "player2Id";
+            await Match.findOneAndUpdate({ _id: match.nextLoserMatchId, [field]: previousLoserId }, { [field]: null });
+          }
+        }
       }
 
       const { winnerId, loserId, updateFields } = resolveMatchOutcome(match, { player1Score, player2Score, isForfeit, forfeitingPlayerId });
@@ -673,6 +720,13 @@ export const resolvers = {
 
       await Player.findByIdAndUpdate(winnerId, { $inc: { wins: 1, points: 100 } });
       await Player.findByIdAndUpdate(loserId, { $inc: { losses: 1 } });
+
+      // Re-run the same bracket-advancement the match would have gotten from
+      // a fresh reportResult, so the new winner/loser correctly land in the
+      // (now-cleared) downstream slot(s).
+      if (updated.bracketId) {
+        await advanceBracketMatch(updated, winnerId, loserId);
+      }
 
       // Intentionally no notification here — this is a correction, not a new
       // reportable event, and would be noisy/confusing for players.
