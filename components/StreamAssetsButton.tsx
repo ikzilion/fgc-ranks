@@ -273,7 +273,7 @@ export function StreamAssetsButton({
           style={{ background: "rgba(0,0,0,0.7)" }}
           onClick={closeWithoutSaving}
         >
-          <div className="fgc-card p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+          <div className="fgc-card p-6 w-full max-w-3xl flex flex-col" style={{ maxHeight: "90vh" }} onClick={e => e.stopPropagation()}>
             <h2 className="font-rajdhani text-xl font-bold text-[var(--text-primary)] mb-1">Stream settings</h2>
             <p className="text-[12px] text-[var(--text-secondary)] mb-4">
               Customize the broadcast overlay at{" "}
@@ -283,97 +283,119 @@ export function StreamAssetsButton({
               — paste that URL into OBS as a browser source.
             </p>
 
-            <div className="mb-4">
-              <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Background image</label>
-              {backgroundUrl && (
-                <div className="w-full h-20 rounded-md mb-2 overflow-hidden" style={{ border: "1px solid var(--border-strong)" }}>
-                  <img src={backgroundUrl} alt="Background preview" className="w-full h-full object-cover" />
+            {/* Everything that can grow (images + color pickers) scrolls in
+                its own region, so a wide-enough viewport reflows them into
+                a compact multi-column grid/row instead of one long stack,
+                while the header above and error/Save-Cancel below stay put
+                — the modal itself never grows tall enough to push the
+                action buttons off-screen. `flex-1 min-h-0` is load-bearing
+                here: a flex child's default min-height is `auto` (i.e. its
+                content size), which would let this region grow past the
+                parent's own `maxHeight: 90vh` instead of shrinking to fit
+                and scrolling internally — min-h-0 overrides that. */}
+            <div className="overflow-y-auto pr-1 -mr-1 flex-1 min-h-0">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                <div>
+                  <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Background image</label>
+                  {backgroundUrl && (
+                    <div className="w-full h-20 rounded-md mb-2 overflow-hidden" style={{ border: "1px solid var(--border-strong)" }}>
+                      <img src={backgroundUrl} alt="Background preview" className="w-full h-full object-cover" />
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <label
+                      className="text-[12px] font-semibold px-3 py-2 rounded cursor-pointer"
+                      style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)" }}
+                    >
+                      {uploadingBg ? "Uploading..." : backgroundUrl ? "Change" : "Upload"}
+                      <input type="file" accept="image/*" onChange={handleBackgroundChange} disabled={uploadingBg} className="hidden" />
+                    </label>
+                    {backgroundUrl && (
+                      <button
+                        onClick={() => setBackgroundUrl("")}
+                        className="text-[12px] font-semibold px-3 py-2 rounded"
+                        style={{ background: "var(--coral-dim)", color: "var(--coral)", border: "1px solid rgba(255,77,77,0.2)", cursor: "pointer" }}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
                 </div>
-              )}
-              <div className="flex gap-2">
-                <label
-                  className="text-[12px] font-semibold px-3 py-2 rounded cursor-pointer"
-                  style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)" }}
-                >
-                  {uploadingBg ? "Uploading..." : backgroundUrl ? "Change" : "Upload"}
-                  <input type="file" accept="image/*" onChange={handleBackgroundChange} disabled={uploadingBg} className="hidden" />
-                </label>
-                {backgroundUrl && (
-                  <button
-                    onClick={() => setBackgroundUrl("")}
-                    className="text-[12px] font-semibold px-3 py-2 rounded"
-                    style={{ background: "var(--coral-dim)", color: "var(--coral)", border: "1px solid rgba(255,77,77,0.2)", cursor: "pointer" }}
-                  >
-                    Remove
-                  </button>
-                )}
+
+                <div>
+                  <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Sponsor banner</label>
+                  {bannerUrl && (
+                    <div className="w-full h-16 rounded-md mb-2 overflow-hidden flex items-center justify-center" style={{ border: "1px solid var(--border-strong)", background: "var(--navy-3)" }}>
+                      <img src={bannerUrl} alt="Banner preview" className="max-h-full max-w-full object-contain" />
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <label
+                      className="text-[12px] font-semibold px-3 py-2 rounded cursor-pointer"
+                      style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)" }}
+                    >
+                      {uploadingBanner ? "Uploading..." : bannerUrl ? "Change" : "Upload"}
+                      <input type="file" accept="image/*" onChange={handleBannerChange} disabled={uploadingBanner} className="hidden" />
+                    </label>
+                    {bannerUrl && (
+                      <button
+                        onClick={() => setBannerUrl("")}
+                        className="text-[12px] font-semibold px-3 py-2 rounded"
+                        style={{ background: "var(--coral-dim)", color: "var(--coral)", border: "1px solid rgba(255,77,77,0.2)", cursor: "pointer" }}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-4">
+                <div className="flex-1 min-w-[280px]">
+                  <ColorPickerField
+                    label="Bracket connector line color"
+                    helpText="Stays visible against your background — applies to the bracket lines (and the Winners/Losers divider) on all views."
+                    confirmedColor={lineColor}
+                    draftColor={draftLineColor}
+                    onDraftChange={setDraftLineColor}
+                    onConfirm={() => setLineColor(draftLineColor)}
+                    onCancel={() => setDraftLineColor(lineColor)}
+                  />
+                </div>
+
+                <div className="flex-1 min-w-[280px]">
+                  <ColorPickerField
+                    label="Match card background color"
+                    helpText="Applies to every match/score box's background across TO, public, and stream views."
+                    confirmedColor={boxColor}
+                    draftColor={draftBoxColor}
+                    onDraftChange={setDraftBoxColor}
+                    onConfirm={() => setBoxColor(draftBoxColor)}
+                    onCancel={() => setDraftBoxColor(boxColor)}
+                  />
+                </div>
+
+                <div className="flex-1 min-w-[280px]">
+                  <ColorPickerField
+                    label="Match card text color"
+                    helpText="Pick a color that stays readable against the match card background."
+                    confirmedColor={fontColor}
+                    draftColor={draftFontColor}
+                    onDraftChange={setDraftFontColor}
+                    onConfirm={() => setFontColor(draftFontColor)}
+                    onCancel={() => setDraftFontColor(fontColor)}
+                  />
+                </div>
               </div>
             </div>
-
-            <div className="mb-6">
-              <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Sponsor banner</label>
-              {bannerUrl && (
-                <div className="w-full h-16 rounded-md mb-2 overflow-hidden flex items-center justify-center" style={{ border: "1px solid var(--border-strong)", background: "var(--navy-3)" }}>
-                  <img src={bannerUrl} alt="Banner preview" className="max-h-full max-w-full object-contain" />
-                </div>
-              )}
-              <div className="flex gap-2">
-                <label
-                  className="text-[12px] font-semibold px-3 py-2 rounded cursor-pointer"
-                  style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)" }}
-                >
-                  {uploadingBanner ? "Uploading..." : bannerUrl ? "Change" : "Upload"}
-                  <input type="file" accept="image/*" onChange={handleBannerChange} disabled={uploadingBanner} className="hidden" />
-                </label>
-                {bannerUrl && (
-                  <button
-                    onClick={() => setBannerUrl("")}
-                    className="text-[12px] font-semibold px-3 py-2 rounded"
-                    style={{ background: "var(--coral-dim)", color: "var(--coral)", border: "1px solid rgba(255,77,77,0.2)", cursor: "pointer" }}
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <ColorPickerField
-              label="Bracket connector line color"
-              helpText="Pick a color that stays visible against your background — applies to the bracket lines (and the Winners/Losers divider) on all views."
-              confirmedColor={lineColor}
-              draftColor={draftLineColor}
-              onDraftChange={setDraftLineColor}
-              onConfirm={() => setLineColor(draftLineColor)}
-              onCancel={() => setDraftLineColor(lineColor)}
-            />
-
-            <ColorPickerField
-              label="Match card background color"
-              helpText="Applies to every match/score box's background across TO, public, and stream views."
-              confirmedColor={boxColor}
-              draftColor={draftBoxColor}
-              onDraftChange={setDraftBoxColor}
-              onConfirm={() => setBoxColor(draftBoxColor)}
-              onCancel={() => setDraftBoxColor(boxColor)}
-            />
-
-            <ColorPickerField
-              label="Match card text color"
-              helpText="Pick a color that stays readable against the match card background above."
-              confirmedColor={fontColor}
-              draftColor={draftFontColor}
-              onDraftChange={setDraftFontColor}
-              onConfirm={() => setFontColor(draftFontColor)}
-              onCancel={() => setDraftFontColor(fontColor)}
-            />
 
             {error && (
-              <p className="text-[12px] mb-4 px-3 py-2 rounded" style={{ background: "var(--coral-dim)", color: "var(--coral)" }}>
+              <p className="text-[12px] mt-4 px-3 py-2 rounded" style={{ background: "var(--coral-dim)", color: "var(--coral)" }}>
                 {error}
               </p>
             )}
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 mt-6">
               <button
                 onClick={closeWithoutSaving}
                 className="flex-1 py-2 rounded font-rajdhani text-[14px] font-bold"
