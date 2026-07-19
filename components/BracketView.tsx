@@ -121,7 +121,7 @@ function BracketSideSection({
   const roundNumbers = [...rounds.keys()].sort((a, b) => a - b);
 
   return (
-    <div className="mb-6" style={dividerAbove ? { borderTop: `3px solid ${accentColor}`, paddingTop: 24, marginTop: 8 } : undefined}>
+    <div className="mb-6" style={dividerAbove ? { borderTop: `6px solid ${accentColor}`, paddingTop: 24, marginTop: 8 } : undefined}>
       {emphasized ? (
         <p className="font-rajdhani text-2xl font-bold uppercase tracking-wide mb-3" style={{ color: accentColor }}>{SIDE_LABELS[side] ?? side}</p>
       ) : (
