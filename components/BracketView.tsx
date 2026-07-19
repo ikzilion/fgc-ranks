@@ -107,16 +107,14 @@ function BracketSideSection({
   return (
     <div className="mb-6">
       <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">{SIDE_LABELS[side] ?? side}</p>
-      {/* Wider than the site's usual gap-10: this is the column gap the
-          staggered connector lines fan out across (see BracketView's
-          elbow-staggering effect above). Early rounds of a large bracket can
-          have well over a dozen lines converging through one column gap
-          (e.g. 16 lines for a 32-entrant bracket's Round 1 -> Round 2), and
-          gap-10 (35px) only gives each staggered line ~2px of separation —
-          thinner than the line stroke itself, so they visually fuse into a
-          solid bar regardless of how correctly they're grouped/staggered.
-          gap-24 (84px) keeps even a 16-way fan-in comfortably separated. */}
-      <div className="flex gap-24">
+      {/* Back to the site's standard gap-10 — the wider gap-24 from an
+          earlier pass existed only to spread out a lane-staggering scheme
+          that fanned every line sharing a column pair across the gap. The
+          connector logic below now draws one shared elbow trunk per sibling
+          pair, always at the gap's own midpoint regardless of how many
+          pairs share that column transition, so there's no more fan-in to
+          make room for — a normal gap keeps the classic bracket look. */}
+      <div className="flex gap-10">
         {roundNumbers.map(r => (
           <div key={r} className="flex flex-col gap-6 justify-center">
             {rounds.get(r)!
@@ -131,15 +129,6 @@ function BracketSideSection({
   );
 }
 
-interface Line {
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-  midX: number;
-  targetId: string;
-}
-
 export function BracketView({
   bracket,
   canManage,
@@ -151,11 +140,11 @@ export function BracketView({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cardEls = useRef<Map<string, HTMLDivElement>>(new Map());
-  const [overlay, setOverlay] = useState<{ width: number; height: number; clientWidth: number; lines: Line[] }>({
+  const [overlay, setOverlay] = useState<{ width: number; height: number; clientWidth: number; paths: string[] }>({
     width: 0,
     height: 0,
     clientWidth: 0,
-    lines: [],
+    paths: [],
   });
   // Mirrors containerRef's scrollLeft so the sticky range-slider scrollbar
   // below can show/drive the current scroll position without re-measuring
@@ -189,67 +178,95 @@ export function BracketView({
         posById.set(m.id, { top, bottom: top + r.height, left, right: left + r.width, midY: top + r.height / 2 });
       }
 
-      const lines: Line[] = [];
+      // Collect every source ("feeder") card's exit point, grouped by which
+      // downstream match it feeds into. A target match normally has exactly
+      // two feeders (its two slots) — occasionally just one, when a bye
+      // cascaded a player directly into this match without a played match
+      // on that side (see lib/bracket.ts's buildMatch/wireFeeder), so
+      // nothing draws into that slot at all.
+      const feedersByTarget = new Map<string, { x1: number; y1: number }[]>();
+      function addFeeder(targetId: string, x1: number, y1: number) {
+        if (!feedersByTarget.has(targetId)) feedersByTarget.set(targetId, []);
+        feedersByTarget.get(targetId)!.push({ x1, y1 });
+      }
       for (const m of bracket.matches) {
         const from = posById.get(m.id);
         if (!from) continue;
 
-        // Winner-advance lines (same-side progression, WB→WB or LB→LB) always
-        // draw — this is also how the WB Final and LB Final converge into
-        // Grand Finals in the normal (3+ entrant) case, since both resolve
-        // through nextMatchId there (see lib/bracket.ts's wireFeeder).
-        if (m.nextMatch) {
-          const to = posById.get(m.nextMatch.id);
-          if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY, midX: 0, targetId: m.nextMatch.id });
+        // Winner-advance feeders (same-side progression, WB→WB or LB→LB)
+        // always draw — this is also how the WB Final and LB Final converge
+        // into Grand Finals in the normal (3+ entrant) case, since both
+        // resolve through nextMatchId there (see lib/bracket.ts's wireFeeder).
+        if (m.nextMatch && posById.has(m.nextMatch.id)) {
+          addFeeder(m.nextMatch.id, from.right, from.midY);
         }
         // nextLoserMatch normally represents a mid-bracket WB→LB drop, which
         // is visually confusing at real bracket scale — suppress those. The
         // one exception: the trivial 2-entrant bracket has no Losers Bracket
         // at all, so the sole WB match's loser feeds Grand Finals directly
-        // via nextLoserMatch — that's an intentional convergence line, not a
-        // drop, so it's still drawn (detected by checking the target's side).
-        if (m.nextLoserMatch) {
-          const targetSide = matchById.get(m.nextLoserMatch.id)?.bracketSide;
-          if (targetSide === "GRAND_FINAL") {
-            const to = posById.get(m.nextLoserMatch.id);
-            if (to) lines.push({ x1: from.right, y1: from.midY, x2: to.left, y2: to.midY, midX: 0, targetId: m.nextLoserMatch.id });
+        // via nextLoserMatch — that's an intentional convergence feeder, not
+        // a drop, so it's still drawn (detected by checking the target's side).
+        if (m.nextLoserMatch && matchById.get(m.nextLoserMatch.id)?.bracketSide === "GRAND_FINAL" && posById.has(m.nextLoserMatch.id)) {
+          addFeeder(m.nextLoserMatch.id, from.right, from.midY);
+        }
+      }
+
+      // Classic "elbow bracket per sibling pair" connector: for a target
+      // with two feeders, draw ONE shared vertical trunk at the horizontal
+      // midpoint between the source and target columns, spanning from the
+      // top feeder's Y to the bottom feeder's Y, with a short horizontal
+      // stub from each feeder into the trunk and one stub from the trunk's
+      // own midpoint into the target — the classic single "[" shape, with
+      // no lane-staggering needed since a pair never overlaps with another
+      // pair's trunk (each pair gets its own X only within its own column
+      // gap, and different targets' trunks don't share an endpoint).
+      const paths: string[] = [];
+      for (const [targetId, feeders] of feedersByTarget) {
+        const to = posById.get(targetId);
+        if (!to) continue;
+        feeders.sort((a, b) => a.y1 - b.y1);
+
+        let i = 0;
+        while (i < feeders.length) {
+          if (i + 1 < feeders.length) {
+            const top = feeders[i];
+            const bottom = feeders[i + 1];
+            if (Math.abs(top.x1 - bottom.x1) < 1) {
+              // Common case: both siblings are in the same source column
+              // (true for every Winners/Losers round transition, since a
+              // target's two feeders always come from the immediately
+              // preceding round) — the classic shared-trunk "[" pair.
+              const midX = (top.x1 + to.left) / 2;
+              const midY = (top.y1 + bottom.y1) / 2;
+              paths.push(`M ${top.x1} ${top.y1} H ${midX} V ${midY}`);
+              paths.push(`M ${bottom.x1} ${bottom.y1} H ${midX} V ${midY}`);
+              paths.push(`M ${midX} ${midY} H ${to.left}`);
+            } else {
+              // Different source columns — only happens at the Grand
+              // Finals convergence, where the Winners Final and Losers
+              // Final usually sit at different round depths (Losers has
+              // more rounds), so there's no single column gap to share a
+              // trunk X within. Each feeder gets its own independent elbow
+              // converging on the target's actual center instead; two
+              // lines meeting at one shared point can't overlap.
+              for (const feeder of [top, bottom]) {
+                const midX = (feeder.x1 + to.left) / 2;
+                paths.push(`M ${feeder.x1} ${feeder.y1} H ${midX} V ${to.midY} H ${to.left}`);
+              }
+            }
+            i += 2;
+          } else {
+            // Lone feeder — the other slot was filled directly by a bye
+            // cascade, nothing to pair with: a plain point-to-point elbow.
+            const solo = feeders[i];
+            const midX = (solo.x1 + to.left) / 2;
+            paths.push(`M ${solo.x1} ${solo.y1} H ${midX} V ${to.midY} H ${to.left}`);
+            i += 1;
           }
         }
       }
 
-      // Every line's vertical elbow segment needs an X position that keeps
-      // it visually distinct from unrelated lines. The naive approach —
-      // stagger every line sharing the same x1/x2 column pair, in one
-      // shared lane group — over-shares: a whole round transition can have
-      // many matches (e.g. 8 Losers Round 2 -> Round 3 lines feeding 4
-      // targets, 2 each), and dividing the column gap into that many lanes
-      // packs unrelated lines only ~9px apart. Lines bound for DIFFERENT
-      // targets don't actually need separation from each other — they
-      // don't share an endpoint and don't visually compete — but because
-      // every line in the group used the same "how many total lines share
-      // this column gap" divisor, their vertical runs ended up close enough,
-      // and spanning overlapping enough Y ranges, that several unrelated
-      // elbows read as one continuous grid/rectangle rather than distinct
-      // branches (reported as a "box" artifact around Losers Round 2 -> 3).
-      //
-      // Fix: group by target match instead of by column pair. Only lines
-      // that actually converge on the SAME downstream match need staggered
-      // lanes relative to each other (almost always just 2, its two feeder
-      // slots) — every other target gets its own independent pair of lanes
-      // in the same column gap, decoupled from lines converging elsewhere.
-      const byTarget = new Map<string, Line[]>();
-      for (const line of lines) {
-        if (!byTarget.has(line.targetId)) byTarget.set(line.targetId, []);
-        byTarget.get(line.targetId)!.push(line);
-      }
-      for (const group of byTarget.values()) {
-        group.sort((a, b) => a.y1 - b.y1);
-        group.forEach((line, i) => {
-          line.midX = line.x1 + (line.x2 - line.x1) * ((i + 1) / (group.length + 1));
-        });
-      }
-
-      setOverlay({ width: containerEl.scrollWidth, height: containerEl.scrollHeight, clientWidth: containerEl.clientWidth, lines });
+      setOverlay({ width: containerEl.scrollWidth, height: containerEl.scrollHeight, clientWidth: containerEl.clientWidth, paths });
     }
 
     measure();
@@ -305,10 +322,9 @@ export function BracketView({
           height={overlay.height}
           style={{ minWidth: "100%" }}
         >
-          {overlay.lines.map((line, i) => {
-            const d = `M ${line.x1} ${line.y1} H ${line.midX} V ${line.y2} H ${line.x2}`;
-            return <path key={i} d={d} fill="none" stroke={resolvedLineColor} strokeWidth={1.25} />;
-          })}
+          {overlay.paths.map((d, i) => (
+            <path key={i} d={d} fill="none" stroke={resolvedLineColor} strokeWidth={1.25} />
+          ))}
         </svg>
 
         <div className="relative flex gap-10" style={{ minWidth: "max-content" }}>
