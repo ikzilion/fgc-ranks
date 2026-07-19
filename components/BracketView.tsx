@@ -236,11 +236,29 @@ export function BracketView({
               // (true for every Winners/Losers round transition, since a
               // target's two feeders always come from the immediately
               // preceding round) — the classic shared-trunk "[" pair.
+              //
+              // The trunk's Y span must include the target's OWN actual
+              // midY, not just average the two feeders' Y and assume the
+              // target sits exactly there. Each round column is
+              // independently centered (`justify-center`) within the row's
+              // shared height (driven by the tallest column, normally
+              // Round 1), so a target's real position only equals its
+              // feeders' average when the whole tree is a perfectly
+              // symmetric power-of-two layout — Round 1 -> 2 mostly, but it
+              // drifts further out at deeper rounds (Round 2 -> 3, 3 -> 4)
+              // and anywhere byes skew the column heights. Terminating the
+              // final stub at the averaged Y instead of the target's real
+              // one left it floating next to the card instead of touching
+              // it. Extending the trunk to span all three Y's guarantees
+              // every stub — both feeders' and the target's — starts
+              // exactly on the trunk, so nothing can end up disconnected.
               const midX = (top.x1 + to.left) / 2;
-              const midY = (top.y1 + bottom.y1) / 2;
-              paths.push(`M ${top.x1} ${top.y1} H ${midX} V ${midY}`);
-              paths.push(`M ${bottom.x1} ${bottom.y1} H ${midX} V ${midY}`);
-              paths.push(`M ${midX} ${midY} H ${to.left}`);
+              const trunkTop = Math.min(top.y1, bottom.y1, to.midY);
+              const trunkBottom = Math.max(top.y1, bottom.y1, to.midY);
+              paths.push(`M ${midX} ${trunkTop} V ${trunkBottom}`);
+              paths.push(`M ${top.x1} ${top.y1} H ${midX}`);
+              paths.push(`M ${bottom.x1} ${bottom.y1} H ${midX}`);
+              paths.push(`M ${midX} ${to.midY} H ${to.left}`);
             } else {
               // Different source columns — only happens at the Grand
               // Finals convergence, where the Winners Final and Losers
