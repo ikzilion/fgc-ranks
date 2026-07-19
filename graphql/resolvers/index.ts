@@ -10,6 +10,7 @@ import { Entrant } from "@/models/Entrant";
 import { Match, MatchStatus } from "@/models/Match";
 import { Bracket } from "@/models/Bracket";
 import { Notification } from "@/models/Notification";
+import { NewsPost } from "@/models/NewsPost";
 import { loginRateLimit, registerRateLimit, passwordResetRateLimit, getClientIp } from "@/lib/rateLimit";
 import { sendPasswordResetEmail } from "@/lib/email";
 import { buildDoubleEliminationBracket, resolveSeedOrder, advanceBracketMatch, nextPowerOfTwo, SeedingMethod } from "@/lib/bracket";
@@ -142,6 +143,12 @@ export const resolvers = {
     match: async (_: unknown, { id }: { id: string }) => {
       await connectToDatabase();
       return await Match.findById(id);
+    },
+
+    // News
+    newsPosts: async (_: unknown, { limit = 20, offset = 0 }: { limit?: number; offset?: number }) => {
+      await connectToDatabase();
+      return await NewsPost.find().sort({ createdAt: -1 }).skip(offset).limit(limit);
     },
 
     // Auth
@@ -835,6 +842,44 @@ export const resolvers = {
       await Notification.updateMany({ playerId, read: false }, { read: true });
       return true;
     },
+
+    // News — ADMIN-only, same role-gating pattern deleteTournament used
+    // before the per-tournament TO role existed.
+    createNewsPost: async (
+      _: unknown,
+      { title, content }: { title: string; content: string },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      if (role !== "ADMIN") throw new Error("Not authorized");
+      if (!playerId) throw new Error("Not authorized");
+
+      await connectToDatabase();
+      return NewsPost.create({ title, content, authorId: playerId });
+    },
+
+    updateNewsPost: async (
+      _: unknown,
+      { id, title, content }: { id: string; title?: string; content?: string },
+      { role }: { role?: string }
+    ) => {
+      if (role !== "ADMIN") throw new Error("Not authorized");
+
+      await connectToDatabase();
+      const update: any = {};
+      if (title !== undefined) update.title = title;
+      if (content !== undefined) update.content = content;
+      const updated = await NewsPost.findByIdAndUpdate(id, update, { new: true });
+      if (!updated) throw new Error("News post not found");
+      return updated;
+    },
+
+    deleteNewsPost: async (_: unknown, { id }: { id: string }, { role }: { role?: string }) => {
+      if (role !== "ADMIN") throw new Error("Not authorized");
+
+      await connectToDatabase();
+      const result = await NewsPost.findByIdAndDelete(id);
+      return !!result;
+    },
   },
 
   // ─── Field resolvers (populate references) ─────────────────────────────────
@@ -890,6 +935,10 @@ export const resolvers = {
     nextMatch: async (parent: { nextMatchId?: string }) => (parent.nextMatchId ? await Match.findById(parent.nextMatchId) : null),
     nextLoserMatch: async (parent: { nextLoserMatchId?: string }) =>
       parent.nextLoserMatchId ? await Match.findById(parent.nextLoserMatchId) : null,
+  },
+
+  NewsPost: {
+    author: async (parent: { authorId?: string }) => (parent.authorId ? await Player.findById(parent.authorId) : null),
   },
 
   Bracket: {

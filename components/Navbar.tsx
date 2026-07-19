@@ -6,6 +6,7 @@ import { useSession, signOut } from "next-auth/react";
 import { NotificationBell } from "@/components/NotificationBell";
 
 const links = [
+  { href: "/", label: "News" },
   { href: "/tournaments", label: "Tournaments" },
   { href: "/players", label: "Players" },
 ];
@@ -39,7 +40,7 @@ export function Navbar() {
 
         <div style={{ display: "flex", gap: "4px", overflowX: "auto" }}>
           {links.map(({ href, label }) => {
-            const active = pathname.startsWith(href);
+            const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
             return (
               <Link key={href} href={href} style={{ fontSize: "13px", fontWeight: 500, padding: "6px 14px", borderRadius: "6px", textDecoration: "none", border: "1px solid", transition: "all 0.15s", color: active ? "var(--blue)" : "var(--text-secondary)", background: active ? "var(--blue-dim)" : "transparent", borderColor: active ? "rgba(79,142,247,0.2)" : "transparent" }}>
                 {label}

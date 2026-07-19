@@ -114,6 +114,15 @@ export const typeDefs = `#graphql
     createdAt: Date!
   }
 
+  type NewsPost {
+    id: ID!
+    title: String!
+    content: String!
+    author: Player
+    createdAt: Date!
+    updatedAt: Date!
+  }
+
   type Query {
     myNotifications: [Notification!]!
     unreadNotificationCount: Int!
@@ -127,6 +136,8 @@ export const typeDefs = `#graphql
 
     matches(tournamentId: ID!): [Match!]!
     match(id: ID!): Match
+
+    newsPosts(limit: Int, offset: Int): [NewsPost!]!
 
     me: User
   }
@@ -167,5 +178,9 @@ export const typeDefs = `#graphql
 
     markNotificationRead(id: ID!): Boolean!
     markAllNotificationsRead: Boolean!
+
+    createNewsPost(title: String!, content: String!): NewsPost!
+    updateNewsPost(id: ID!, title: String, content: String): NewsPost!
+    deleteNewsPost(id: ID!): Boolean!
   }
 `;
