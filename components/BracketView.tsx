@@ -70,8 +70,12 @@ function PlayerRow({
   // the divider work left the winner indicator alone (see BracketSideSection).
   fontColor?: string;
 }) {
+  // Grey-out is a "this player lost" indicator, not a default state — only
+  // applies once the match actually has a recorded result. A pending match
+  // (no winner yet) previously greyed out BOTH names, since neither was
+  // "the winner"; now it only dims the loser once the match is COMPLETED.
   return (
-    <div className={`flex items-center justify-between py-1 ${isWinner ? "opacity-100" : "opacity-60"}`}>
+    <div className={`flex items-center justify-between py-1 ${status === "COMPLETED" && !isWinner ? "opacity-60" : "opacity-100"}`}>
       <div className="flex items-center gap-1.5 min-w-0">
         {isWinner && status === "COMPLETED" && (
           <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full flex-shrink-0" style={{ background: "var(--green)" }} />
