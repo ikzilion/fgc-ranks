@@ -6,6 +6,7 @@ import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { NewsPostForm } from "@/components/NewsPostForm";
 import { DeleteNewsPostButton } from "@/components/DeleteNewsPostButton";
+import { PlayerCard } from "@/components/PlayerCard";
 
 export const dynamic = "force-dynamic";
 
@@ -121,68 +122,7 @@ export default async function Home() {
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-6">
         {/* LEFT — player card / sign-in prompt */}
         <div className="sm:col-span-1 order-1">
-          {player ? (
-            <div className="fgc-card p-5">
-              <div className="flex items-center gap-3 mb-4">
-                <div
-                  className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden font-rajdhani text-base font-bold"
-                  style={{ background: "var(--blue-dim)", border: "2px solid rgba(79,142,247,0.4)", color: "var(--blue)" }}
-                >
-                  {player.avatarUrl ? (
-                    <img src={player.avatarUrl} alt={player.tag} className="w-full h-full object-cover" />
-                  ) : (
-                    player.tag.slice(0, 2).toUpperCase()
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <p className="font-rajdhani text-lg font-bold text-[var(--text-primary)] leading-tight truncate">{player.tag}</p>
-                  {player.team && <p className="text-[11px] font-semibold truncate" style={{ color: "var(--blue)" }}>{player.team}</p>}
-                  {player.region && <p className="text-[11px] text-[var(--text-secondary)] truncate">{player.region}</p>}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2 mb-4">
-                {[
-                  { label: "Points", value: player.points },
-                  { label: "Wins", value: player.wins },
-                  { label: "Losses", value: player.losses },
-                ].map(({ label, value }) => (
-                  <div key={label} className="text-center px-1 py-2 rounded" style={{ background: "var(--navy-3)" }}>
-                    <p className="font-rajdhani text-base font-bold text-[var(--text-primary)] leading-tight">{value}</p>
-                    <p className="text-[9px] uppercase tracking-widest text-[var(--text-muted)]">{label}</p>
-                  </div>
-                ))}
-              </div>
-
-              <Link
-                href={`/players/${player.id}`}
-                className="block text-center text-[12px] font-semibold py-2 rounded"
-                style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)" }}
-              >
-                View profile
-              </Link>
-            </div>
-          ) : (
-            <div className="fgc-card p-6 text-center">
-              <p className="text-[13px] text-[var(--text-secondary)] mb-4">Sign in to see your player card and stats.</p>
-              <div className="flex flex-col gap-2">
-                <Link
-                  href="/login"
-                  className="py-2 rounded font-rajdhani text-[14px] font-bold"
-                  style={{ background: "var(--blue)", color: "white" }}
-                >
-                  Sign in
-                </Link>
-                <Link
-                  href="/register"
-                  className="py-2 rounded font-rajdhani text-[14px] font-bold"
-                  style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)" }}
-                >
-                  Create account
-                </Link>
-              </div>
-            </div>
-          )}
+          <PlayerCard player={player} />
         </div>
 
         {/* CENTER — news feed (Phase 1, unchanged) */}
