@@ -40,6 +40,8 @@ export async function POST(request: NextRequest) {
     filename = `tournament-backgrounds/${Date.now()}-${file.name}`;
   } else if (type === "sponsor-banner") {
     filename = `sponsor-banners/${Date.now()}-${file.name}`;
+  } else if (type === "tournament-logo") {
+    filename = `tournament-logos/${Date.now()}-${file.name}`;
   } else {
     const playerId = (session.user as any).playerId;
     filename = `avatars/${playerId}-${Date.now()}-${file.name}`;

@@ -267,14 +267,98 @@ export const resolvers = {
     // Tournaments
     createTournament: async (
       _: unknown,
-      { name, game, startDate }: { name: string; game: string; startDate: Date },
+      {
+        name,
+        game,
+        startDate,
+        logoUrl,
+        isOnlineOnly,
+        address,
+        twitchUrl,
+        format,
+        capacity,
+        entryFee,
+        prizePot,
+      }: {
+        name: string;
+        game: string;
+        startDate: Date;
+        logoUrl?: string;
+        isOnlineOnly?: boolean;
+        address?: string;
+        twitchUrl?: string;
+        format?: string;
+        capacity?: number;
+        entryFee?: string;
+        prizePot?: string;
+      },
       { playerId }: { playerId?: string }
     ) => {
       if (!playerId) throw new Error("Not authorized");
 
       await connectToDatabase();
       // The creator automatically becomes the tournament's first organizer.
-      return Tournament.create({ name, game, startDate, organizers: [playerId] });
+      // Metadata fields are all optional at creation — schema defaults
+      // (empty string / false / undefined) apply for anything omitted.
+      return Tournament.create({
+        name,
+        game,
+        startDate,
+        organizers: [playerId],
+        logoUrl,
+        isOnlineOnly,
+        address,
+        twitchUrl,
+        format,
+        capacity,
+        entryFee,
+        prizePot,
+      });
+    },
+
+    updateTournamentDetails: async (
+      _: unknown,
+      {
+        id,
+        logoUrl,
+        isOnlineOnly,
+        address,
+        twitchUrl,
+        format,
+        capacity,
+        entryFee,
+        prizePot,
+      }: {
+        id: string;
+        logoUrl?: string;
+        isOnlineOnly?: boolean;
+        address?: string;
+        twitchUrl?: string;
+        format?: string;
+        capacity?: number;
+        entryFee?: string;
+        prizePot?: string;
+      },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const tournament = await Tournament.findById(id);
+      if (!tournament) throw new Error("Tournament not found");
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+
+      // Partial-update style, same pattern as updateTournamentStreamAssets —
+      // only fields actually provided get applied.
+      const update: any = {};
+      if (logoUrl !== undefined) update.logoUrl = logoUrl;
+      if (isOnlineOnly !== undefined) update.isOnlineOnly = isOnlineOnly;
+      if (address !== undefined) update.address = address;
+      if (twitchUrl !== undefined) update.twitchUrl = twitchUrl;
+      if (format !== undefined) update.format = format;
+      if (capacity !== undefined) update.capacity = capacity;
+      if (entryFee !== undefined) update.entryFee = entryFee;
+      if (prizePot !== undefined) update.prizePot = prizePot;
+
+      return Tournament.findByIdAndUpdate(id, update, { new: true });
     },
 
     updateTournamentStatus: async (

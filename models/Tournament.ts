@@ -57,6 +57,26 @@ const TournamentSchema = new Schema(
     // var(--text-primary) player-tag text).
     bracketBoxColor: { type: String, default: "" },
     bracketFontColor: { type: String, default: "" },
+    // ── Metadata batch: logo, location, Twitch link, format, capacity,
+    // entry fee/prize pot — all display/informational only, nothing here
+    // drives enforcement (e.g. capacity never blocks joinTournament). ──
+    logoUrl: { type: String, default: "" },
+    // Mutually exclusive in practice (online-only tournaments have no
+    // address, physical ones do) but not enforced against each other —
+    // just two independent fields, same empty-is-unset convention as
+    // everything else here.
+    isOnlineOnly: { type: Boolean, default: false },
+    address: { type: String, default: "" },
+    twitchUrl: { type: String, default: "" },
+    // Free-text label (e.g. "Double Elimination") — purely descriptive,
+    // not a driver of actual bracket-generation logic.
+    format: { type: String, default: "" },
+    // No default — undefined means "no cap set", distinct from 0.
+    capacity: { type: Number },
+    // Free text rather than a Number, so a TO can write "$10" or "Free"
+    // without needing separate currency-formatting fields.
+    entryFee: { type: String, default: "" },
+    prizePot: { type: String, default: "" },
   },
   { timestamps: true }
 );

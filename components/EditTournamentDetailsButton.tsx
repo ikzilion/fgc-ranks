@@ -1,47 +1,70 @@
-// components/CreateTournamentButton.tsx
+// components/EditTournamentDetailsButton.tsx
 "use client";
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
-export function CreateTournamentButton() {
-  const { data: session } = useSession();
+interface Props {
+  tournamentId: string;
+  logoUrl?: string;
+  isOnlineOnly: boolean;
+  address?: string;
+  twitchUrl?: string;
+  format?: string;
+  capacity?: number | null;
+  entryFee?: string;
+  prizePot?: string;
+  canManage: boolean;
+}
+
+// Post-creation editing for the metadata batch (logo, location, Twitch,
+// format, capacity, entry fee/prize pot) — CreateTournamentButton only
+// covers these at creation time; this is the TO's way to change them
+// afterward, same isOrganizer-gated partial-update pattern as
+// StreamAssetsButton/updateTournamentStreamAssets.
+export function EditTournamentDetailsButton({
+  tournamentId,
+  logoUrl: savedLogoUrl,
+  isOnlineOnly: savedIsOnlineOnly,
+  address: savedAddress,
+  twitchUrl: savedTwitchUrl,
+  format: savedFormat,
+  capacity: savedCapacity,
+  entryFee: savedEntryFee,
+  prizePot: savedPrizePot,
+  canManage,
+}: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [game, setGame] = useState("");
-  const [startDate, setStartDate] = useState("");
-  // Metadata batch — all optional, display/informational only.
-  const [logoUrl, setLogoUrl] = useState("");
+  const [logoUrl, setLogoUrl] = useState(savedLogoUrl || "");
   const [uploadingLogo, setUploadingLogo] = useState(false);
-  const [isOnlineOnly, setIsOnlineOnly] = useState(false);
-  const [address, setAddress] = useState("");
-  const [twitchUrl, setTwitchUrl] = useState("");
-  const [format, setFormat] = useState("");
-  const [capacity, setCapacity] = useState("");
-  const [entryFee, setEntryFee] = useState("");
-  const [prizePot, setPrizePot] = useState("");
+  const [isOnlineOnly, setIsOnlineOnly] = useState(savedIsOnlineOnly);
+  const [address, setAddress] = useState(savedAddress || "");
+  const [twitchUrl, setTwitchUrl] = useState(savedTwitchUrl || "");
+  const [format, setFormat] = useState(savedFormat || "");
+  const [capacity, setCapacity] = useState(savedCapacity != null ? String(savedCapacity) : "");
+  const [entryFee, setEntryFee] = useState(savedEntryFee || "");
+  const [prizePot, setPrizePot] = useState(savedPrizePot || "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Any signed-in player can create a tournament — they become its first
-  // organizer automatically (see createTournament resolver).
-  if (!session) return null;
+  if (!canManage) return null;
 
-  function resetForm() {
-    setName("");
-    setGame("");
-    setStartDate("");
-    setLogoUrl("");
-    setIsOnlineOnly(false);
-    setAddress("");
-    setTwitchUrl("");
-    setFormat("");
-    setCapacity("");
-    setEntryFee("");
-    setPrizePot("");
+  function resetToSaved() {
+    setLogoUrl(savedLogoUrl || "");
+    setIsOnlineOnly(savedIsOnlineOnly);
+    setAddress(savedAddress || "");
+    setTwitchUrl(savedTwitchUrl || "");
+    setFormat(savedFormat || "");
+    setCapacity(savedCapacity != null ? String(savedCapacity) : "");
+    setEntryFee(savedEntryFee || "");
+    setPrizePot(savedPrizePot || "");
     setError("");
+  }
+
+  function closeWithoutSaving() {
+    resetToSaved();
+    setOpen(false);
   }
 
   async function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -71,11 +94,7 @@ export function CreateTournamentButton() {
     setUploadingLogo(false);
   }
 
-  async function handleSubmit() {
-    if (!name.trim() || !game.trim() || !startDate) {
-      setError("Tournament name, game, and start date are required.");
-      return;
-    }
+  async function handleSave() {
     setLoading(true);
     setError("");
 
@@ -85,32 +104,28 @@ export function CreateTournamentButton() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           query: `
-            mutation CreateTournament(
-              $name: String!, $game: String!, $startDate: Date!,
-              $logoUrl: String, $isOnlineOnly: Boolean, $address: String,
+            mutation UpdateTournamentDetails(
+              $id: ID!, $logoUrl: String, $isOnlineOnly: Boolean, $address: String,
               $twitchUrl: String, $format: String, $capacity: Int,
               $entryFee: String, $prizePot: String
             ) {
-              createTournament(
-                name: $name, game: $game, startDate: $startDate,
-                logoUrl: $logoUrl, isOnlineOnly: $isOnlineOnly, address: $address,
+              updateTournamentDetails(
+                id: $id, logoUrl: $logoUrl, isOnlineOnly: $isOnlineOnly, address: $address,
                 twitchUrl: $twitchUrl, format: $format, capacity: $capacity,
                 entryFee: $entryFee, prizePot: $prizePot
               ) { id }
             }
           `,
           variables: {
-            name,
-            game,
-            startDate,
-            logoUrl: logoUrl || undefined,
+            id: tournamentId,
+            logoUrl,
             isOnlineOnly,
             address: isOnlineOnly ? "" : address,
-            twitchUrl: twitchUrl || undefined,
-            format: format || undefined,
-            capacity: capacity ? Number(capacity) : undefined,
-            entryFee: entryFee || undefined,
-            prizePot: prizePot || undefined,
+            twitchUrl,
+            format,
+            capacity: capacity ? Number(capacity) : null,
+            entryFee,
+            prizePot,
           },
         }),
       });
@@ -118,10 +133,9 @@ export function CreateTournamentButton() {
       const json = await res.json();
 
       if (json.errors) {
-        setError(json.errors[0]?.message ?? "Failed to create tournament");
+        setError(json.errors[0]?.message ?? "Failed to save tournament details");
       } else {
         setOpen(false);
-        resetForm();
         router.refresh();
       }
     } catch {
@@ -134,65 +148,28 @@ export function CreateTournamentButton() {
   return (
     <>
       <button
-        onClick={() => setOpen(true)}
-        className="font-rajdhani text-[13px] font-bold tracking-wide px-4 py-2 rounded"
-        style={{ background: "var(--blue)", color: "white", border: "none", cursor: "pointer" }}
+        onClick={() => { resetToSaved(); setOpen(true); }}
+        className="font-rajdhani text-[13px] font-bold tracking-wide px-3 py-1.5 rounded"
+        style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)", cursor: "pointer" }}
       >
-        + New tournament
+        Edit details
       </button>
 
       {open && (
         <div
           className="fixed inset-0 flex items-center justify-center z-50 px-4"
           style={{ background: "rgba(0,0,0,0.7)" }}
-          onClick={() => setOpen(false)}
+          onClick={closeWithoutSaving}
         >
           <div className="fgc-card p-6 w-full max-w-2xl flex flex-col" style={{ maxHeight: "90vh" }} onClick={e => e.stopPropagation()}>
-            <h2 className="font-rajdhani text-xl font-bold text-[var(--text-primary)] mb-4">Create tournament</h2>
+            <h2 className="font-rajdhani text-xl font-bold text-[var(--text-primary)] mb-1">Tournament details</h2>
+            <p className="text-[12px] text-[var(--text-secondary)] mb-4">
+              Logo, location, stream link, format, capacity, entry fee/prize pot — all display-only, shown on the detail page.
+            </p>
 
-            {/* Same flex-1 min-h-0 scroll-region pattern as the Stream
-                Settings modal — lets this reflow into a compact multi-
-                column layout on a wide viewport without the modal itself
-                growing past 90vh and pushing Create/Cancel off-screen. */}
             <div className="overflow-y-auto pr-1 -mr-1 flex-1 min-h-0">
               <div className="mb-4">
-                <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Tournament name</label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  placeholder="e.g. Combo Breaker 2026"
-                  className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
-                  style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Game</label>
-                  <input
-                    type="text"
-                    value={game}
-                    onChange={e => setGame(e.target.value)}
-                    placeholder="e.g. Street Fighter 6"
-                    className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
-                    style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Start date</label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={e => setStartDate(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] outline-none focus:border-[var(--blue)]"
-                    style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)", colorScheme: "dark" }}
-                  />
-                </div>
-              </div>
-
-              <div className="mb-4">
-                <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Logo (optional)</label>
+                <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Logo</label>
                 <div className="flex items-center gap-3">
                   {logoUrl && (
                     <div className="w-12 h-12 rounded overflow-hidden flex-shrink-0" style={{ border: "1px solid var(--border-strong)" }}>
@@ -263,7 +240,7 @@ export function CreateTournamentButton() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
-                  <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Twitch link (optional)</label>
+                  <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Twitch link</label>
                   <input
                     type="text"
                     value={twitchUrl}
@@ -274,7 +251,7 @@ export function CreateTournamentButton() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Format (optional)</label>
+                  <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Format</label>
                   <input
                     type="text"
                     value={format}
@@ -288,7 +265,7 @@ export function CreateTournamentButton() {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-2">
                 <div>
-                  <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Capacity (optional)</label>
+                  <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Capacity</label>
                   <input
                     type="number"
                     min={1}
@@ -300,7 +277,7 @@ export function CreateTournamentButton() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Entry fee (optional)</label>
+                  <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Entry fee</label>
                   <input
                     type="text"
                     value={entryFee}
@@ -311,7 +288,7 @@ export function CreateTournamentButton() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Prize pot (optional)</label>
+                  <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Prize pot</label>
                   <input
                     type="text"
                     value={prizePot}
@@ -332,19 +309,19 @@ export function CreateTournamentButton() {
 
             <div className="flex gap-2 mt-4">
               <button
-                onClick={() => setOpen(false)}
+                onClick={closeWithoutSaving}
                 className="flex-1 py-2 rounded font-rajdhani text-[14px] font-bold"
                 style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border)", cursor: "pointer" }}
               >
                 Cancel
               </button>
               <button
-                onClick={handleSubmit}
+                onClick={handleSave}
                 disabled={loading || uploadingLogo}
                 className="flex-1 py-2 rounded font-rajdhani text-[14px] font-bold"
                 style={{ background: "var(--blue)", color: "white", border: "none", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.6 : 1 }}
               >
-                {loading ? "Creating..." : "Create"}
+                {loading ? "Saving..." : "Save"}
               </button>
             </div>
           </div>

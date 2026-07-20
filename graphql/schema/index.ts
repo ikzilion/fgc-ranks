@@ -77,6 +77,14 @@ export const typeDefs = `#graphql
     bracketLineColor: String
     bracketBoxColor: String
     bracketFontColor: String
+    logoUrl: String
+    isOnlineOnly: Boolean!
+    address: String
+    twitchUrl: String
+    format: String
+    capacity: Int
+    entryFee: String
+    prizePot: String
   }
 
   type Entrant {
@@ -166,7 +174,30 @@ export const typeDefs = `#graphql
 
     updatePlayer(id: ID!, tag: String, region: String, avatarUrl: String, characters: [String!], team: String): Player!
 
-    createTournament(name: String!, game: String!, startDate: Date!): Tournament!
+    createTournament(
+      name: String!
+      game: String!
+      startDate: Date!
+      logoUrl: String
+      isOnlineOnly: Boolean
+      address: String
+      twitchUrl: String
+      format: String
+      capacity: Int
+      entryFee: String
+      prizePot: String
+    ): Tournament!
+    updateTournamentDetails(
+      id: ID!
+      logoUrl: String
+      isOnlineOnly: Boolean
+      address: String
+      twitchUrl: String
+      format: String
+      capacity: Int
+      entryFee: String
+      prizePot: String
+    ): Tournament!
     updateTournamentStatus(id: ID!, status: TournamentStatus!): Tournament!
     cancelTournament(id: ID!, reason: String!): Tournament!
     updateTournamentVisibility(id: ID!, visibility: TournamentVisibility!): Tournament!

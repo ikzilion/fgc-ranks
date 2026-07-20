@@ -14,6 +14,7 @@ import { RemoveEntrantButton } from "@/components/RemoveEntrantButton";
 import { GenerateBracketButton } from "@/components/GenerateBracketButton";
 import { BracketView } from "@/components/BracketView";
 import { StreamAssetsButton } from "@/components/StreamAssetsButton";
+import { EditTournamentDetailsButton } from "@/components/EditTournamentDetailsButton";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,14 @@ const GET_TOURNAMENT = `
       bracketLineColor
       bracketBoxColor
       bracketFontColor
+      logoUrl
+      isOnlineOnly
+      address
+      twitchUrl
+      format
+      capacity
+      entryFee
+      prizePot
       organizers {
         id
         tag
@@ -217,21 +226,59 @@ export default async function TournamentDetailPage({ params }: { params: Promise
         <div className="flex flex-col sm:flex-row gap-4 mb-6 items-stretch">
           <div className="fgc-card p-6 flex-1">
             <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-              <div>
-                <h1 className="font-rajdhani text-3xl font-bold text-[var(--text-primary)] leading-tight">
-                  {tournament.name}
-                  {tournament.visibility === "PRIVATE" && (
-                    <span className="ml-2 text-[13px] align-middle" style={{ color: "var(--text-muted)" }}>🔒 Private</span>
-                  )}
-                </h1>
-                <p className="text-[13px] text-[var(--text-secondary)] mt-1">
-                  {tournament.game} · {tournament.entrantCount} entrants · {new Date(tournament.startDate).toLocaleDateString()}
-                </p>
-                {tournament.status === "CANCELLED" && tournament.cancellationReason && (
-                  <p className="text-[13px] mt-1" style={{ color: "var(--coral)" }}>
-                    Cancelled: {tournament.cancellationReason}
-                  </p>
+              <div className="flex items-start gap-4">
+                {tournament.logoUrl && (
+                  <img
+                    src={tournament.logoUrl}
+                    alt={`${tournament.name} logo`}
+                    className="w-14 h-14 rounded-lg object-cover flex-shrink-0"
+                    style={{ border: "1px solid var(--border-strong)" }}
+                  />
                 )}
+                <div>
+                  <h1 className="font-rajdhani text-3xl font-bold text-[var(--text-primary)] leading-tight">
+                    {tournament.name}
+                    {tournament.visibility === "PRIVATE" && (
+                      <span className="ml-2 text-[13px] align-middle" style={{ color: "var(--text-muted)" }}>🔒 Private</span>
+                    )}
+                  </h1>
+                  <p className="text-[13px] text-[var(--text-secondary)] mt-1">
+                    {tournament.game} · {tournament.entrantCount}{tournament.capacity ? `/${tournament.capacity}` : ""} entrants · {new Date(tournament.startDate).toLocaleDateString()}
+                  </p>
+                  {/* Format/location — display-only, only rendered when at
+                      least one is actually set, so existing tournaments with
+                      none of this filled in show nothing extra here. */}
+                  {(tournament.format || tournament.isOnlineOnly || tournament.address) && (
+                    <p className="text-[13px] text-[var(--text-secondary)] mt-1">
+                      {tournament.format}
+                      {tournament.format && (tournament.isOnlineOnly || tournament.address) && " · "}
+                      {tournament.isOnlineOnly ? "🌐 Online Only" : tournament.address}
+                    </p>
+                  )}
+                  {(tournament.entryFee || tournament.prizePot) && (
+                    <p className="text-[13px] mt-1" style={{ color: "var(--gold)" }}>
+                      {tournament.entryFee && `${tournament.entryFee} entry`}
+                      {tournament.entryFee && tournament.prizePot && " · "}
+                      {tournament.prizePot && `${tournament.prizePot} prize pot`}
+                    </p>
+                  )}
+                  {tournament.twitchUrl && (
+                    <a
+                      href={tournament.twitchUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[13px] mt-1 inline-block hover:underline"
+                      style={{ color: "var(--blue)" }}
+                    >
+                      📺 Watch on Twitch
+                    </a>
+                  )}
+                  {tournament.status === "CANCELLED" && tournament.cancellationReason && (
+                    <p className="text-[13px] mt-1" style={{ color: "var(--coral)" }}>
+                      Cancelled: {tournament.cancellationReason}
+                    </p>
+                  )}
+                </div>
               </div>
               <div className="flex items-center gap-3">
                 {statusBadge(tournament.status)}
@@ -248,6 +295,18 @@ export default async function TournamentDetailPage({ params }: { params: Promise
             </div>
             {canManage && (
               <div className="mt-4 flex flex-wrap items-center gap-2">
+                <EditTournamentDetailsButton
+                  tournamentId={tournament.id}
+                  logoUrl={tournament.logoUrl}
+                  isOnlineOnly={tournament.isOnlineOnly}
+                  address={tournament.address}
+                  twitchUrl={tournament.twitchUrl}
+                  format={tournament.format}
+                  capacity={tournament.capacity}
+                  entryFee={tournament.entryFee}
+                  prizePot={tournament.prizePot}
+                  canManage={canManage}
+                />
                 <ManageOrganizersButton
                   tournamentId={tournament.id}
                   organizers={tournament.organizers}
