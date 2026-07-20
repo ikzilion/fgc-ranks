@@ -109,7 +109,12 @@ export function HeadToHeadSection({
   }
 
   return (
-    <div className="fgc-card">
+    // overflow: visible override — .fgc-card's overflow:hidden (for
+    // rounded-corner clipping elsewhere) otherwise clips the picker's
+    // absolutely-positioned dropdown at the card's bottom edge instead of
+    // letting it float over the page content below, same class of bug
+    // BracketView's bracket card hit with its sticky scrollbar.
+    <div className="fgc-card" style={{ overflow: "visible" }}>
       {viewerHeadToHead && <RecordRow result={viewerHeadToHead} />}
 
       <div className="p-4">
