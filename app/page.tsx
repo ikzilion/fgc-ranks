@@ -115,7 +115,16 @@ export default async function Home() {
   const { newsPosts: posts, tournaments, player } = await getHomeData(playerId);
 
   const liveTournaments = tournaments.filter((t: any) => t.status === "LIVE").slice(0, 5);
-  const upcomingTournaments = tournaments.filter((t: any) => t.status === "UPCOMING").slice(0, 5);
+  // The underlying `tournaments` query sorts startDate descending (most
+  // recently-created-or-dated first) — right for a general listing, but
+  // wrong for "what's coming up": that order surfaces the farthest-out
+  // upcoming tournaments first instead of the soonest one. Re-sort
+  // ascending here before capping to 5, so this section reads
+  // chronologically (soonest first) regardless of the base query's order.
+  const upcomingTournaments = tournaments
+    .filter((t: any) => t.status === "UPCOMING")
+    .sort((a: any, b: any) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
+    .slice(0, 5);
 
   return (
     <main className="max-w-6xl mx-auto px-4 py-8">
