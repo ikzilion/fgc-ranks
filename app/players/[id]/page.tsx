@@ -7,6 +7,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { auth } from "@/lib/auth";
 import { EditProfileButton } from "@/components/EditProfileButton";
 import { HeadToHeadSection } from "@/components/HeadToHeadSection";
+import { ZoomableAvatar } from "@/components/ZoomableAvatar";
 
 export const dynamic = "force-dynamic";
 
@@ -125,16 +126,7 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
     <main className="max-w-4xl mx-auto px-4 py-8">
       {/* Header */}
       <div className="fgc-card p-6 mb-4 flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-5">
-        <div
-          className="w-16 h-16 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden font-rajdhani text-2xl font-bold"
-          style={{ background: "var(--blue-dim)", border: "2px solid rgba(79,142,247,0.4)", color: "var(--blue)" }}
-        >
-          {player.avatarUrl ? (
-            <img src={player.avatarUrl} alt={player.tag} className="w-full h-full object-cover" />
-          ) : (
-            player.tag.slice(0, 2).toUpperCase()
-          )}
-        </div>
+        <ZoomableAvatar avatarUrl={player.avatarUrl} tag={player.tag} sizeClassName="w-16 h-16" textClassName="text-2xl" />
         <div className="flex-1">
           <div className="flex items-center justify-between">
             <h1 className="font-rajdhani text-3xl font-bold text-[var(--text-primary)] leading-tight">{player.tag}</h1>

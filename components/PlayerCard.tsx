@@ -6,6 +6,7 @@
 // the Players list page. Logged-out visitors get the same sign-in/register
 // prompt in both places.
 import Link from "next/link";
+import { ZoomableAvatar } from "@/components/ZoomableAvatar";
 
 interface PlayerCardData {
   id: string;
@@ -46,16 +47,7 @@ export function PlayerCard({ player }: { player: PlayerCardData | null }) {
   return (
     <div className="fgc-card p-5">
       <div className="flex items-center gap-3 mb-4">
-        <div
-          className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden font-rajdhani text-base font-bold"
-          style={{ background: "var(--blue-dim)", border: "2px solid rgba(79,142,247,0.4)", color: "var(--blue)" }}
-        >
-          {player.avatarUrl ? (
-            <img src={player.avatarUrl} alt={player.tag} className="w-full h-full object-cover" />
-          ) : (
-            player.tag.slice(0, 2).toUpperCase()
-          )}
-        </div>
+        <ZoomableAvatar avatarUrl={player.avatarUrl} tag={player.tag} sizeClassName="w-12 h-12" textClassName="text-base" />
         <div className="min-w-0">
           <p className="font-rajdhani text-lg font-bold text-[var(--text-primary)] leading-tight truncate">{player.tag}</p>
           {player.team && <p className="text-[11px] font-semibold truncate" style={{ color: "var(--blue)" }}>{player.team}</p>}
