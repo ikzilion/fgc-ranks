@@ -86,8 +86,11 @@ export default async function PlayersPage() {
           <PlayerCard player={ownPlayer} />
         </div>
 
-        {/* RIGHT — existing players list + search/filter, unchanged */}
-        <div className="sm:col-span-3 order-2">
+        {/* MIDDLE — existing players list + search/filter, unchanged.
+            col-span-2 (not 3) so the list sits centered in the middle of
+            the row instead of stretching to fill all remaining width, same
+            proportions as the homepage's card/center-content layout. */}
+        <div className="sm:col-span-2 order-2">
           <div className="flex items-center justify-between mb-6">
             <h1 className="font-rajdhani text-2xl font-bold text-[var(--text-primary)]">Season rankings</h1>
             <p className="text-[12px] text-[var(--text-secondary)]">{players.length} players</p>
