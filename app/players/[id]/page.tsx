@@ -12,6 +12,7 @@ const GET_PLAYER = `
       tag
       displayId
       region
+      team
       avatarUrl
       characters
       wins
@@ -82,8 +83,12 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
               currentRegion={player.region}
               currentCharacters={player.characters}
               currentAvatarUrl={player.avatarUrl}
+              currentTeam={player.team}
             />
           </div>
+          {player.team && (
+            <p className="text-[13px] font-semibold mt-0.5" style={{ color: "var(--blue)" }}>{player.team}</p>
+          )}
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             {player.characters.map((c: string) => (
               <span

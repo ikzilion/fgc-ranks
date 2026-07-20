@@ -12,6 +12,10 @@ const PlayerSchema = new Schema(
     // tolerates older documents that haven't been backfilled yet.
     playerNumber: { type: Number, unique: true, sparse: true },
     region: { type: String, default: "" },
+    // Free-text team affiliation label — not a structured Team entity with
+    // its own roster/page, just an optional tag on the player, same
+    // simplicity level as `region`.
+    team: { type: String, default: "" },
     avatarUrl: { type: String, default: "" },
     // Array of character names this player mains
     characters: { type: [String], default: [] },

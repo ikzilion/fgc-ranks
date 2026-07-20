@@ -11,9 +11,10 @@ interface Props {
   currentRegion: string;
   currentCharacters: string[];
   currentAvatarUrl?: string;
+  currentTeam?: string;
 }
 
-export function EditProfileButton({ playerId, currentTag, currentRegion, currentCharacters, currentAvatarUrl }: Props) {
+export function EditProfileButton({ playerId, currentTag, currentRegion, currentCharacters, currentAvatarUrl, currentTeam }: Props) {
   const { data: session } = useSession();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -21,6 +22,7 @@ export function EditProfileButton({ playerId, currentTag, currentRegion, current
   const [region, setRegion] = useState(currentRegion || "");
   const [charactersInput, setCharactersInput] = useState(currentCharacters.join(", "));
   const [avatarUrl, setAvatarUrl] = useState(currentAvatarUrl || "");
+  const [team, setTeam] = useState(currentTeam || "");
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -70,17 +72,18 @@ export function EditProfileButton({ playerId, currentTag, currentRegion, current
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           query: `
-            mutation UpdatePlayer($id: ID!, $tag: String, $region: String, $avatarUrl: String, $characters: [String!]) {
-              updatePlayer(id: $id, tag: $tag, region: $region, avatarUrl: $avatarUrl, characters: $characters) {
+            mutation UpdatePlayer($id: ID!, $tag: String, $region: String, $avatarUrl: String, $characters: [String!], $team: String) {
+              updatePlayer(id: $id, tag: $tag, region: $region, avatarUrl: $avatarUrl, characters: $characters, team: $team) {
                 id
                 tag
                 region
                 avatarUrl
                 characters
+                team
               }
             }
           `,
-          variables: { id: playerId, tag, region, avatarUrl, characters },
+          variables: { id: playerId, tag, region, avatarUrl, characters, team },
         }),
       });
 
@@ -156,6 +159,18 @@ export function EditProfileButton({ playerId, currentTag, currentRegion, current
                 value={region}
                 onChange={e => setRegion(e.target.value)}
                 placeholder="e.g. Dominican Republic"
+                className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
+                style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
+              />
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Team (optional)</label>
+              <input
+                type="text"
+                value={team}
+                onChange={e => setTeam(e.target.value)}
+                placeholder="e.g. Team Liquid"
                 className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
                 style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
               />

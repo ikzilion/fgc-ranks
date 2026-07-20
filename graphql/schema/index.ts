@@ -32,6 +32,7 @@ export const typeDefs = `#graphql
     playerNumber: Int
     displayId: String
     region: String
+    team: String
     avatarUrl: String
     characters: [String!]!
     wins: Int!
@@ -152,7 +153,7 @@ export const typeDefs = `#graphql
     requestPasswordReset(email: String!): Boolean!
     resetPassword(token: String!, newPassword: String!): Boolean!
 
-    updatePlayer(id: ID!, tag: String, region: String, avatarUrl: String, characters: [String!]): Player!
+    updatePlayer(id: ID!, tag: String, region: String, avatarUrl: String, characters: [String!], team: String): Player!
 
     createTournament(name: String!, game: String!, startDate: Date!): Tournament!
     updateTournamentStatus(id: ID!, status: TournamentStatus!): Tournament!

@@ -39,6 +39,7 @@ const GET_HOME_PLAYER = `
       id
       tag
       region
+      team
       avatarUrl
       wins
       losses
@@ -135,6 +136,7 @@ export default async function Home() {
                 </div>
                 <div className="min-w-0">
                   <p className="font-rajdhani text-lg font-bold text-[var(--text-primary)] leading-tight truncate">{player.tag}</p>
+                  {player.team && <p className="text-[11px] font-semibold truncate" style={{ color: "var(--blue)" }}>{player.team}</p>}
                   {player.region && <p className="text-[11px] text-[var(--text-secondary)] truncate">{player.region}</p>}
                 </div>
               </div>

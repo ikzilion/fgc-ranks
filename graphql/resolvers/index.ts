@@ -252,7 +252,7 @@ export const resolvers = {
     // Players
     updatePlayer: async (
       _: unknown,
-      { id, tag, region, avatarUrl, characters }: { id: string; tag?: string; region?: string; avatarUrl?: string; characters?: string[] },
+      { id, tag, region, avatarUrl, characters, team }: { id: string; tag?: string; region?: string; avatarUrl?: string; characters?: string[]; team?: string },
       { playerId, role }: { playerId?: string; role?: string }
     ) => {
       if (playerId !== id && role !== "ADMIN") throw new Error("Not authorized");
@@ -260,6 +260,7 @@ export const resolvers = {
       await connectToDatabase();
       const update: any = { tag, region, characters };
       if (avatarUrl !== undefined) update.avatarUrl = avatarUrl;
+      if (team !== undefined) update.team = team;
       return Player.findByIdAndUpdate(id, update, { new: true });
     },
 
