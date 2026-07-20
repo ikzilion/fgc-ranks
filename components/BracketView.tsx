@@ -87,7 +87,15 @@ function PlayerRow({
           {player ? player.tag : "TBD"}
         </span>
       </div>
-      <span className="font-rajdhani text-[13px] font-bold" style={{ color: isWinner ? "var(--green)" : "var(--text-muted)" }}>
+      {/* Score used var(--text-muted) for the non-winner unconditionally,
+          same bug as the name/row opacity fix above — stacked on top of the
+          row's own opacity-60 dimming once the match is COMPLETED, the
+          loser's score read as double-greyed, and a still-pending match's
+          "—" placeholder was greyed out too even though nothing's decided
+          yet. The row's opacity already conveys win/loss; the score text
+          itself just needs the same normal color the name text uses,
+          highlighting the winner in green. */}
+      <span className="font-rajdhani text-[13px] font-bold" style={{ color: isWinner ? "var(--green)" : "var(--text-primary)" }}>
         {status === "COMPLETED" ? (isForfeit ? "FF" : score) : "—"}
       </span>
     </div>
