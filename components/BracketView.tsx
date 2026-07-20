@@ -42,12 +42,14 @@ const DEFAULT_LINE_COLOR = "var(--border-strong)";
 // all driven by fixed Tailwind classes with truncating text, no wrapping),
 // measured directly against the live Community Showdown bracket via
 // headless Chrome + getBoundingClientRect (58/58 cards, mixed TBD/pending/
-// completed states, all exactly 98px). CARD_GAP is the previous gap-6
+// completed states, all exactly the same height). CARD_GAP is the gap-6
 // column spacing (measured, not the nominal 1.5rem, since the project's
 // root font-size isn't the 16px default). If MatchCard's internal
-// structure/classes ever change, remeasure and update these two numbers —
-// everything below is computed from them, not re-guessed per round.
-const CARD_HEIGHT = 98;
+// structure/classes ever change (last bumped when the score text grew
+// from text-[13px] to text-[17px], 98px -> 110px), remeasure and update
+// these two numbers — everything below is computed from them, not
+// re-guessed per round.
+const CARD_HEIGHT = 110;
 const CARD_GAP = 21;
 const ROUND0_SPACING = CARD_HEIGHT + CARD_GAP;
 
@@ -95,7 +97,7 @@ function PlayerRow({
           yet. The row's opacity already conveys win/loss; the score text
           itself just needs the same normal color the name text uses,
           highlighting the winner in green. */}
-      <span className="font-rajdhani text-[13px] font-bold" style={{ color: isWinner ? "var(--green)" : "var(--text-primary)" }}>
+      <span className="font-rajdhani text-[17px] font-bold" style={{ color: isWinner ? "var(--green)" : "var(--text-primary)" }}>
         {status === "COMPLETED" ? (isForfeit ? "FF" : score) : "—"}
       </span>
     </div>
