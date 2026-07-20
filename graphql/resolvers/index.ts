@@ -905,6 +905,30 @@ export const resolvers = {
       const total = parent.wins + parent.losses;
       return total === 0 ? 0 : Math.round((parent.wins / total) * 100) / 100;
     },
+    headToHead: async (parent: { _id: string }, { opponentId }: { opponentId: string }) => {
+      await connectToDatabase();
+      const opponent = await Player.findById(opponentId);
+      if (!opponent) throw new Error("Opponent not found");
+
+      // Forfeits are intentionally included — resolveMatchOutcome already
+      // gives them a real winnerId/COMPLETED status, same as a played match.
+      const matches = await Match.find({
+        status: MatchStatus.COMPLETED,
+        $or: [
+          { player1Id: parent._id, player2Id: opponentId },
+          { player1Id: opponentId, player2Id: parent._id },
+        ],
+      });
+
+      let wins = 0;
+      let losses = 0;
+      for (const m of matches) {
+        if (m.winnerId?.toString() === parent._id.toString()) wins++;
+        else if (m.winnerId?.toString() === opponentId) losses++;
+      }
+
+      return { opponent, wins, losses };
+    },
   },
 
   Tournament: {

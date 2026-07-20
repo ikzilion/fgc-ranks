@@ -41,6 +41,17 @@ export const typeDefs = `#graphql
     winRate: Float
     tournaments: [Entrant!]!
     createdAt: Date!
+    # Head-to-head record against a specific opponent, from THIS player's
+    # perspective (wins = this player's wins over opponent). Only counts
+    # completed matches (forfeits included — a forfeit still has a real
+    # winner/loser).
+    headToHead(opponentId: ID!): HeadToHead
+  }
+
+  type HeadToHead {
+    opponent: Player!
+    wins: Int!
+    losses: Int!
   }
 
   type Tournament {

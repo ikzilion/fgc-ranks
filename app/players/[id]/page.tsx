@@ -4,7 +4,11 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
+import { auth } from "@/lib/auth";
 import { EditProfileButton } from "@/components/EditProfileButton";
+import { HeadToHeadSection } from "@/components/HeadToHeadSection";
+
+export const dynamic = "force-dynamic";
 
 const GET_PLAYER = `
   query GetPlayer($id: ID!) {
@@ -37,15 +41,66 @@ const GET_PLAYER = `
   }
 `;
 
-async function getPlayer(id: string) {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/graphql`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query: GET_PLAYER, variables: { id } }),
-    next: { revalidate: 60 },
-  });
-  const { data } = await res.json();
-  return data?.player ?? null;
+// Fetches the auto-shown "vs the logged-in viewer" head-to-head record.
+// Kept as a separate query rather than a second aliased field on GET_PLAYER
+// because opponentId: ID! is non-null — a homepage Phase 2 bug already
+// proved that @include(if:) doesn't stop GraphQL's parse-time argument
+// validation from rejecting a nullable-typed variable in that position, so
+// this only ever gets called when viewerId is known to be a real id.
+const GET_VIEWER_HEAD_TO_HEAD = `
+  query GetViewerHeadToHead($id: ID!, $opponentId: ID!) {
+    player(id: $id) {
+      headToHead(opponentId: $opponentId) {
+        wins
+        losses
+        opponent { id tag avatarUrl }
+      }
+    }
+  }
+`;
+
+// Lightweight roster for the opponent picker — just enough to search/display
+// by tag, not the full leaderboard shape PlayerSearchFilter needs.
+const GET_PLAYERS_FOR_PICKER = `
+  query GetPlayersForPicker {
+    players(limit: 200) {
+      id
+      tag
+      avatarUrl
+    }
+  }
+`;
+
+async function getPlayerPageData(id: string, viewerId?: string) {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const [playerJson, viewerH2hJson, playersJson] = await Promise.all([
+    fetch(`${baseUrl}/api/graphql`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: GET_PLAYER, variables: { id } }),
+      next: { revalidate: 60 },
+    }).then(r => r.json()),
+    viewerId && viewerId !== id
+      ? fetch(`${baseUrl}/api/graphql`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: GET_VIEWER_HEAD_TO_HEAD, variables: { id, opponentId: viewerId } }),
+          cache: "no-store",
+        }).then(r => r.json())
+      : Promise.resolve(null),
+    fetch(`${baseUrl}/api/graphql`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: GET_PLAYERS_FOR_PICKER }),
+      next: { revalidate: 60 },
+    }).then(r => r.json()),
+  ]);
+
+  return {
+    player: playerJson.data?.player ?? null,
+    viewerHeadToHead: viewerH2hJson?.data?.player?.headToHead ?? null,
+    players: playersJson.data?.players ?? [],
+  };
 }
 
 function placementStyle(placement: number) {
@@ -57,10 +112,14 @@ function placementStyle(placement: number) {
 
 export default async function PlayerProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const player = await getPlayer(id);
+  const session = await auth();
+  const viewerId = (session?.user as any)?.playerId ?? undefined;
+  const { player, viewerHeadToHead, players } = await getPlayerPageData(id, viewerId);
   if (!player) notFound();
 
   const totalGames = player.wins + player.losses;
+  // Picker shouldn't offer comparing a player against themselves.
+  const pickablePlayers = players.filter((p: any) => p.id !== player.id);
 
   return (
     <main className="max-w-4xl mx-auto px-4 py-8">
@@ -186,6 +245,12 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
             </Link>
           ))}
       </div>
+
+      {/* Head-to-head — auto-shown vs the logged-in viewer (if any, and not
+          your own profile) plus a picker for anyone to compare the profile
+          owner against any other player. */}
+      <h2 className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3 mt-6">Head-to-head</h2>
+      <HeadToHeadSection profilePlayerId={player.id} viewerHeadToHead={viewerHeadToHead} players={pickablePlayers} />
     </main>
   );
 }
