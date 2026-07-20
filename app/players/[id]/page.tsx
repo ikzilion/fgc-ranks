@@ -2,6 +2,7 @@
 // Individual player profile — stats, characters, and tournament history.
 
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { EditProfileButton } from "@/components/EditProfileButton";
 
@@ -27,6 +28,7 @@ const GET_PLAYER = `
           id
           name
           game
+          status
           startDate
           entrantCount
         }
@@ -152,16 +154,19 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
         {[...player.tournaments]
           .sort((a: any, b: any) => new Date(b.tournament.startDate).getTime() - new Date(a.tournament.startDate).getTime())
           .map((entry: any) => (
-            <div
+            <Link
               key={entry.id}
-              className="flex items-center gap-4 px-5 py-3 border-b border-[var(--border)] last:border-0"
+              href={`/tournaments/${entry.tournament.id}`}
+              className="flex items-center gap-4 px-5 py-3 border-b border-[var(--border)] last:border-0 hover:bg-[var(--navy-3)] transition-colors"
             >
-              {/* Placement badge */}
+              {/* Placement badge — min-w-10 (not a fixed w-10) so it stays a
+                  neat square for short ordinal labels ("1st") but can widen
+                  for the longer "Ongoing" label without wrapping/clipping. */}
               <div
-                className="w-10 h-10 rounded flex items-center justify-center font-rajdhani text-[13px] font-bold flex-shrink-0"
+                className="min-w-10 h-10 px-1.5 rounded flex items-center justify-center font-rajdhani text-[13px] font-bold flex-shrink-0 whitespace-nowrap"
                 style={placementStyle(entry.placement)}
               >
-                {entry.placement ? `${entry.placement}${ordinal(entry.placement)}` : "—"}
+                {placementLabel(entry)}
               </div>
 
               {/* Tournament info */}
@@ -178,7 +183,7 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
               <p className="text-[12px] text-[var(--text-muted)] flex-shrink-0">
                 {entry.tournament.entrantCount} entrants
               </p>
-            </div>
+            </Link>
           ))}
       </div>
     </main>
@@ -190,4 +195,14 @@ function ordinal(n: number) {
   if (n === 2) return "nd";
   if (n === 3) return "rd";
   return "th";
+}
+
+// A tournament with no placement yet is either still in progress (LIVE/
+// UPCOMING — no result to show, not a broken/missing value) or ended/
+// cancelled without one ever being recorded (falls back to a plain dash,
+// same as every other "no data" placeholder on this page).
+function placementLabel(entry: { placement?: number | null; tournament: { status: string } }) {
+  if (entry.placement) return `${entry.placement}${ordinal(entry.placement)}`;
+  if (entry.tournament.status === "LIVE" || entry.tournament.status === "UPCOMING") return "Ongoing";
+  return "—";
 }
