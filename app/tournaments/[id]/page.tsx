@@ -214,78 +214,83 @@ export default async function TournamentDetailPage({ params }: { params: Promise
           part of this page with inherently wide, horizontally-scrollable
           content (see the bracket wrapper comment further down). */}
       <div className="max-w-5xl mx-auto">
-        <div className="fgc-card p-6 mb-6">
-          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-            <div>
-              <h1 className="font-rajdhani text-3xl font-bold text-[var(--text-primary)] leading-tight">
-                {tournament.name}
-                {tournament.visibility === "PRIVATE" && (
-                  <span className="ml-2 text-[13px] align-middle" style={{ color: "var(--text-muted)" }}>🔒 Private</span>
-                )}
-              </h1>
-              <p className="text-[13px] text-[var(--text-secondary)] mt-1">
-                {tournament.game} · {tournament.entrantCount} entrants · {new Date(tournament.startDate).toLocaleDateString()}
-              </p>
-              {tournament.status === "CANCELLED" && tournament.cancellationReason && (
-                <p className="text-[13px] mt-1" style={{ color: "var(--coral)" }}>
-                  Cancelled: {tournament.cancellationReason}
+        <div className="flex flex-col sm:flex-row gap-4 mb-6 items-stretch">
+          <div className="fgc-card p-6 flex-1">
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+              <div>
+                <h1 className="font-rajdhani text-3xl font-bold text-[var(--text-primary)] leading-tight">
+                  {tournament.name}
+                  {tournament.visibility === "PRIVATE" && (
+                    <span className="ml-2 text-[13px] align-middle" style={{ color: "var(--text-muted)" }}>🔒 Private</span>
+                  )}
+                </h1>
+                <p className="text-[13px] text-[var(--text-secondary)] mt-1">
+                  {tournament.game} · {tournament.entrantCount} entrants · {new Date(tournament.startDate).toLocaleDateString()}
                 </p>
-              )}
+                {tournament.status === "CANCELLED" && tournament.cancellationReason && (
+                  <p className="text-[13px] mt-1" style={{ color: "var(--coral)" }}>
+                    Cancelled: {tournament.cancellationReason}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                {statusBadge(tournament.status)}
+                <TournamentStatusButton tournamentId={tournament.id} status={tournament.status} canManage={canManage} />
+                <JoinTournamentButton
+                  tournamentId={tournament.id}
+                  isEntered={tournament.isEntered}
+                  entrantId={myEntrant?.id}
+                  status={tournament.status}
+                  visibility={tournament.visibility}
+                  isInvited={tournament.isInvited}
+                />
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              {statusBadge(tournament.status)}
-              {/* Public shortcut to the read-only broadcast view — deliberately
-                  NOT gated behind canManage, unlike everything else in this
-                  header row's second block below. It's just navigation to an
-                  already-public page, not a management action, so anyone
-                  (including signed-out visitors) should be able to jump to it. */}
-              <Link
-                href={`/tournaments/${tournament.id}/stream`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-rajdhani text-[13px] font-bold tracking-wide px-3 py-1.5 rounded"
-                style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)" }}
-              >
-                📺 Streamer Mode
-              </Link>
-              <TournamentStatusButton tournamentId={tournament.id} status={tournament.status} canManage={canManage} />
-              <JoinTournamentButton
-                tournamentId={tournament.id}
-                isEntered={tournament.isEntered}
-                entrantId={myEntrant?.id}
-                status={tournament.status}
-                visibility={tournament.visibility}
-                isInvited={tournament.isInvited}
-              />
-            </div>
+            {canManage && (
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <ManageOrganizersButton
+                  tournamentId={tournament.id}
+                  organizers={tournament.organizers}
+                  entrants={tournament.entrants}
+                  canManage={canManage}
+                />
+                <InvitePlayerButton
+                  tournamentId={tournament.id}
+                  visibility={tournament.visibility}
+                  invitedPlayers={tournament.invitedPlayers}
+                  entrants={tournament.entrants}
+                  allPlayers={players}
+                  canManage={canManage}
+                />
+                <StreamAssetsButton
+                  tournamentId={tournament.id}
+                  streamBackgroundUrl={tournament.streamBackgroundUrl}
+                  sponsorBannerUrl={tournament.sponsorBannerUrl}
+                  bracketLineColor={tournament.bracketLineColor}
+                  bracketBoxColor={tournament.bracketBoxColor}
+                  bracketFontColor={tournament.bracketFontColor}
+                  canManage={canManage}
+                />
+              </div>
+            )}
           </div>
-          {canManage && (
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <ManageOrganizersButton
-                tournamentId={tournament.id}
-                organizers={tournament.organizers}
-                entrants={tournament.entrants}
-                canManage={canManage}
-              />
-              <InvitePlayerButton
-                tournamentId={tournament.id}
-                visibility={tournament.visibility}
-                invitedPlayers={tournament.invitedPlayers}
-                entrants={tournament.entrants}
-                allPlayers={players}
-                canManage={canManage}
-              />
-              <StreamAssetsButton
-                tournamentId={tournament.id}
-                streamBackgroundUrl={tournament.streamBackgroundUrl}
-                sponsorBannerUrl={tournament.sponsorBannerUrl}
-                bracketLineColor={tournament.bracketLineColor}
-                bracketBoxColor={tournament.bracketBoxColor}
-                bracketFontColor={tournament.bracketFontColor}
-                canManage={canManage}
-              />
-            </div>
-          )}
+
+          {/* Streamer Mode — pulled out of the header button row into its own
+              bigger, standalone box (user request, July 19, 2026) instead of
+              blending in with the smaller Manage/Join/Status buttons. Still
+              deliberately NOT gated behind canManage — it's just navigation
+              to an already-public page, not a management action, so anyone
+              (including signed-out visitors) should be able to jump to it. */}
+          <Link
+            href={`/tournaments/${tournament.id}/stream`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="fgc-card p-6 sm:w-56 flex-shrink-0 flex flex-col items-center justify-center gap-2 text-center hover:bg-[var(--navy-3)] transition-colors"
+          >
+            <span className="text-4xl">📺</span>
+            <span className="font-rajdhani text-lg font-bold text-[var(--text-primary)]">Streamer Mode</span>
+            <span className="text-[11px] text-[var(--text-secondary)]">Open the OBS broadcast view</span>
+          </Link>
         </div>
       </div>
 
