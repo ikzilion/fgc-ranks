@@ -96,7 +96,11 @@ function MatchCard({
   return (
     <div ref={el => registerRef(match.id, el)} className="fgc-card p-3 w-56 flex-shrink-0" style={boxColor ? { background: boxColor } : undefined}>
       <div className="flex items-center justify-between mb-2">
-        <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">{match.round}</p>
+        {/* Same fontColor prop/fallback pattern as PlayerRow's tag text below
+            — was left out when bracketFontColor was originally scoped, per
+            user follow-up now brought into scope alongside it. TBD text and
+            win/loss score styling remain deliberately untouched. */}
+        <p className="text-[10px] uppercase tracking-widest" style={{ color: fontColor || "var(--text-muted)" }}>{match.round}</p>
         {ready && <ReportMatchButton match={match as any} canManage={canManage} />}
       </div>
 
