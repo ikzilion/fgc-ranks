@@ -46,6 +46,12 @@ const GET_TOURNAMENT = `
       capacity
       entryFee
       prizePot
+      event {
+        id
+        displayId
+        name
+        logoUrl
+      }
       organizers {
         id
         tag
@@ -273,6 +279,15 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                       📺 Watch on Twitch
                     </a>
                   )}
+                  {tournament.event && (
+                    <Link
+                      href={`/events/${tournament.event.id}`}
+                      className="text-[13px] mt-1 block hover:underline"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      Part of {tournament.event.name}
+                    </Link>
+                  )}
                   {tournament.status === "CANCELLED" && tournament.cancellationReason && (
                     <p className="text-[13px] mt-1" style={{ color: "var(--coral)" }}>
                       Cancelled: {tournament.cancellationReason}
@@ -305,6 +320,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                   capacity={tournament.capacity}
                   entryFee={tournament.entryFee}
                   prizePot={tournament.prizePot}
+                  event={tournament.event}
                   canManage={canManage}
                 />
                 <ManageOrganizersButton

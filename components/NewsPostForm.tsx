@@ -10,9 +10,15 @@ import { useRouter } from "next/navigation";
 interface Props {
   // When provided, the form edits this post instead of creating a new one.
   post?: { id: string; title: string; content: string };
+  // When provided, this is an Event's own news section instead of the
+  // global homepage feed — authorization switches from "must be ADMIN" to
+  // the passed-in canManage (that Event's creator/managers), and new posts
+  // are created scoped to this Event.
+  eventId?: string;
+  canManage?: boolean;
 }
 
-export function NewsPostForm({ post }: Props) {
+export function NewsPostForm({ post, eventId, canManage }: Props) {
   const { data: session } = useSession();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -22,7 +28,8 @@ export function NewsPostForm({ post }: Props) {
   const [error, setError] = useState("");
 
   const role = (session?.user as any)?.role;
-  if (role !== "ADMIN") return null;
+  const authorized = eventId ? !!canManage : role === "ADMIN";
+  if (!authorized) return null;
 
   const isEdit = !!post;
 
@@ -50,11 +57,11 @@ export function NewsPostForm({ post }: Props) {
               }
             : {
                 query: `
-                  mutation CreateNewsPost($title: String!, $content: String!) {
-                    createNewsPost(title: $title, content: $content) { id }
+                  mutation CreateNewsPost($title: String!, $content: String!, $eventId: ID) {
+                    createNewsPost(title: $title, content: $content, eventId: $eventId) { id }
                   }
                 `,
-                variables: { title, content },
+                variables: { title, content, eventId },
               }
         ),
       });

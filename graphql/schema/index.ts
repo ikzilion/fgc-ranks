@@ -85,6 +85,26 @@ export const typeDefs = `#graphql
     capacity: Int
     entryFee: String
     prizePot: String
+    eventId: ID
+    # When eventId is set, these three resolve from the linked Event's
+    # CURRENT data instead of this tournament's own stored fields — a live
+    # link, not a value copied at link time. See the field resolvers.
+    event: Event
+  }
+
+  type Event {
+    id: ID!
+    displayId: String
+    name: String!
+    isOnlineOnly: Boolean!
+    address: String
+    logoUrl: String
+    twitchUrl: String
+    creator: Player
+    managers: [Player!]!
+    tournaments: [Tournament!]!
+    newsPosts: [NewsPost!]!
+    createdAt: Date!
   }
 
   type Entrant {
@@ -158,10 +178,19 @@ export const typeDefs = `#graphql
     tournaments(status: TournamentStatus, limit: Int, offset: Int): [Tournament!]!
     tournament(id: ID!): Tournament
 
+    events(limit: Int, offset: Int): [Event!]!
+    event(id: ID!): Event
+    # Looks up by the human-readable displayId (e.g. "EVT-000001") — what a
+    # TO actually types into a tournament's "Event ID" field, not the raw
+    # Mongo _id. Mirrors playerByTag's role for Player.
+    eventByDisplayId(displayId: String!): Event
+
     matches(tournamentId: ID!): [Match!]!
     match(id: ID!): Match
 
-    newsPosts(limit: Int, offset: Int): [NewsPost!]!
+    # eventId omitted = global homepage posts only (unchanged pre-Events
+    # behavior). eventId set = that Event's own news section instead.
+    newsPosts(limit: Int, offset: Int, eventId: ID): [NewsPost!]!
 
     me: User
   }
@@ -186,6 +215,7 @@ export const typeDefs = `#graphql
       capacity: Int
       entryFee: String
       prizePot: String
+      eventId: ID
     ): Tournament!
     updateTournamentDetails(
       id: ID!
@@ -197,7 +227,16 @@ export const typeDefs = `#graphql
       capacity: Int
       entryFee: String
       prizePot: String
+      # Pass an existing Event's raw id to link, or an empty string/null to
+      # unlink. Validated against a real Event server-side either way.
+      eventId: ID
     ): Tournament!
+
+    createEvent(name: String!, isOnlineOnly: Boolean, address: String, logoUrl: String, twitchUrl: String): Event!
+    updateEvent(id: ID!, name: String, isOnlineOnly: Boolean, address: String, logoUrl: String, twitchUrl: String): Event!
+    deleteEvent(id: ID!): Boolean!
+    addEventManager(eventId: ID!, playerId: ID!): Event!
+    removeEventManager(eventId: ID!, playerId: ID!): Event!
     updateTournamentStatus(id: ID!, status: TournamentStatus!): Tournament!
     cancelTournament(id: ID!, reason: String!): Tournament!
     updateTournamentVisibility(id: ID!, visibility: TournamentVisibility!): Tournament!
@@ -226,7 +265,9 @@ export const typeDefs = `#graphql
     markNotificationRead(id: ID!): Boolean!
     markAllNotificationsRead: Boolean!
 
-    createNewsPost(title: String!, content: String!): NewsPost!
+    # eventId omitted = global homepage post (ADMIN-only, unchanged). Set =
+    # posted to that Event's news section instead (creator/manager-gated).
+    createNewsPost(title: String!, content: String!, eventId: ID): NewsPost!
     updateNewsPost(id: ID!, title: String, content: String): NewsPost!
     deleteNewsPost(id: ID!): Boolean!
   }

@@ -5,13 +5,16 @@ import { useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
-export function DeleteNewsPostButton({ postId }: { postId: string }) {
+// canManage, when provided, is an Event post's creator/manager check —
+// otherwise falls back to the original global-post ADMIN-only behavior.
+export function DeleteNewsPostButton({ postId, canManage }: { postId: string; canManage?: boolean }) {
   const { data: session } = useSession();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
   const role = (session?.user as any)?.role;
-  if (role !== "ADMIN") return null;
+  const authorized = canManage !== undefined ? canManage : role === "ADMIN";
+  if (!authorized) return null;
 
   async function handleDelete() {
     if (!confirm("Delete this news post? This cannot be undone.")) return;

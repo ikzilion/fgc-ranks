@@ -11,11 +11,13 @@ import { Match, MatchStatus } from "@/models/Match";
 import { Bracket } from "@/models/Bracket";
 import { Notification } from "@/models/Notification";
 import { NewsPost } from "@/models/NewsPost";
+import { Event } from "@/models/Event";
 import { loginRateLimit, registerRateLimit, passwordResetRateLimit, getClientIp } from "@/lib/rateLimit";
 import { sendPasswordResetEmail } from "@/lib/email";
 import { buildDoubleEliminationBracket, resolveSeedOrder, advanceBracketMatch, nextPowerOfTwo, SeedingMethod } from "@/lib/bracket";
 import { getNextSequence } from "@/lib/counter";
 import { formatPlayerNumber } from "@/lib/playerId";
+import { formatEventNumber } from "@/lib/eventId";
 import { NextRequest } from "next/server";
 
 const JWT_SECRET = process.env.NEXTAUTH_SECRET || "dev-secret";
@@ -27,6 +29,16 @@ function isOrganizer(tournament: any, playerId?: string, role?: string): boolean
   if (role === "ADMIN") return true;
   if (!playerId || !tournament?.organizers) return false;
   return tournament.organizers.some((orgId: any) => orgId.toString() === playerId);
+}
+
+// Same pattern as isOrganizer, for Events — managerIds is the single
+// source of truth (the creator is always included in it at creation, see
+// createEvent), so this one check covers both "is the creator" and "is a
+// co-manager" with no separate branching.
+function isEventManager(event: any, playerId?: string, role?: string): boolean {
+  if (role === "ADMIN") return true;
+  if (!playerId || !event?.managerIds) return false;
+  return event.managerIds.some((id: any) => id.toString() === playerId);
 }
 
 // Shared by reportResult/editMatchResult — resolves the winner/loser and the
@@ -136,6 +148,29 @@ export const resolvers = {
       return await Tournament.findById(id);
     },
 
+    // Events
+    events: async (_: unknown, { limit = 50, offset = 0 }: { limit?: number; offset?: number }) => {
+      await connectToDatabase();
+      return await Event.find().sort({ createdAt: -1 }).skip(offset).limit(limit);
+    },
+
+    event: async (_: unknown, { id }: { id: string }) => {
+      await connectToDatabase();
+      return await Event.findById(id);
+    },
+
+    eventByDisplayId: async (_: unknown, { displayId }: { displayId: string }) => {
+      await connectToDatabase();
+      // "EVT-000001" -> 1. Anything that doesn't parse to a positive
+      // integer can't match a real eventNumber, so just return null rather
+      // than let an ambiguous/garbage query hit the database.
+      const match = displayId.trim().match(/^EVT-0*(\d+)$/i);
+      if (!match) return null;
+      const eventNumber = Number(match[1]);
+      if (!eventNumber) return null;
+      return await Event.findOne({ eventNumber });
+    },
+
     // Matches
     matches: async (_: unknown, { tournamentId }: { tournamentId: string }) => {
       await connectToDatabase();
@@ -148,9 +183,14 @@ export const resolvers = {
     },
 
     // News
-    newsPosts: async (_: unknown, { limit = 20, offset = 0 }: { limit?: number; offset?: number }) => {
+    newsPosts: async (_: unknown, { limit = 20, offset = 0, eventId }: { limit?: number; offset?: number; eventId?: string }) => {
       await connectToDatabase();
-      return await NewsPost.find().sort({ createdAt: -1 }).skip(offset).limit(limit);
+      // eventId omitted -> global homepage posts only. Mongo's `null`
+      // query matches both explicitly-null AND missing fields, so this
+      // correctly includes every pre-Events post that has no eventId field
+      // at all, same as it always has.
+      const filter = eventId ? { eventId } : { eventId: null };
+      return await NewsPost.find(filter).sort({ createdAt: -1 }).skip(offset).limit(limit);
     },
 
     // Auth
@@ -279,6 +319,7 @@ export const resolvers = {
         capacity,
         entryFee,
         prizePot,
+        eventId,
       }: {
         name: string;
         game: string;
@@ -291,12 +332,20 @@ export const resolvers = {
         capacity?: number;
         entryFee?: string;
         prizePot?: string;
+        eventId?: string;
       },
       { playerId }: { playerId?: string }
     ) => {
       if (!playerId) throw new Error("Not authorized");
 
       await connectToDatabase();
+      // eventId is client-resolved (the form looks it up by displayId and
+      // shows a confirmation first) but still validated here server-side —
+      // never trust a raw id from the client without confirming it's real.
+      if (eventId) {
+        const event = await Event.findById(eventId);
+        if (!event) throw new Error("Event not found");
+      }
       // The creator automatically becomes the tournament's first organizer.
       // Metadata fields are all optional at creation — schema defaults
       // (empty string / false / undefined) apply for anything omitted.
@@ -313,6 +362,7 @@ export const resolvers = {
         capacity,
         entryFee,
         prizePot,
+        eventId: eventId || undefined,
       });
     },
 
@@ -328,6 +378,7 @@ export const resolvers = {
         capacity,
         entryFee,
         prizePot,
+        eventId,
       }: {
         id: string;
         logoUrl?: string;
@@ -338,6 +389,7 @@ export const resolvers = {
         capacity?: number;
         entryFee?: string;
         prizePot?: string;
+        eventId?: string;
       },
       { playerId, role }: { playerId?: string; role?: string }
     ) => {
@@ -357,6 +409,20 @@ export const resolvers = {
       if (capacity !== undefined) update.capacity = capacity;
       if (entryFee !== undefined) update.entryFee = entryFee;
       if (prizePot !== undefined) update.prizePot = prizePot;
+      if (eventId !== undefined) {
+        if (eventId) {
+          // Same server-side validation as createTournament — the client
+          // already confirmed this Event exists via eventByDisplayId, but
+          // never trust that alone.
+          const event = await Event.findById(eventId);
+          if (!event) throw new Error("Event not found");
+          update.eventId = eventId;
+        } else {
+          // Explicit empty/null clears the link — unlinking, not "leave
+          // unchanged" (that's what omitting the arg entirely does).
+          update.eventId = null;
+        }
+      }
 
       return Tournament.findByIdAndUpdate(id, update, { new: true });
     },
@@ -937,40 +1003,180 @@ export const resolvers = {
 
     // News — ADMIN-only, same role-gating pattern deleteTournament used
     // before the per-tournament TO role existed.
+    // eventId set -> that Event's creator/managers can post; unset -> the
+    // original global-homepage-post behavior, ADMIN-only, unchanged.
     createNewsPost: async (
       _: unknown,
-      { title, content }: { title: string; content: string },
+      { title, content, eventId }: { title: string; content: string; eventId?: string },
       { playerId, role }: { playerId?: string; role?: string }
     ) => {
-      if (role !== "ADMIN") throw new Error("Not authorized");
       if (!playerId) throw new Error("Not authorized");
-
       await connectToDatabase();
-      return NewsPost.create({ title, content, authorId: playerId });
+
+      if (eventId) {
+        const event = await Event.findById(eventId);
+        if (!event) throw new Error("Event not found");
+        if (!isEventManager(event, playerId, role)) throw new Error("Not authorized");
+      } else if (role !== "ADMIN") {
+        throw new Error("Not authorized");
+      }
+
+      return NewsPost.create({ title, content, authorId: playerId, eventId: eventId || undefined });
     },
 
+    // Same branching: an Event post is gated on that Event's own
+    // creator/managers (looked up from the post itself, since the mutation
+    // doesn't take eventId again — it can't change which Event a post
+    // belongs to), a global post stays ADMIN-only.
     updateNewsPost: async (
       _: unknown,
       { id, title, content }: { id: string; title?: string; content?: string },
-      { role }: { role?: string }
+      { playerId, role }: { playerId?: string; role?: string }
     ) => {
-      if (role !== "ADMIN") throw new Error("Not authorized");
-
       await connectToDatabase();
+      const post = await NewsPost.findById(id);
+      if (!post) throw new Error("News post not found");
+
+      if (post.eventId) {
+        const event = await Event.findById(post.eventId);
+        if (!event || !isEventManager(event, playerId, role)) throw new Error("Not authorized");
+      } else if (role !== "ADMIN") {
+        throw new Error("Not authorized");
+      }
+
       const update: any = {};
       if (title !== undefined) update.title = title;
       if (content !== undefined) update.content = content;
-      const updated = await NewsPost.findByIdAndUpdate(id, update, { new: true });
-      if (!updated) throw new Error("News post not found");
-      return updated;
+      return await NewsPost.findByIdAndUpdate(id, update, { new: true });
     },
 
-    deleteNewsPost: async (_: unknown, { id }: { id: string }, { role }: { role?: string }) => {
-      if (role !== "ADMIN") throw new Error("Not authorized");
-
+    deleteNewsPost: async (
+      _: unknown,
+      { id }: { id: string },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
       await connectToDatabase();
+      const post = await NewsPost.findById(id);
+      if (!post) return false;
+
+      if (post.eventId) {
+        const event = await Event.findById(post.eventId);
+        if (!event || !isEventManager(event, playerId, role)) throw new Error("Not authorized");
+      } else if (role !== "ADMIN") {
+        throw new Error("Not authorized");
+      }
+
       const result = await NewsPost.findByIdAndDelete(id);
       return !!result;
+    },
+
+    // Events
+    createEvent: async (
+      _: unknown,
+      { name, isOnlineOnly, address, logoUrl, twitchUrl }: { name: string; isOnlineOnly?: boolean; address?: string; logoUrl?: string; twitchUrl?: string },
+      { playerId }: { playerId?: string }
+    ) => {
+      if (!playerId) throw new Error("Not authorized");
+      await connectToDatabase();
+
+      const eventNumber = await getNextSequence("eventNumber");
+      // The creator is included in managerIds up front — see the Event
+      // model comment, managerIds is the single source of truth for who
+      // can manage this Event, no separate creator-only path.
+      return Event.create({
+        name,
+        isOnlineOnly,
+        address,
+        logoUrl,
+        twitchUrl,
+        eventNumber,
+        creatorId: playerId,
+        managerIds: [playerId],
+      });
+    },
+
+    updateEvent: async (
+      _: unknown,
+      {
+        id,
+        name,
+        isOnlineOnly,
+        address,
+        logoUrl,
+        twitchUrl,
+      }: { id: string; name?: string; isOnlineOnly?: boolean; address?: string; logoUrl?: string; twitchUrl?: string },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const event = await Event.findById(id);
+      if (!event) throw new Error("Event not found");
+      if (!isEventManager(event, playerId, role)) throw new Error("Not authorized");
+
+      const update: any = {};
+      if (name !== undefined) update.name = name;
+      if (isOnlineOnly !== undefined) update.isOnlineOnly = isOnlineOnly;
+      if (address !== undefined) update.address = address;
+      if (logoUrl !== undefined) update.logoUrl = logoUrl;
+      if (twitchUrl !== undefined) update.twitchUrl = twitchUrl;
+
+      return Event.findByIdAndUpdate(id, update, { new: true });
+    },
+
+    // Allowed even with tournaments still linked to it — no block. Those
+    // tournaments' address/logoUrl/twitchUrl field resolvers already fall
+    // back to the tournament's own stored fields whenever Event.findById
+    // comes back empty, which a deleted Event's id naturally does, so
+    // nothing extra needs cleaning up here.
+    deleteEvent: async (_: unknown, { id }: { id: string }, { playerId, role }: { playerId?: string; role?: string }) => {
+      await connectToDatabase();
+      const event = await Event.findById(id);
+      if (!event) return false;
+      if (!isEventManager(event, playerId, role)) throw new Error("Not authorized");
+
+      await Event.findByIdAndDelete(id);
+      return true;
+    },
+
+    addEventManager: async (
+      _: unknown,
+      { eventId, playerId: newManagerId }: { eventId: string; playerId: string },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const event = await Event.findById(eventId);
+      if (!event) throw new Error("Event not found");
+      if (!isEventManager(event, playerId, role)) throw new Error("Not authorized");
+
+      const newManager = await Player.findById(newManagerId);
+      if (!newManager) throw new Error("Player not found");
+
+      const alreadyManager = event.managerIds.some((id: any) => id.toString() === newManagerId);
+      if (!alreadyManager) {
+        event.managerIds.push(newManagerId);
+        await event.save();
+      }
+
+      return event;
+    },
+
+    removeEventManager: async (
+      _: unknown,
+      { eventId, playerId: targetManagerId }: { eventId: string; playerId: string },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const event = await Event.findById(eventId);
+      if (!event) throw new Error("Event not found");
+      if (!isEventManager(event, playerId, role)) throw new Error("Not authorized");
+
+      if (event.managerIds.length <= 1) {
+        throw new Error("Cannot remove the last manager from an Event");
+      }
+
+      event.managerIds = event.managerIds.filter((id: any) => id.toString() !== targetManagerId);
+      await event.save();
+
+      return event;
     },
   },
 
@@ -1036,6 +1242,45 @@ export const resolvers = {
       return parent.invitedPlayerIds.some((id: any) => id.toString() === playerId);
     },
     bracket: async (parent: { _id: string }) => await Bracket.findOne({ tournamentId: parent._id }),
+    event: async (parent: { eventId?: string }) => (parent.eventId ? await Event.findById(parent.eventId) : null),
+    // Live-link overrides: when eventId is set, these three resolve from
+    // the LINKED EVENT's current data instead of this tournament's own
+    // stored field — re-fetched on every read, never copied at link time.
+    // If the Event was since deleted (deleteEvent allows this with
+    // tournaments still linked, no block), Event.findById comes back null
+    // and this falls through to the tournament's own field automatically,
+    // same as a tournament that was never linked at all.
+    address: async (parent: { eventId?: string; address?: string }) => {
+      if (parent.eventId) {
+        const event = await Event.findById(parent.eventId);
+        if (event) return event.address;
+      }
+      return parent.address;
+    },
+    logoUrl: async (parent: { eventId?: string; logoUrl?: string }) => {
+      if (parent.eventId) {
+        const event = await Event.findById(parent.eventId);
+        if (event) return event.logoUrl;
+      }
+      return parent.logoUrl;
+    },
+    twitchUrl: async (parent: { eventId?: string; twitchUrl?: string }) => {
+      if (parent.eventId) {
+        const event = await Event.findById(parent.eventId);
+        if (event) return event.twitchUrl;
+      }
+      return parent.twitchUrl;
+    },
+  },
+
+  Event: {
+    displayId: (parent: { eventNumber?: number }) =>
+      parent.eventNumber != null ? formatEventNumber(parent.eventNumber) : null,
+    creator: async (parent: { creatorId?: string }) => (parent.creatorId ? await Player.findById(parent.creatorId) : null),
+    managers: async (parent: { managerIds?: string[] }) =>
+      parent.managerIds ? await Player.find({ _id: { $in: parent.managerIds } }) : [],
+    tournaments: async (parent: { _id: string }) => await Tournament.find({ eventId: parent._id }),
+    newsPosts: async (parent: { _id: string }) => await NewsPost.find({ eventId: parent._id }).sort({ createdAt: -1 }),
   },
 
   Entrant: {

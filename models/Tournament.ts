@@ -77,6 +77,16 @@ const TournamentSchema = new Schema(
     // without needing separate currency-formatting fields.
     entryFee: { type: String, default: "" },
     prizePot: { type: String, default: "" },
+    // Optional live link to an Event — when set, this tournament's
+    // address/logoUrl/twitchUrl display values are resolved from the
+    // LINKED EVENT's current data instead of this tournament's own fields
+    // above (see the Tournament.address/logoUrl/twitchUrl field-resolver
+    // overrides in graphql/resolvers/index.ts). The fields above stay
+    // populated regardless, as the fallback for once unlinked/if the Event
+    // is ever deleted — deleting an Event is explicitly allowed with
+    // tournaments still linked to it (no block), and a dangling eventId
+    // just resolves to nothing found, falling back automatically.
+    eventId: { type: Schema.Types.ObjectId, ref: "Event" },
   },
   { timestamps: true }
 );
