@@ -37,6 +37,20 @@ const SIDE_LABELS: Record<string, string> = {
 // Design system default when a tournament hasn't set a custom line color.
 const DEFAULT_LINE_COLOR = "var(--border-strong)";
 
+// Bracket "pyramid" spacing constants — MatchCard's rendered height is
+// effectively fixed (p-3 padding + the round-label row + two PlayerRows,
+// all driven by fixed Tailwind classes with truncating text, no wrapping),
+// measured directly against the live Community Showdown bracket via
+// headless Chrome + getBoundingClientRect (58/58 cards, mixed TBD/pending/
+// completed states, all exactly 98px). CARD_GAP is the previous gap-6
+// column spacing (measured, not the nominal 1.5rem, since the project's
+// root font-size isn't the 16px default). If MatchCard's internal
+// structure/classes ever change, remeasure and update these two numbers —
+// everything below is computed from them, not re-guessed per round.
+const CARD_HEIGHT = 98;
+const CARD_GAP = 21;
+const ROUND0_SPACING = CARD_HEIGHT + CARD_GAP;
+
 function PlayerRow({
   player,
   score,
@@ -82,6 +96,7 @@ function MatchCard({
   registerRef,
   boxColor,
   fontColor,
+  marginTop,
 }: {
   match: BracketMatch;
   canManage: boolean;
@@ -90,11 +105,19 @@ function MatchCard({
   // .fgc-card class's own default background applies as before.
   boxColor?: string;
   fontColor?: string;
+  // Pyramid positioning within its round column — see BracketSideSection's
+  // centerById computation. Undefined/0 behaves exactly like the old plain
+  // stacked layout.
+  marginTop?: number;
 }) {
   const ready = !!match.player1 && !!match.player2;
 
   return (
-    <div ref={el => registerRef(match.id, el)} className="fgc-card p-3 w-56 flex-shrink-0" style={boxColor ? { background: boxColor } : undefined}>
+    <div
+      ref={el => registerRef(match.id, el)}
+      className="fgc-card p-3 w-56 flex-shrink-0"
+      style={{ ...(boxColor ? { background: boxColor } : undefined), ...(marginTop ? { marginTop } : undefined) }}
+    >
       <div className="flex items-center justify-between mb-2">
         {/* Same fontColor prop/fallback pattern as PlayerRow's tag text below
             — was left out when bracketFontColor was originally scoped, per
@@ -150,6 +173,64 @@ function BracketSideSection({
   }
   const roundNumbers = [...rounds.keys()].sort((a, b) => a - b);
 
+  // Sorted once per round, reused for both the pyramid-position computation
+  // below and rendering.
+  const sortedByRound = new Map<number, BracketMatch[]>();
+  for (const r of roundNumbers) {
+    sortedByRound.set(r, [...rounds.get(r)!].sort((a, b) => a.bracketPosition - b.bracketPosition));
+  }
+
+  // Classic bracket "pyramid" positioning: each round's cards are centered
+  // on their same-side feeder match(es) from the previous round, computed
+  // recursively outward from round 0's evenly-spaced baseline — rather than
+  // the plain even-stacking (`justify-center` on a `gap-6` column) this
+  // replaces, which never aligned a card with its feeders' actual midpoint.
+  //
+  // Reuses the exact same feeder-collection rule the connector lines below
+  // use: only `nextMatch` (same-side progression) counts. A WB→LB drop via
+  // `nextLoserMatch` is deliberately NOT counted here either, for the same
+  // reason the connector lines don't draw it — Winners and Losers render as
+  // two independently-stacked blocks with no shared coordinate frame, so
+  // centering an LB drop-in match on a WB card in a different block
+  // wouldn't be meaningful.
+  //
+  // This also correctly handles the Losers Bracket's alternating
+  // consolidation/drop-in rounds (see lib/bracket.ts) without assuming
+  // every round simply halves in count:
+  //  - 2 feeders (every WB round; LB consolidation rounds) — center is the
+  //    midpoint of both feeders, and the tree visually narrows here.
+  //  - 1 feeder (LB drop-in rounds — the other slot is a freshly-dropped WB
+  //    loser, not a same-side match) — center = that lone feeder's center,
+  //    unchanged. Match count didn't shrink this round, so there's no
+  //    narrowing, matching how a real double-elim bracket actually looks.
+  //  - 0 feeders (round 0 of this side) — evenly-spaced baseline.
+  // Byes are handled the same way: a round's real match count can be less
+  // than a naive power-of-two count would assume, but this only ever reads
+  // the REAL feeder relationships, never an assumed index/count pattern, so
+  // a bye-shortened round just naturally has fewer entries — nothing here
+  // miscounts or needs special-casing for it.
+  const idsInSide = new Set(matches.map(m => m.id));
+  const feedersByTarget = new Map<string, string[]>();
+  for (const m of matches) {
+    if (m.nextMatch && idsInSide.has(m.nextMatch.id)) {
+      if (!feedersByTarget.has(m.nextMatch.id)) feedersByTarget.set(m.nextMatch.id, []);
+      feedersByTarget.get(m.nextMatch.id)!.push(m.id);
+    }
+  }
+  const centerById = new Map<string, number>();
+  for (const r of roundNumbers) {
+    sortedByRound.get(r)!.forEach((m, idx) => {
+      const feeders = feedersByTarget.get(m.id) ?? [];
+      if (feeders.length === 2) {
+        centerById.set(m.id, (centerById.get(feeders[0])! + centerById.get(feeders[1])!) / 2);
+      } else if (feeders.length === 1) {
+        centerById.set(m.id, centerById.get(feeders[0])!);
+      } else {
+        centerById.set(m.id, idx * ROUND0_SPACING + CARD_HEIGHT / 2);
+      }
+    });
+  }
+
   return (
     <div className="mb-6" style={dividerAbove ? { borderTop: `6px solid ${accentColor}`, paddingTop: 24, marginTop: 8 } : undefined}>
       {emphasized ? (
@@ -165,15 +246,36 @@ function BracketSideSection({
           pairs share that column transition, so there's no more fan-in to
           make room for — a normal gap keeps the classic bracket look. */}
       <div className="flex gap-10">
-        {roundNumbers.map(r => (
-          <div key={r} className="flex flex-col gap-6 justify-center">
-            {rounds.get(r)!
-              .sort((a, b) => a.bracketPosition - b.bracketPosition)
-              .map(m => (
-                <MatchCard key={m.id} match={m} canManage={canManage} registerRef={registerRef} boxColor={boxColor} fontColor={fontColor} />
-              ))}
-          </div>
-        ))}
+        {roundNumbers.map(r => {
+          const roundMatches = sortedByRound.get(r)!;
+          return (
+            <div key={r} className="flex flex-col">
+              {roundMatches.map((m, idx) => {
+                const center = centerById.get(m.id)!;
+                // First card in the column: offset from the column's own
+                // top (y=0) to this card's top. Every card after: the gap
+                // needed between the previous card's bottom and this one's
+                // top so the two cards' centers land the right distance
+                // apart — this is what lets the *rendered* margin actually
+                // achieve the computed `center` values above, since flex
+                // children stack from the previous child's bottom edge.
+                const marginTop =
+                  idx === 0 ? center - CARD_HEIGHT / 2 : center - centerById.get(roundMatches[idx - 1].id)! - CARD_HEIGHT;
+                return (
+                  <MatchCard
+                    key={m.id}
+                    match={m}
+                    canManage={canManage}
+                    registerRef={registerRef}
+                    boxColor={boxColor}
+                    fontColor={fontColor}
+                    marginTop={marginTop}
+                  />
+                );
+              })}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
