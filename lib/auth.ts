@@ -29,6 +29,9 @@ export const authConfig = {
         await connectToDatabase();
         const user = await User.findOne({ email: credentials.email });
         if (!user) return null;
+        // Soft-deleted accounts are rejected outright, regardless of
+        // whether the credential would otherwise be valid.
+        if (user.isDeleted) return null;
         const valid = await bcrypt.compare(credentials.password as string, user.passwordHash);
         if (!valid) return null;
         // Look up the player tag linked to this user

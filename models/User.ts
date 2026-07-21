@@ -15,6 +15,11 @@ const UserSchema = new Schema(
     // Password reset flow — token is hashed (SHA-256) before storage, never plaintext
     resetTokenHash: { type: String, default: null },
     resetTokenExpiry: { type: Date, default: null },
+    // Soft-delete (admin-triggered account deletion) — see deletePlayer
+    // resolver. authorize() rejects login outright once this is true,
+    // regardless of any credential.
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

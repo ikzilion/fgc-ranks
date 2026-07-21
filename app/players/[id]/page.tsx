@@ -6,6 +6,7 @@ import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { auth } from "@/lib/auth";
 import { EditProfileButton } from "@/components/EditProfileButton";
+import { DeletePlayerButton } from "@/components/DeletePlayerButton";
 import { HeadToHeadSection } from "@/components/HeadToHeadSection";
 import { ZoomableAvatar } from "@/components/ZoomableAvatar";
 
@@ -25,6 +26,7 @@ const GET_PLAYER = `
       losses
       points
       winRate
+      isDeleted
       tournaments {
         id
         placement
@@ -115,6 +117,7 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
   const { id } = await params;
   const session = await auth();
   const viewerId = (session?.user as any)?.playerId ?? undefined;
+  const viewerRole = (session?.user as any)?.role;
   const { player, viewerHeadToHead, players } = await getPlayerPageData(id, viewerId);
   if (!player) notFound();
 
@@ -130,15 +133,38 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
         <div className="flex-1">
           <div className="flex items-center justify-between">
             <h1 className="font-rajdhani text-3xl font-bold text-[var(--text-primary)] leading-tight">{player.tag}</h1>
-            <EditProfileButton
-              playerId={player.id}
-              currentTag={player.tag}
-              currentRegion={player.region}
-              currentCharacters={player.characters}
-              currentAvatarUrl={player.avatarUrl}
-              currentTeam={player.team}
-            />
+            <div className="flex items-center gap-2">
+              {/* Deleted accounts can never log back in (their email is
+                  scrubbed), so EditProfileButton's own isOwnProfile check
+                  would already hide it here — this is an explicit,
+                  belt-and-suspenders guard for "no editable fields". */}
+              {!player.isDeleted && (
+                <EditProfileButton
+                  playerId={player.id}
+                  currentTag={player.tag}
+                  currentRegion={player.region}
+                  currentCharacters={player.characters}
+                  currentAvatarUrl={player.avatarUrl}
+                  currentTeam={player.team}
+                />
+              )}
+              <DeletePlayerButton
+                playerId={player.id}
+                playerTag={player.tag}
+                isAdmin={viewerRole === "ADMIN"}
+                isDeleted={player.isDeleted}
+                isSelf={viewerId === player.id}
+              />
+            </div>
           </div>
+          {player.isDeleted && (
+            <span
+              className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded inline-block mt-2"
+              style={{ background: "var(--coral-dim)", color: "var(--coral)", border: "1px solid rgba(255,77,77,0.25)" }}
+            >
+              Deleted account
+            </span>
+          )}
           {player.team && (
             <p className="text-[13px] font-semibold mt-0.5" style={{ color: "var(--blue)" }}>{player.team}</p>
           )}

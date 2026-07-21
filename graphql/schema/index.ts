@@ -42,6 +42,9 @@ export const typeDefs = `#graphql
     winRate: Float
     tournaments: [Entrant!]!
     createdAt: Date!
+    # Admin soft-delete — see deletePlayer. Personal info is scrubbed and
+    # login disabled, but the document/historical references stay intact.
+    isDeleted: Boolean!
     # Head-to-head record against a specific opponent, from THIS player's
     # perspective (wins = this player's wins over opponent). Only counts
     # completed matches (forfeits included — a forfeit still has a real
@@ -212,6 +215,10 @@ export const typeDefs = `#graphql
     resetPassword(token: String!, newPassword: String!): Boolean!
 
     updatePlayer(id: ID!, tag: String, region: String, avatarUrl: String, characters: [String!], team: String): Player!
+    # ADMIN-only. Soft-delete: disables login, scrubs personal info (email,
+    # password, avatar, region, team), but keeps the Player document and all
+    # Match/Entrant/Tournament/Event references intact.
+    deletePlayer(id: ID!): Boolean!
 
     createTournament(
       name: String!

@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { randomBytes, createHash } from "crypto";
+import { del } from "@vercel/blob";
 import { Types } from "mongoose";
 import { connectToDatabase } from "@/lib/db";
 import { User } from "@/models/User";
@@ -118,9 +119,16 @@ export const resolvers = {
     },
 
     // Players
+    // Excludes soft-deleted players — `$ne: true` (not `$eq: false`) so
+    // pre-existing documents that predate the `isDeleted` field (no value
+    // set at all) still match, with no backfill migration needed. This is
+    // the single query every player search/picker in the app goes through
+    // (Players list, tournament invite/organizer pickers, Event manager
+    // picker, head-to-head opponent picker), so filtering it here covers
+    // all of them at once.
     players: async (_: unknown, { limit = 20, offset = 0 }: { limit?: number; offset?: number }) => {
       await connectToDatabase();
-      return await Player.find().sort({ points: -1 }).skip(offset).limit(limit);
+      return await Player.find({ isDeleted: { $ne: true } }).sort({ points: -1 }).skip(offset).limit(limit);
     },
 
     player: async (_: unknown, { id }: { id: string }) => {
@@ -249,6 +257,8 @@ export const resolvers = {
       await connectToDatabase();
       const user = await User.findOne({ email });
       if (!user) throw new Error("Invalid email or password");
+      // Same generic error as a wrong password — don't leak deletion status.
+      if (user.isDeleted) throw new Error("Invalid email or password");
       const valid = await bcrypt.compare(password, user.passwordHash);
       if (!valid) throw new Error("Invalid email or password");
       const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: "7d" });
@@ -315,6 +325,65 @@ export const resolvers = {
       if (avatarUrl !== undefined) update.avatarUrl = avatarUrl;
       if (team !== undefined) update.team = team;
       return Player.findByIdAndUpdate(id, update, { new: true });
+    },
+
+    // ADMIN-only soft-delete. Keeps the Player document (and every
+    // Match/Entrant/Tournament/Event reference to it) intact — only scrubs
+    // personal info and disables login. See models/Player.ts and
+    // models/User.ts for what `isDeleted` means on each.
+    deletePlayer: async (
+      _: unknown,
+      { id }: { id: string },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      if (role !== "ADMIN") throw new Error("Not authorized");
+      // Guards against an admin locking themselves out by mistake.
+      if (playerId === id) throw new Error("You can't delete your own account");
+
+      await connectToDatabase();
+      const player = await Player.findById(id);
+      if (!player) throw new Error("Player not found");
+      if (player.isDeleted) return true; // already deleted — idempotent
+
+      // Actually remove the blob, not just drop the reference — a failed
+      // delete here (e.g. the file's already gone) shouldn't block the rest
+      // of the soft-delete, so it's logged and swallowed rather than thrown.
+      if (player.avatarUrl) {
+        try {
+          await del(player.avatarUrl);
+        } catch (err) {
+          console.error("[deletePlayer] Failed to delete avatar blob:", err);
+        }
+      }
+
+      const deletedAt = new Date();
+      // Suffix guarantees uniqueness against the Player.tag unique index
+      // even across repeated deletions.
+      const anonymizedTag = `Deleted Player #${player._id.toString().slice(-8)}`;
+
+      await Player.findByIdAndUpdate(id, {
+        isDeleted: true,
+        deletedAt,
+        tag: anonymizedTag,
+        avatarUrl: "",
+        region: "",
+        team: "",
+      });
+
+      if (player.userId) {
+        await User.findByIdAndUpdate(player.userId, {
+          isDeleted: true,
+          deletedAt,
+          // Frees up the real email for reuse and removes it from the
+          // account entirely; the random passwordHash is redundant with
+          // authorize()'s isDeleted check but scrubs the credential too,
+          // per the "clear password hash" part of this task's spec.
+          email: `deleted-${player._id.toString()}@deleted.local`,
+          passwordHash: await bcrypt.hash(randomBytes(32).toString("hex"), 10),
+        });
+      }
+
+      return true;
     },
 
     // Tournaments
