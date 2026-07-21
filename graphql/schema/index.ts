@@ -209,7 +209,9 @@ export const typeDefs = `#graphql
   }
 
   type Mutation {
-    register(email: String!, password: String!, tag: String!): AuthPayload!
+    # turnstileToken is verified against Cloudflare's siteverify endpoint
+    # before anything else in this mutation runs.
+    register(email: String!, password: String!, tag: String!, turnstileToken: String!): AuthPayload!
     login(email: String!, password: String!): AuthPayload!
     requestPasswordReset(email: String!): Boolean!
     resetPassword(token: String!, newPassword: String!): Boolean!

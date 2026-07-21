@@ -23,6 +23,7 @@ import {
   getClientIp,
 } from "@/lib/rateLimit";
 import { sendPasswordResetEmail, sendVerificationEmail } from "@/lib/email";
+import { verifyTurnstileToken } from "@/lib/turnstile";
 import { buildDoubleEliminationBracket, resolveSeedOrder, advanceBracketMatch, nextPowerOfTwo, SeedingMethod } from "@/lib/bracket";
 import { getNextSequence } from "@/lib/counter";
 import { formatPlayerNumber } from "@/lib/playerId";
@@ -244,10 +245,16 @@ export const resolvers = {
     // Auth
     register: async (
       _: unknown,
-      { email, password, tag }: { email: string; password: string; tag: string },
+      { email, password, tag, turnstileToken }: { email: string; password: string; tag: string; turnstileToken: string },
       { req }: { req: NextRequest }
     ) => {
       const ip = getClientIp(req);
+
+      // CAPTCHA check runs first — fail fast before rate limiting, trust
+      // checks, or touching the database at all.
+      const captchaValid = await verifyTurnstileToken(turnstileToken, ip);
+      if (!captchaValid) throw new Error("CAPTCHA verification failed. Please complete the challenge and try again.");
+
       const { success } = await registerRateLimit.limit(ip);
       if (!success) throw new Error("Too many accounts created from this IP. Please try again later.");
 
