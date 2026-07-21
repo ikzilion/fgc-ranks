@@ -19,10 +19,11 @@ import {
   registerRateLimit,
   passwordResetRateLimit,
   resendVerificationRateLimit,
+  deleteAccountRequestRateLimit,
   createTournamentRateLimit,
   getClientIp,
 } from "@/lib/rateLimit";
-import { sendPasswordResetEmail, sendVerificationEmail } from "@/lib/email";
+import { sendPasswordResetEmail, sendVerificationEmail, sendAccountDeletionEmail } from "@/lib/email";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { buildDoubleEliminationBracket, resolveSeedOrder, advanceBracketMatch, nextPowerOfTwo, SeedingMethod } from "@/lib/bracket";
 import { getNextSequence } from "@/lib/counter";
@@ -43,6 +44,52 @@ function duplicateKeyField(err: any): string | null {
   if (err?.keyValue) return Object.keys(err.keyValue)[0] ?? null;
   const match = /index:\s*(\w+?)_\d+/.exec(err?.message ?? "");
   return match ? match[1] : null;
+}
+
+// Shared soft-delete implementation — used by both the ADMIN deletePlayer
+// mutation and the self-service confirmAccountDeletion flow, so the two
+// paths can't drift apart. Assumes the caller has already authorized the
+// action (and already fetched `player`); this function itself performs no
+// permission checks. Deletes the avatar from Vercel Blob, scrubs personal
+// info, anonymizes the tag, and disables login on the linked User.
+async function softDeletePlayer(player: any): Promise<void> {
+  if (player.isDeleted) return; // already deleted — idempotent
+
+  if (player.avatarUrl) {
+    try {
+      await del(player.avatarUrl);
+    } catch (err) {
+      console.error("[softDeletePlayer] Failed to delete avatar blob:", err);
+    }
+  }
+
+  const deletedAt = new Date();
+  // Suffix guarantees uniqueness against the Player.tag unique index even
+  // across repeated deletions.
+  const anonymizedTag = `Deleted Player #${player._id.toString().slice(-8)}`;
+
+  await Player.findByIdAndUpdate(player._id, {
+    isDeleted: true,
+    deletedAt,
+    tag: anonymizedTag,
+    avatarUrl: "",
+    region: "",
+    team: "",
+  });
+
+  if (player.userId) {
+    await User.findByIdAndUpdate(player.userId, {
+      isDeleted: true,
+      deletedAt,
+      // Frees up the real email for reuse and removes it from the account
+      // entirely; the random passwordHash is redundant with authorize()'s
+      // isDeleted check but scrubs the credential too.
+      email: `deleted-${player._id.toString()}@deleted.local`,
+      passwordHash: await bcrypt.hash(randomBytes(32).toString("hex"), 10),
+      deleteAccountTokenHash: null,
+      deleteAccountTokenExpiry: null,
+    });
+  }
 }
 
 // A player can manage a tournament if they're a global ADMIN, or if their
@@ -438,6 +485,65 @@ export const resolvers = {
       return true;
     },
 
+    // Self-service account deletion, step 1 — authenticated, always targets
+    // the calling session's own account (no id argument, nothing for a
+    // caller to point at someone else's account). Rate-limited the same way
+    // as resendVerificationEmail/requestPasswordReset for consistency, even
+    // though this only ever emails the account holder's own inbox.
+    requestAccountDeletion: async (
+      _: unknown,
+      __: unknown,
+      // Untyped context here — combining playerId + req (needed together
+      // for this resolver only) confuses Apollo's context-type inference
+      // across the resolver map, since every other resolver only ever
+      // destructures one or the other, never both.
+      { playerId, req }: any
+    ) => {
+      if (!playerId) throw new Error("Not authorized");
+
+      const ip = getClientIp(req);
+      const { success } = await deleteAccountRequestRateLimit.limit(ip);
+      if (!success) throw new Error("Too many requests. Please try again later.");
+
+      await connectToDatabase();
+      const player = await Player.findById(playerId);
+      if (!player?.userId) throw new Error("Player not found");
+      const user = await User.findById(player.userId);
+      if (!user) throw new Error("Account not found");
+      if (user.isDeleted) return true; // already deleted — idempotent, nothing to send
+
+      const rawToken = randomBytes(32).toString("hex");
+      const deleteAccountTokenHash = createHash("sha256").update(rawToken).digest("hex");
+      const deleteAccountTokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour, same as password reset
+      await User.findByIdAndUpdate(user._id, { deleteAccountTokenHash, deleteAccountTokenExpiry });
+
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+      const confirmUrl = `${baseUrl}/delete-account/confirm?token=${rawToken}`;
+      await sendAccountDeletionEmail(user.email, confirmUrl);
+
+      return true;
+    },
+
+    // Self-service account deletion, step 2 — token-only, no login required
+    // to use the link (same precedent as resetPassword: clicking an email
+    // link from a different device/session is normal). Runs the exact same
+    // soft-delete as the ADMIN deletePlayer mutation via softDeletePlayer().
+    confirmAccountDeletion: async (_: unknown, { token }: { token: string }) => {
+      await connectToDatabase();
+      const deleteAccountTokenHash = createHash("sha256").update(token).digest("hex");
+      const user = await User.findOne({
+        deleteAccountTokenHash,
+        deleteAccountTokenExpiry: { $gt: new Date() },
+      });
+      if (!user) throw new Error("Invalid or expired confirmation link");
+
+      const player = user.playerId ? await Player.findById(user.playerId) : null;
+      if (!player) throw new Error("Player not found");
+
+      await softDeletePlayer(player);
+      return true;
+    },
+
     // Players
     updatePlayer: async (
       _: unknown,
@@ -469,46 +575,8 @@ export const resolvers = {
       await connectToDatabase();
       const player = await Player.findById(id);
       if (!player) throw new Error("Player not found");
-      if (player.isDeleted) return true; // already deleted — idempotent
 
-      // Actually remove the blob, not just drop the reference — a failed
-      // delete here (e.g. the file's already gone) shouldn't block the rest
-      // of the soft-delete, so it's logged and swallowed rather than thrown.
-      if (player.avatarUrl) {
-        try {
-          await del(player.avatarUrl);
-        } catch (err) {
-          console.error("[deletePlayer] Failed to delete avatar blob:", err);
-        }
-      }
-
-      const deletedAt = new Date();
-      // Suffix guarantees uniqueness against the Player.tag unique index
-      // even across repeated deletions.
-      const anonymizedTag = `Deleted Player #${player._id.toString().slice(-8)}`;
-
-      await Player.findByIdAndUpdate(id, {
-        isDeleted: true,
-        deletedAt,
-        tag: anonymizedTag,
-        avatarUrl: "",
-        region: "",
-        team: "",
-      });
-
-      if (player.userId) {
-        await User.findByIdAndUpdate(player.userId, {
-          isDeleted: true,
-          deletedAt,
-          // Frees up the real email for reuse and removes it from the
-          // account entirely; the random passwordHash is redundant with
-          // authorize()'s isDeleted check but scrubs the credential too,
-          // per the "clear password hash" part of this task's spec.
-          email: `deleted-${player._id.toString()}@deleted.local`,
-          passwordHash: await bcrypt.hash(randomBytes(32).toString("hex"), 10),
-        });
-      }
-
+      await softDeletePlayer(player);
       return true;
     },
 

@@ -219,6 +219,16 @@ export const typeDefs = `#graphql
     # Same anti-enumeration convention as requestPasswordReset — always
     # returns true regardless of whether the email exists or is already verified.
     resendVerificationEmail(email: String!): Boolean!
+    # Self-service account deletion — authenticated, caller's own account
+    # only. Emails a confirmation link; confirmAccountDeletion (below) does
+    # the actual deletion once clicked. No argument since it always targets
+    # the calling session's own account.
+    requestAccountDeletion: Boolean!
+    # Token-only, no login required to use the link — same precedent as
+    # resetPassword. Performs the same soft-delete as the ADMIN deletePlayer
+    # mutation (disables login, scrubs personal info, keeps historical
+    # records intact).
+    confirmAccountDeletion(token: String!): Boolean!
 
     updatePlayer(id: ID!, tag: String, region: String, avatarUrl: String, characters: [String!], team: String): Player!
     # ADMIN-only. Soft-delete: disables login, scrubs personal info (email,

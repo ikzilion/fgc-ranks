@@ -28,6 +28,31 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string) {
   }
 }
 
+export async function sendAccountDeletionEmail(to: string, confirmUrl: string) {
+  try {
+    const { error } = await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || "FGC Ranks <onboarding@resend.dev>",
+      to,
+      subject: "Confirm deleting your FGC Ranks account",
+      html: `
+        <p>Someone requested to delete your FGC Ranks account.</p>
+        <p><a href="${confirmUrl}">Click here to confirm account deletion</a>. This link expires in 1 hour.</p>
+        <p>This disables your login and scrubs your personal info — your match and tournament history stay intact for the historical record. This cannot be undone.</p>
+        <p>If you didn't request this, you can safely ignore this email — your account won't be touched.</p>
+      `,
+    });
+    // Same reasoning as sendPasswordResetEmail — a rejection from Resend's
+    // API comes back as `error`, not a thrown exception.
+    if (error) throw error;
+  } catch (err) {
+    console.error(
+      "[sendAccountDeletionEmail] resend.emails.send failed:",
+      err instanceof Error ? { name: err.name, message: err.message, cause: err.cause } : err
+    );
+    throw err;
+  }
+}
+
 export async function sendVerificationEmail(to: string, verifyUrl: string) {
   try {
     const { error } = await resend.emails.send({

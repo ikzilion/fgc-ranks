@@ -37,6 +37,17 @@ export const resendVerificationRateLimit = new Ratelimit({
   prefix: "ratelimit:resend-verification",
 });
 
+// Same reasoning/shape as resendVerificationRateLimit — this only ever
+// emails the account holder's own inbox, but the same defensive pattern
+// keeps the "request account deletion" action from being spammed.
+const deleteAccountRequestLimit = process.env.NODE_ENV === "production" ? 3 : 20;
+
+export const deleteAccountRequestRateLimit = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(deleteAccountRequestLimit, "1 h"),
+  prefix: "ratelimit:delete-account-request",
+});
+
 // Keyed by playerId (an authenticated action), not IP — 5/day is enough for
 // a legitimate TO running several brackets, while stopping rapid-fire spam.
 export const createTournamentRateLimit = new Ratelimit({

@@ -35,6 +35,12 @@ const UserSchema = new Schema(
     // Same hashed-token-with-expiry pattern as resetTokenHash/resetTokenExpiry.
     emailVerificationTokenHash: { type: String, default: null },
     emailVerificationTokenExpiry: { type: Date, default: null },
+    // Self-service account deletion — same hashed-token-with-expiry pattern
+    // again, 1h expiry like password reset (also a sensitive action) rather
+    // than email verification's longer 24h window. See
+    // requestAccountDeletion/confirmAccountDeletion resolvers.
+    deleteAccountTokenHash: { type: String, default: null },
+    deleteAccountTokenExpiry: { type: Date, default: null },
   },
   { timestamps: true }
 );

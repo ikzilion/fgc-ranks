@@ -8,6 +8,7 @@ import { auth } from "@/lib/auth";
 import { isAdminOrAbove } from "@/lib/roles";
 import { EditProfileButton } from "@/components/EditProfileButton";
 import { DeletePlayerButton } from "@/components/DeletePlayerButton";
+import { DeleteAccountButton } from "@/components/DeleteAccountButton";
 import { HeadToHeadSection } from "@/components/HeadToHeadSection";
 import { ZoomableAvatar } from "@/components/ZoomableAvatar";
 
@@ -140,14 +141,17 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
                   would already hide it here — this is an explicit,
                   belt-and-suspenders guard for "no editable fields". */}
               {!player.isDeleted && (
-                <EditProfileButton
-                  playerId={player.id}
-                  currentTag={player.tag}
-                  currentRegion={player.region}
-                  currentCharacters={player.characters}
-                  currentAvatarUrl={player.avatarUrl}
-                  currentTeam={player.team}
-                />
+                <>
+                  <EditProfileButton
+                    playerId={player.id}
+                    currentTag={player.tag}
+                    currentRegion={player.region}
+                    currentCharacters={player.characters}
+                    currentAvatarUrl={player.avatarUrl}
+                    currentTeam={player.team}
+                  />
+                  <DeleteAccountButton playerId={player.id} />
+                </>
               )}
               <DeletePlayerButton
                 playerId={player.id}
