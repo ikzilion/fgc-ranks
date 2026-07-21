@@ -6,6 +6,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
+import { isAdminOrAbove } from "@/lib/roles";
 import { EditEventDetailsButton } from "@/components/EditEventDetailsButton";
 import { ManageEventManagersButton } from "@/components/ManageEventManagersButton";
 import { DeleteEventButton } from "@/components/DeleteEventButton";
@@ -138,7 +139,7 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
   const { event, players } = await getEvent(id);
   if (!event) notFound();
 
-  const canManage = role === "ADMIN" || event.managers.some((m: any) => m.id === playerId);
+  const canManage = isAdminOrAbove(role) || event.managers.some((m: any) => m.id === playerId);
 
   // Group linked tournaments by game so different-game series sharing this
   // Event (e.g. a multi-game venue) are browsable rather than one flat list.

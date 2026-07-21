@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import { isAdminOrAbove } from "@/lib/roles";
 
 interface Props {
   // When provided, the form edits this post instead of creating a new one.
@@ -28,7 +29,7 @@ export function NewsPostForm({ post, eventId, canManage }: Props) {
   const [error, setError] = useState("");
 
   const role = (session?.user as any)?.role;
-  const authorized = eventId ? !!canManage : role === "ADMIN";
+  const authorized = eventId ? !!canManage : isAdminOrAbove(role);
   if (!authorized) return null;
 
   const isEdit = !!post;

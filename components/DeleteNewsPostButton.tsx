@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import { isAdminOrAbove } from "@/lib/roles";
 
 // canManage, when provided, is an Event post's creator/manager check —
 // otherwise falls back to the original global-post ADMIN-only behavior.
@@ -13,7 +14,7 @@ export function DeleteNewsPostButton({ postId, canManage }: { postId: string; ca
   const [loading, setLoading] = useState(false);
 
   const role = (session?.user as any)?.role;
-  const authorized = canManage !== undefined ? canManage : role === "ADMIN";
+  const authorized = canManage !== undefined ? canManage : isAdminOrAbove(role);
   if (!authorized) return null;
 
   async function handleDelete() {

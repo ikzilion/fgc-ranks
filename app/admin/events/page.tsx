@@ -15,6 +15,7 @@
 import { notFound } from "next/navigation";
 import { cookies } from "next/headers";
 import { auth } from "@/lib/auth";
+import { isAdminOrAbove } from "@/lib/roles";
 import { AdminEventReviewCard } from "@/components/AdminEventReviewCard";
 
 export const dynamic = "force-dynamic";
@@ -62,7 +63,7 @@ async function getPendingEvents() {
 export default async function AdminEventsPage() {
   const session = await auth();
   const role = (session?.user as any)?.role;
-  if (role !== "ADMIN") notFound();
+  if (!isAdminOrAbove(role)) notFound();
 
   const events = await getPendingEvents();
 

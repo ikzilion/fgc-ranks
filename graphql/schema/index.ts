@@ -7,7 +7,7 @@ export const typeDefs = `#graphql
   enum TournamentStatus { UPCOMING LIVE ENDED CANCELLED }
   enum TournamentVisibility { PUBLIC PRIVATE }
   enum MatchStatus      { PENDING IN_PROGRESS COMPLETED }
-  enum UserRole         { PLAYER ADMIN }
+  enum UserRole         { PLAYER ADMIN SUPER_ADMIN }
   enum EventStatus      { PENDING APPROVED REJECTED }
   enum SeedingMethod    { RANDOM RANDOM_WITHIN_TIERS MANUAL }
   enum BracketSide      { WINNERS LOSERS GRAND_FINAL GRAND_FINAL_RESET }
@@ -219,6 +219,10 @@ export const typeDefs = `#graphql
     # password, avatar, region, team), but keeps the Player document and all
     # Match/Entrant/Tournament/Event references intact.
     deletePlayer(id: ID!): Boolean!
+    # SUPER_ADMIN-only — the one in-app way to grant/revoke ADMIN. Regular
+    # ADMINs cannot call these.
+    grantAdmin(playerId: ID!): Boolean!
+    revokeAdmin(playerId: ID!): Boolean!
 
     createTournament(
       name: String!

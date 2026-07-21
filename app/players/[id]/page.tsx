@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { auth } from "@/lib/auth";
+import { isAdminOrAbove } from "@/lib/roles";
 import { EditProfileButton } from "@/components/EditProfileButton";
 import { DeletePlayerButton } from "@/components/DeletePlayerButton";
 import { HeadToHeadSection } from "@/components/HeadToHeadSection";
@@ -151,7 +152,7 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
               <DeletePlayerButton
                 playerId={player.id}
                 playerTag={player.tag}
-                isAdmin={viewerRole === "ADMIN"}
+                isAdmin={isAdminOrAbove(viewerRole)}
                 isDeleted={player.isDeleted}
                 isSelf={viewerId === player.id}
               />

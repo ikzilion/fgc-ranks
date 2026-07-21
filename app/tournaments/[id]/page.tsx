@@ -4,6 +4,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
+import { isAdminOrAbove } from "@/lib/roles";
 import { JoinTournamentButton } from "@/components/JoinTournamentButton";
 import { TournamentStatusButton } from "@/components/TournamentStatusButton";
 import { CreateMatchButton } from "@/components/CreateMatchButton";
@@ -162,7 +163,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   const { tournament, players } = await getTournament(id, playerId);
   if (!tournament) notFound();
 
-  const canManage = tournament.isOrganizer || role === "ADMIN";
+  const canManage = tournament.isOrganizer || isAdminOrAbove(role);
   const myEntrant = tournament.entrants.find((e: any) => e.player.id === playerId);
 
   // Freeform (non-bracket) matches — bracket matches are shown separately in

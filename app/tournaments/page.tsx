@@ -2,6 +2,7 @@
 // Tournament list — upcoming, live, and ended.
 
 import { auth } from "@/lib/auth";
+import { isAdminOrAbove } from "@/lib/roles";
 import { CreateTournamentButton } from "@/components/CreateTournamentButton";
 import { TournamentSearchFilter } from "@/components/TournamentSearchFilter";
 
@@ -54,7 +55,7 @@ export default async function TournamentsPage() {
 
   const withCanManage = tournaments.map((t: any) => ({
     ...t,
-    canManage: t.isOrganizer || role === "ADMIN",
+    canManage: t.isOrganizer || isAdminOrAbove(role),
   }));
 
   return (

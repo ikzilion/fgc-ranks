@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { NotificationBell } from "@/components/NotificationBell";
+import { isAdminOrAbove, isSuperAdmin } from "@/lib/roles";
 
 const links = [
   { href: "/", label: "News" },
@@ -57,7 +58,7 @@ export function Navbar() {
               </Link>
             );
           })}
-          {role === "ADMIN" && (
+          {isAdminOrAbove(role) && (
             <Link
               href="/admin/events"
               style={{
@@ -76,6 +77,27 @@ export function Navbar() {
               }}
             >
               Review queue
+            </Link>
+          )}
+          {isSuperAdmin(role) && (
+            <Link
+              href="/admin/users"
+              style={{
+                fontSize: "13px",
+                fontWeight: 500,
+                padding: "6px 14px",
+                borderRadius: "6px",
+                textDecoration: "none",
+                border: "1px solid",
+                transition: "all 0.15s",
+                color: pathname.startsWith("/admin/users") ? "var(--gold)" : "var(--text-secondary)",
+                background: pathname.startsWith("/admin/users") ? "var(--gold-dim)" : "transparent",
+                borderColor: pathname.startsWith("/admin/users") ? "rgba(240,180,41,0.25)" : "transparent",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+              }}
+            >
+              Admin roles
             </Link>
           )}
         </div>

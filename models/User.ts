@@ -3,6 +3,11 @@ import { Schema, models, model } from "mongoose";
 export enum UserRole {
   PLAYER = "PLAYER",
   ADMIN = "ADMIN",
+  // Single fixed account, bootstrapped via scripts/makeSuperAdmin.js — not
+  // grantable in-app (see grantAdmin/revokeAdmin, which only ever move an
+  // account between ADMIN and PLAYER). Has every ADMIN capability plus the
+  // ability to grant/revoke ADMIN on other accounts — see lib/roles.ts.
+  SUPER_ADMIN = "SUPER_ADMIN",
 }
 
 const UserSchema = new Schema(

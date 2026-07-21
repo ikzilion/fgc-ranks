@@ -4,7 +4,8 @@ import { randomBytes, createHash } from "crypto";
 import { del } from "@vercel/blob";
 import { Types } from "mongoose";
 import { connectToDatabase } from "@/lib/db";
-import { User } from "@/models/User";
+import { User, UserRole } from "@/models/User";
+import { isAdminOrAbove, isSuperAdmin } from "@/lib/roles";
 import { Player } from "@/models/Player";
 import { Tournament } from "@/models/Tournament";
 import { Entrant } from "@/models/Entrant";
@@ -27,7 +28,7 @@ const JWT_SECRET = process.env.NEXTAUTH_SECRET || "dev-secret";
 // playerId is in that specific tournament's organizers list (Tournament
 // Organizer / TO access — scoped per-tournament, not a global role).
 function isOrganizer(tournament: any, playerId?: string, role?: string): boolean {
-  if (role === "ADMIN") return true;
+  if (isAdminOrAbove(role)) return true;
   if (!playerId || !tournament?.organizers) return false;
   return tournament.organizers.some((orgId: any) => orgId.toString() === playerId);
 }
@@ -37,7 +38,7 @@ function isOrganizer(tournament: any, playerId?: string, role?: string): boolean
 // createEvent), so this one check covers both "is the creator" and "is a
 // co-manager" with no separate branching.
 function isEventManager(event: any, playerId?: string, role?: string): boolean {
-  if (role === "ADMIN") return true;
+  if (isAdminOrAbove(role)) return true;
   if (!playerId || !event?.managerIds) return false;
   return event.managerIds.some((id: any) => id.toString() === playerId);
 }
@@ -187,7 +188,7 @@ export const resolvers = {
 
     // Review queue data source — ADMIN-only.
     pendingEvents: async (_: unknown, __: unknown, { role }: { role?: string }) => {
-      if (role !== "ADMIN") throw new Error("Not authorized");
+      if (!isAdminOrAbove(role)) throw new Error("Not authorized");
       await connectToDatabase();
       return await Event.find({ status: EventStatus.PENDING }).sort({ createdAt: -1 });
     },
@@ -318,7 +319,7 @@ export const resolvers = {
       { id, tag, region, avatarUrl, characters, team }: { id: string; tag?: string; region?: string; avatarUrl?: string; characters?: string[]; team?: string },
       { playerId, role }: { playerId?: string; role?: string }
     ) => {
-      if (playerId !== id && role !== "ADMIN") throw new Error("Not authorized");
+      if (playerId !== id && !isAdminOrAbove(role)) throw new Error("Not authorized");
 
       await connectToDatabase();
       const update: any = { tag, region, characters };
@@ -336,7 +337,7 @@ export const resolvers = {
       { id }: { id: string },
       { playerId, role }: { playerId?: string; role?: string }
     ) => {
-      if (role !== "ADMIN") throw new Error("Not authorized");
+      if (!isAdminOrAbove(role)) throw new Error("Not authorized");
       // Guards against an admin locking themselves out by mistake.
       if (playerId === id) throw new Error("You can't delete your own account");
 
@@ -383,6 +384,52 @@ export const resolvers = {
         });
       }
 
+      return true;
+    },
+
+    // SUPER_ADMIN-only — the one in-app way to grant/revoke ADMIN. Regular
+    // ADMINs cannot call these (isSuperAdmin, not isAdminOrAbove).
+    grantAdmin: async (
+      _: unknown,
+      { playerId }: { playerId: string },
+      { role }: { role?: string }
+    ) => {
+      if (!isSuperAdmin(role)) throw new Error("Not authorized");
+      await connectToDatabase();
+      const player = await Player.findById(playerId);
+      if (!player) throw new Error("Player not found");
+      if (!player.userId) throw new Error("This player has no linked account");
+
+      const user = await User.findById(player.userId);
+      if (!user) throw new Error("Linked account not found");
+      // Refuses to downgrade a Super Admin to plain ADMIN — guards against
+      // accidentally granting "admin" to a Super Admin account (including
+      // the caller's own) and losing the SUPER_ADMIN tier.
+      if (user.role === UserRole.SUPER_ADMIN) throw new Error("This account is already Super Admin");
+
+      await User.findByIdAndUpdate(player.userId, { role: UserRole.ADMIN });
+      return true;
+    },
+
+    revokeAdmin: async (
+      _: unknown,
+      { playerId }: { playerId: string },
+      { role }: { role?: string }
+    ) => {
+      if (!isSuperAdmin(role)) throw new Error("Not authorized");
+      await connectToDatabase();
+      const player = await Player.findById(playerId);
+      if (!player) throw new Error("Player not found");
+      if (!player.userId) throw new Error("This player has no linked account");
+
+      const user = await User.findById(player.userId);
+      if (!user) throw new Error("Linked account not found");
+      // The Super Admin account can't be demoted through this mutation —
+      // there's no in-app way to grant SUPER_ADMIN back, so this would be
+      // an irreversible self-lockout (or lockout of the one fixed account).
+      if (user.role === UserRole.SUPER_ADMIN) throw new Error("Cannot revoke the Super Admin account");
+
+      await User.findByIdAndUpdate(player.userId, { role: UserRole.PLAYER });
       return true;
     },
 
@@ -634,7 +681,7 @@ export const resolvers = {
       { tournamentId, playerId: inviteeId }: { tournamentId: string; playerId: string },
       { playerId: callerPlayerId, role }: { playerId?: string; role?: string }
     ) => {
-      if (callerPlayerId !== inviteeId && role !== "ADMIN") throw new Error("Not authorized");
+      if (callerPlayerId !== inviteeId && !isAdminOrAbove(role)) throw new Error("Not authorized");
 
       await connectToDatabase();
       const tournament = await Tournament.findById(tournamentId);
@@ -739,7 +786,7 @@ export const resolvers = {
       { tournamentId, playerId }: { tournamentId: string; playerId: string },
       { playerId: callerPlayerId, role }: { playerId?: string; role?: string }
     ) => {
-      if (callerPlayerId !== playerId && role !== "ADMIN") throw new Error("Not authorized");
+      if (callerPlayerId !== playerId && !isAdminOrAbove(role)) throw new Error("Not authorized");
 
       await connectToDatabase();
       const tournament = await Tournament.findById(tournamentId);
@@ -1099,7 +1146,7 @@ export const resolvers = {
         const event = await Event.findById(eventId);
         if (!event) throw new Error("Event not found");
         if (!isEventManager(event, playerId, role)) throw new Error("Not authorized");
-      } else if (role !== "ADMIN") {
+      } else if (!isAdminOrAbove(role)) {
         throw new Error("Not authorized");
       }
 
@@ -1122,7 +1169,7 @@ export const resolvers = {
       if (post.eventId) {
         const event = await Event.findById(post.eventId);
         if (!event || !isEventManager(event, playerId, role)) throw new Error("Not authorized");
-      } else if (role !== "ADMIN") {
+      } else if (!isAdminOrAbove(role)) {
         throw new Error("Not authorized");
       }
 
@@ -1144,7 +1191,7 @@ export const resolvers = {
       if (post.eventId) {
         const event = await Event.findById(post.eventId);
         if (!event || !isEventManager(event, playerId, role)) throw new Error("Not authorized");
-      } else if (role !== "ADMIN") {
+      } else if (!isAdminOrAbove(role)) {
         throw new Error("Not authorized");
       }
 
@@ -1287,7 +1334,7 @@ export const resolvers = {
       }: { id: string; name?: string; isOnlineOnly?: boolean; address?: string; logoUrl?: string; twitchUrl?: string },
       { role }: { role?: string }
     ) => {
-      if (role !== "ADMIN") throw new Error("Not authorized");
+      if (!isAdminOrAbove(role)) throw new Error("Not authorized");
       await connectToDatabase();
       const event = await Event.findById(id);
       if (!event) throw new Error("Event not found");
@@ -1303,7 +1350,7 @@ export const resolvers = {
     },
 
     rejectEvent: async (_: unknown, { id, reason }: { id: string; reason: string }, { role }: { role?: string }) => {
-      if (role !== "ADMIN") throw new Error("Not authorized");
+      if (!isAdminOrAbove(role)) throw new Error("Not authorized");
       if (!reason.trim()) throw new Error("A rejection reason is required");
       await connectToDatabase();
       const event = await Event.findById(id);
