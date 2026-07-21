@@ -1345,6 +1345,10 @@ export const resolvers = {
       parent.managerIds ? await Player.find({ _id: { $in: parent.managerIds } }) : [],
     tournaments: async (parent: { _id: string }) => await Tournament.find({ eventId: parent._id }),
     newsPosts: async (parent: { _id: string }) => await NewsPost.find({ eventId: parent._id }).sort({ createdAt: -1 }),
+    // Lean count/distinct queries — avoid populating full Tournament docs
+    // just to display a number on the browse-page card.
+    tournamentCount: async (parent: { _id: string }) => await Tournament.countDocuments({ eventId: parent._id }),
+    gameCount: async (parent: { _id: string }) => (await Tournament.distinct("game", { eventId: parent._id })).length,
   },
 
   Entrant: {

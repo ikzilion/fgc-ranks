@@ -1,6 +1,12 @@
 // components/EventSearchFilter.tsx
 // Card grid, not list rows — per the settled design ("browsable cards"),
 // distinct from TournamentSearchFilter/PlayerSearchFilter's row layout.
+// Cards use flex-wrap + a min-width (not a fixed grid-cols-N) so they grow
+// to fill each row's leftover space — with only 1-2 Events, a rigid
+// grid-cols-3 still reserves 3 equal tracks and leaves the unused ones
+// blank; flex-wrap only creates as many "columns" as there are cards per
+// row, so a lone card stretches to fill the row instead of sitting narrow
+// next to empty space.
 "use client";
 
 import { useState, useMemo } from "react";
@@ -13,6 +19,9 @@ interface EventCard {
   logoUrl?: string | null;
   isOnlineOnly: boolean;
   address?: string | null;
+  twitchUrl?: string | null;
+  tournamentCount: number;
+  gameCount: number;
 }
 
 export function EventSearchFilter({ events }: { events: EventCard[] }) {
@@ -69,16 +78,16 @@ export function EventSearchFilter({ events }: { events: EventCard[] }) {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="flex flex-wrap gap-4">
           {filtered.map(event => (
             <Link
               key={event.id}
               href={`/events/${event.id}`}
-              className="fgc-card p-4 flex flex-col gap-3 hover:bg-[var(--navy-3)] transition-colors"
+              className="fgc-card p-4 flex flex-col gap-3 hover:bg-[var(--navy-3)] transition-colors flex-1 min-w-[280px]"
             >
               <div className="flex items-center gap-3">
                 <div
-                  className="w-12 h-12 rounded flex items-center justify-center flex-shrink-0 font-rajdhani text-[14px] font-bold overflow-hidden"
+                  className="w-14 h-14 rounded flex items-center justify-center flex-shrink-0 font-rajdhani text-[16px] font-bold overflow-hidden"
                   style={{ background: "var(--blue-dim)", border: "1px solid rgba(79,142,247,0.3)", color: "var(--blue)" }}
                 >
                   {event.logoUrl ? (
@@ -87,15 +96,31 @@ export function EventSearchFilter({ events }: { events: EventCard[] }) {
                     event.name.slice(0, 2).toUpperCase()
                   )}
                 </div>
-                <div className="min-w-0">
-                  <p className="font-rajdhani text-[16px] font-bold text-[var(--text-primary)] leading-tight truncate">
+                <div className="min-w-0 flex-1">
+                  <p className="font-rajdhani text-[17px] font-bold text-[var(--text-primary)] leading-tight truncate">
                     {event.name}
                   </p>
                   <p className="text-[10px] font-mono text-[var(--text-muted)]">{event.displayId}</p>
                 </div>
+                {event.twitchUrl && (
+                  <span
+                    title="Has a Twitch link"
+                    className="text-[10px] font-semibold px-2 py-1 rounded flex-shrink-0"
+                    style={{ background: "var(--coral-dim)", color: "var(--coral)" }}
+                  >
+                    📺 Twitch
+                  </span>
+                )}
               </div>
               <p className="text-[12px] text-[var(--text-secondary)] truncate">
                 {event.isOnlineOnly ? "🌐 Online only" : event.address || "Location not set"}
+              </p>
+              <p className="text-[12px] font-semibold" style={{ color: "var(--text-secondary)" }}>
+                {event.tournamentCount === 0
+                  ? "No tournaments yet"
+                  : event.gameCount > 1
+                    ? `🎮 ${event.gameCount} games · 🏆 ${event.tournamentCount} tournament${event.tournamentCount === 1 ? "" : "s"}`
+                    : `🏆 ${event.tournamentCount} tournament${event.tournamentCount === 1 ? "" : "s"}`}
               </p>
             </Link>
           ))}

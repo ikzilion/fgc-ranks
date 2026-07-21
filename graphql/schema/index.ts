@@ -107,6 +107,10 @@ export const typeDefs = `#graphql
     creator: Player
     managers: [Player!]!
     tournaments: [Tournament!]!
+    # Cheap summary counts for the browse-page cards — computed via
+    # countDocuments/distinct rather than populating the tournaments list in full.
+    tournamentCount: Int!
+    gameCount: Int!
     newsPosts: [NewsPost!]!
     createdAt: Date!
   }

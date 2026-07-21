@@ -15,6 +15,9 @@ const GET_EVENTS = `
       logoUrl
       isOnlineOnly
       address
+      twitchUrl
+      tournamentCount
+      gameCount
     }
   }
 `;
@@ -44,7 +47,12 @@ export default async function EventsPage() {
   const events = await getEvents();
 
   return (
-    <main className="max-w-4xl mx-auto px-4 py-8">
+    // w-full matters here, not just cosmetic: <body> is a column flex
+    // container (see app/layout.tsx), and mx-auto's auto margins disable
+    // flex-stretch, so without an explicit width main shrinks to fit its
+    // content instead of filling up to max-w-4xl — exactly what was
+    // starving the card grid below of any real row width to fill.
+    <main className="w-full max-w-4xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
         <h1 className="font-rajdhani text-2xl font-bold text-[var(--text-primary)]">Events</h1>
         <div className="flex items-center gap-4">
