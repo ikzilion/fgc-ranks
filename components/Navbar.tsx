@@ -35,16 +35,24 @@ export function Navbar() {
         zIndex: 50,
       }}
     >
-      <div style={{ maxWidth: "80rem", margin: "0 auto", padding: "0 1rem", height: "52px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+      {/* flex-wrap + the nav-links div going w-full order-3 below drops the
+          links onto their own full-width row on mobile, instead of being
+          squeezed into whatever space is left between the logo and the
+          bell/avatar and silently clipped/scrolled out of view. sm:flex-nowrap
+          restores the original single-row layout once there's room for it. */}
+      <div
+        className="flex-wrap sm:flex-nowrap"
+        style={{ maxWidth: "80rem", margin: "0 auto", padding: "0.5rem 1rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}
+      >
         <Link href="/" className="font-rajdhani" style={{ fontSize: "20px", fontWeight: 700, letterSpacing: "0.04em", color: "var(--text-primary)", textDecoration: "none", flexShrink: 0 }}>
           FGC <span style={{ color: "var(--blue)" }}>Ranks</span>
         </Link>
 
-        <div style={{ display: "flex", gap: "4px", overflowX: "auto" }}>
+        <div className="w-full order-3 sm:w-auto sm:order-none" style={{ display: "flex", gap: "4px", overflowX: "auto" }}>
           {links.map(({ href, label }) => {
             const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
             return (
-              <Link key={href} href={href} style={{ fontSize: "13px", fontWeight: 500, padding: "6px 14px", borderRadius: "6px", textDecoration: "none", border: "1px solid", transition: "all 0.15s", color: active ? "var(--blue)" : "var(--text-secondary)", background: active ? "var(--blue-dim)" : "transparent", borderColor: active ? "rgba(79,142,247,0.2)" : "transparent" }}>
+              <Link key={href} href={href} style={{ fontSize: "13px", fontWeight: 500, padding: "6px 14px", borderRadius: "6px", textDecoration: "none", border: "1px solid", transition: "all 0.15s", color: active ? "var(--blue)" : "var(--text-secondary)", background: active ? "var(--blue-dim)" : "transparent", borderColor: active ? "rgba(79,142,247,0.2)" : "transparent", whiteSpace: "nowrap", flexShrink: 0 }}>
                 {label}
               </Link>
             );
@@ -63,6 +71,8 @@ export function Navbar() {
                 color: pathname.startsWith("/admin/events") ? "var(--gold)" : "var(--text-secondary)",
                 background: pathname.startsWith("/admin/events") ? "var(--gold-dim)" : "transparent",
                 borderColor: pathname.startsWith("/admin/events") ? "rgba(240,180,41,0.25)" : "transparent",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
               }}
             >
               Review queue

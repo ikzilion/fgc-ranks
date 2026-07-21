@@ -395,8 +395,17 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                 to the space actually available and scrolling internally via
                 its own overflow-x-auto + sticky scrollbar — same class of
                 gotcha as the min-h-0 fix on the Stream Settings modal's
-                scroll container, just the width axis instead of height. */}
-            <div className="flex-1 min-w-0">
+                scroll container, just the width axis instead of height.
+                w-full is equally load-bearing on mobile specifically: this
+                row is `items-start` (so the sidebar doesn't get stretched to
+                the bracket's full height once it's a sm:flex-row sibling),
+                but on mobile it's flex-col, where items-start's cross-axis
+                is WIDTH — without an explicit w-full here, this column sizes
+                to its content's natural (unclipped) width instead of the
+                viewport, so BracketView's internal overflow-x-auto never
+                sees a bounded container to scroll within and the whole page
+                overflows horizontally instead. */}
+            <div className="flex-1 min-w-0 w-full">
               {/* overflow: visible override — .fgc-card's overflow:hidden (for
                   rounded-corner clipping elsewhere) becomes BracketView's sticky
                   scrollbar's containing block otherwise, and since this card never
