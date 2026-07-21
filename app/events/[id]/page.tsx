@@ -24,6 +24,8 @@ const GET_EVENT = `
       isOnlineOnly
       address
       twitchUrl
+      status
+      rejectionReason
       createdAt
       creator {
         id
@@ -81,6 +83,32 @@ async function getEvent(id: string) {
   }
 }
 
+// PENDING/REJECTED only surface here (this is the "view your own Event"
+// path — the public browse list/eventByDisplayId lookup already hide
+// anything that isn't APPROVED, so a random visitor only ever sees this for
+// an Event whose raw id they were directly given).
+function eventStatusBadge(status: string, rejectionReason?: string | null) {
+  if (status === "PENDING")
+    return (
+      <span
+        className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded inline-block"
+        style={{ background: "var(--gold-dim)", color: "var(--gold)", border: "1px solid rgba(240,180,41,0.25)" }}
+      >
+        ⏳ Pending review
+      </span>
+    );
+  if (status === "REJECTED")
+    return (
+      <span
+        className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded inline-block"
+        style={{ background: "var(--coral-dim)", color: "var(--coral)", border: "1px solid rgba(255,77,77,0.25)" }}
+      >
+        Rejected: {rejectionReason || "No reason given"}
+      </span>
+    );
+  return null;
+}
+
 function statusBadge(status: string) {
   if (status === "LIVE")
     return (
@@ -136,6 +164,9 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
             <div>
               <h1 className="font-rajdhani text-3xl font-bold text-[var(--text-primary)] leading-tight">{event.name}</h1>
               <p className="text-[11px] font-mono text-[var(--text-muted)] mt-1">{event.displayId}</p>
+              {eventStatusBadge(event.status, event.rejectionReason) && (
+                <div className="mt-2">{eventStatusBadge(event.status, event.rejectionReason)}</div>
+              )}
               <p className="text-[13px] text-[var(--text-secondary)] mt-1">
                 {event.isOnlineOnly ? "🌐 Online only" : event.address || "Location not set"}
               </p>

@@ -1,5 +1,11 @@
 import { Schema, models, model } from "mongoose";
 
+export enum EventStatus {
+  PENDING = "PENDING",
+  APPROVED = "APPROVED",
+  REJECTED = "REJECTED",
+}
+
 // A venue/organization umbrella that Tournaments can link to — solves
 // multi-game events (EVO, CEO, Frosty Faustings) without touching the
 // Tournament/Bracket/Entrant model at all: each game just gets its own
@@ -22,6 +28,20 @@ const EventSchema = new Schema(
     address: { type: String, default: "" },
     logoUrl: { type: String, default: "" },
     twitchUrl: { type: String, default: "" },
+    // New Events start PENDING regardless of who creates them — hidden from
+    // the public `events` list and `eventByDisplayId` lookup (so they can't
+    // be linked to a Tournament) until an admin approves them via
+    // approveEvent/rejectEvent. The creator can still view/edit their own
+    // Event while PENDING or REJECTED via `event(id)`.
+    status: {
+      type: String,
+      enum: Object.values(EventStatus),
+      default: EventStatus.PENDING,
+    },
+    // Only set when status is REJECTED — cleared automatically on
+    // resubmission (any updateEvent edit while REJECTED re-enters the queue
+    // as PENDING) or on approval.
+    rejectionReason: { type: String, default: "" },
     creatorId: { type: Schema.Types.ObjectId, ref: "Player", required: true },
     // The creator is always included here at creation — managerIds is the
     // single source of truth for "who can manage this Event" (no separate

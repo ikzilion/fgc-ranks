@@ -11,7 +11,7 @@ import { Match, MatchStatus } from "@/models/Match";
 import { Bracket } from "@/models/Bracket";
 import { Notification } from "@/models/Notification";
 import { NewsPost } from "@/models/NewsPost";
-import { Event } from "@/models/Event";
+import { Event, EventStatus } from "@/models/Event";
 import { loginRateLimit, registerRateLimit, passwordResetRateLimit, getClientIp } from "@/lib/rateLimit";
 import { sendPasswordResetEmail } from "@/lib/email";
 import { buildDoubleEliminationBracket, resolveSeedOrder, advanceBracketMatch, nextPowerOfTwo, SeedingMethod } from "@/lib/bracket";
@@ -149,9 +149,12 @@ export const resolvers = {
     },
 
     // Events
+    // Public browse list — PENDING/REJECTED Events are excluded entirely,
+    // even for their own creator/managers (they view/edit those via
+    // event(id) instead, not this list — see the Event review-queue plan).
     events: async (_: unknown, { limit = 50, offset = 0 }: { limit?: number; offset?: number }) => {
       await connectToDatabase();
-      return await Event.find().sort({ createdAt: -1 }).skip(offset).limit(limit);
+      return await Event.find({ status: EventStatus.APPROVED }).sort({ createdAt: -1 }).skip(offset).limit(limit);
     },
 
     event: async (_: unknown, { id }: { id: string }) => {
@@ -168,7 +171,17 @@ export const resolvers = {
       if (!match) return null;
       const eventNumber = Number(match[1]);
       if (!eventNumber) return null;
-      return await Event.findOne({ eventNumber });
+      // APPROVED-only — same reasoning as `events` above: a PENDING/REJECTED
+      // Event can't be looked up and linked to a Tournament by anyone,
+      // including its own creator, until it's approved.
+      return await Event.findOne({ eventNumber, status: EventStatus.APPROVED });
+    },
+
+    // Review queue data source — ADMIN-only.
+    pendingEvents: async (_: unknown, __: unknown, { role }: { role?: string }) => {
+      if (role !== "ADMIN") throw new Error("Not authorized");
+      await connectToDatabase();
+      return await Event.find({ status: EventStatus.PENDING }).sort({ createdAt: -1 });
     },
 
     // Matches
@@ -1083,6 +1096,8 @@ export const resolvers = {
       // The creator is included in managerIds up front — see the Event
       // model comment, managerIds is the single source of truth for who
       // can manage this Event, no separate creator-only path.
+      // status is PENDING regardless of who creates it (even an ADMIN) —
+      // it must go through approveEvent to become public/linkable.
       return Event.create({
         name,
         isOnlineOnly,
@@ -1090,6 +1105,7 @@ export const resolvers = {
         logoUrl,
         twitchUrl,
         eventNumber,
+        status: EventStatus.PENDING,
         creatorId: playerId,
         managerIds: [playerId],
       });
@@ -1118,6 +1134,14 @@ export const resolvers = {
       if (address !== undefined) update.address = address;
       if (logoUrl !== undefined) update.logoUrl = logoUrl;
       if (twitchUrl !== undefined) update.twitchUrl = twitchUrl;
+
+      // Resubmission: any edit to a REJECTED Event re-enters the review
+      // queue automatically, rather than needing a separate "resubmit"
+      // action — clear the old reason since it no longer applies.
+      if (event.status === EventStatus.REJECTED) {
+        update.status = EventStatus.PENDING;
+        update.rejectionReason = "";
+      }
 
       return Event.findByIdAndUpdate(id, update, { new: true });
     },
@@ -1177,6 +1201,46 @@ export const resolvers = {
       await event.save();
 
       return event;
+    },
+
+    // Edit-and-approve in one call, not a separate two-step — any field
+    // left undefined keeps its current value, same partial-update
+    // convention as updateEvent.
+    approveEvent: async (
+      _: unknown,
+      {
+        id,
+        name,
+        isOnlineOnly,
+        address,
+        logoUrl,
+        twitchUrl,
+      }: { id: string; name?: string; isOnlineOnly?: boolean; address?: string; logoUrl?: string; twitchUrl?: string },
+      { role }: { role?: string }
+    ) => {
+      if (role !== "ADMIN") throw new Error("Not authorized");
+      await connectToDatabase();
+      const event = await Event.findById(id);
+      if (!event) throw new Error("Event not found");
+
+      const update: any = { status: EventStatus.APPROVED, rejectionReason: "" };
+      if (name !== undefined) update.name = name;
+      if (isOnlineOnly !== undefined) update.isOnlineOnly = isOnlineOnly;
+      if (address !== undefined) update.address = address;
+      if (logoUrl !== undefined) update.logoUrl = logoUrl;
+      if (twitchUrl !== undefined) update.twitchUrl = twitchUrl;
+
+      return Event.findByIdAndUpdate(id, update, { new: true });
+    },
+
+    rejectEvent: async (_: unknown, { id, reason }: { id: string; reason: string }, { role }: { role?: string }) => {
+      if (role !== "ADMIN") throw new Error("Not authorized");
+      if (!reason.trim()) throw new Error("A rejection reason is required");
+      await connectToDatabase();
+      const event = await Event.findById(id);
+      if (!event) throw new Error("Event not found");
+
+      return Event.findByIdAndUpdate(id, { status: EventStatus.REJECTED, rejectionReason: reason.trim() }, { new: true });
     },
   },
 

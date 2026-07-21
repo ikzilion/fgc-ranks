@@ -1,7 +1,8 @@
 // components/CreateEventButton.tsx
-// Any signed-in player can create an Event — no admin approval gate
-// (settled design, supersedes the earlier "Venue/Event" admin-review-queue
-// idea). Same modal/form conventions as CreateTournamentButton.
+// Any signed-in player can create an Event, but it starts PENDING — hidden
+// from /events and Event-ID lookup until an admin approves it via the
+// review queue (see app/admin/events/page.tsx). Same modal/form conventions
+// as CreateTournamentButton.
 "use client";
 
 import { useState } from "react";

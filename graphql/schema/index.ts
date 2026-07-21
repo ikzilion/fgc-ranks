@@ -8,6 +8,7 @@ export const typeDefs = `#graphql
   enum TournamentVisibility { PUBLIC PRIVATE }
   enum MatchStatus      { PENDING IN_PROGRESS COMPLETED }
   enum UserRole         { PLAYER ADMIN }
+  enum EventStatus      { PENDING APPROVED REJECTED }
   enum SeedingMethod    { RANDOM RANDOM_WITHIN_TIERS MANUAL }
   enum BracketSide      { WINNERS LOSERS GRAND_FINAL GRAND_FINAL_RESET }
   enum NotificationType {
@@ -100,6 +101,9 @@ export const typeDefs = `#graphql
     address: String
     logoUrl: String
     twitchUrl: String
+    status: EventStatus!
+    # Only set when status is REJECTED.
+    rejectionReason: String
     creator: Player
     managers: [Player!]!
     tournaments: [Tournament!]!
@@ -184,6 +188,8 @@ export const typeDefs = `#graphql
     # TO actually types into a tournament's "Event ID" field, not the raw
     # Mongo _id. Mirrors playerByTag's role for Player.
     eventByDisplayId(displayId: String!): Event
+    # ADMIN-only — the review queue's data source.
+    pendingEvents: [Event!]!
 
     matches(tournamentId: ID!): [Match!]!
     match(id: ID!): Match
@@ -237,6 +243,11 @@ export const typeDefs = `#graphql
     deleteEvent(id: ID!): Boolean!
     addEventManager(eventId: ID!, playerId: ID!): Event!
     removeEventManager(eventId: ID!, playerId: ID!): Event!
+    # ADMIN-only. Edit-and-approve in one call — any field left null keeps
+    # its current value, same partial-update convention as updateEvent.
+    approveEvent(id: ID!, name: String, isOnlineOnly: Boolean, address: String, logoUrl: String, twitchUrl: String): Event!
+    # ADMIN-only. Reason is required.
+    rejectEvent(id: ID!, reason: String!): Event!
     updateTournamentStatus(id: ID!, status: TournamentStatus!): Tournament!
     cancelTournament(id: ID!, reason: String!): Tournament!
     updateTournamentVisibility(id: ID!, visibility: TournamentVisibility!): Tournament!

@@ -15,6 +15,7 @@ const links = [
 export function Navbar() {
   const pathname = usePathname();
   const { data: session } = useSession();
+  const role = (session?.user as any)?.role;
 
   // The stream/broadcast view (/tournaments/[id]/stream) is meant to be
   // captured as a clean OBS browser source — no site chrome at all. There's
@@ -48,6 +49,25 @@ export function Navbar() {
               </Link>
             );
           })}
+          {role === "ADMIN" && (
+            <Link
+              href="/admin/events"
+              style={{
+                fontSize: "13px",
+                fontWeight: 500,
+                padding: "6px 14px",
+                borderRadius: "6px",
+                textDecoration: "none",
+                border: "1px solid",
+                transition: "all 0.15s",
+                color: pathname.startsWith("/admin/events") ? "var(--gold)" : "var(--text-secondary)",
+                background: pathname.startsWith("/admin/events") ? "var(--gold-dim)" : "transparent",
+                borderColor: pathname.startsWith("/admin/events") ? "rgba(240,180,41,0.25)" : "transparent",
+              }}
+            >
+              Review queue
+            </Link>
+          )}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
