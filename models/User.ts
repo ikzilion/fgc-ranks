@@ -25,6 +25,16 @@ const UserSchema = new Schema(
     // regardless of any credential.
     isDeleted: { type: Boolean, default: false },
     deletedAt: { type: Date, default: null },
+    // Email verification — default `true` so every account that predates
+    // this feature (no field set in the DB at all) is grandfathered in as
+    // already-verified without a backfill migration; `register` explicitly
+    // sets this to `false` for new signups. authorize()/login check
+    // `=== false` specifically (not falsy) so grandfathered legacy
+    // documents, where this is `undefined`, are never rejected.
+    emailVerified: { type: Boolean, default: true },
+    // Same hashed-token-with-expiry pattern as resetTokenHash/resetTokenExpiry.
+    emailVerificationTokenHash: { type: String, default: null },
+    emailVerificationTokenExpiry: { type: Date, default: null },
   },
   { timestamps: true }
 );

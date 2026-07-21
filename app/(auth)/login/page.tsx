@@ -12,11 +12,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendSubmitted, setResendSubmitted] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setNeedsVerification(false);
+    setResendSubmitted(false);
 
     const result = await signIn("credentials", {
       email,
@@ -27,15 +32,35 @@ export default function LoginPage() {
     setLoading(false);
 
     if (result?.error) {
-      setError(
-        result.code === "rate_limited"
-          ? "Too many attempts. Please try again in 15 minutes."
-          : "Invalid email or password"
-      );
+      if (result.code === "email_not_verified") {
+        setError("Please verify your email before signing in.");
+        setNeedsVerification(true);
+      } else {
+        setError(
+          result.code === "rate_limited"
+            ? "Too many attempts. Please try again in 15 minutes."
+            : "Invalid email or password"
+        );
+      }
     } else {
       router.push("/tournaments");
       router.refresh();
     }
+  }
+
+  async function handleResend() {
+    setResendLoading(true);
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+    await fetch(`${baseUrl}/api/graphql`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: `mutation ResendVerificationEmail($email: String!) { resendVerificationEmail(email: $email) }`,
+        variables: { email },
+      }),
+    });
+    setResendLoading(false);
+    setResendSubmitted(true);
   }
 
   return (
@@ -82,6 +107,22 @@ export default function LoginPage() {
               <p className="text-[12px] mb-4 px-3 py-2 rounded" style={{ background: "var(--coral-dim)", color: "var(--coral)" }}>
                 {error}
               </p>
+            )}
+
+            {needsVerification && (
+              resendSubmitted ? (
+                <p className="text-[12px] text-[var(--text-muted)] mb-4">If needed, a new link has been sent.</p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleResend}
+                  disabled={resendLoading}
+                  className="text-[12px] font-semibold mb-4"
+                  style={{ color: "var(--blue)", background: "none", border: "none", cursor: resendLoading ? "not-allowed" : "pointer", padding: 0 }}
+                >
+                  {resendLoading ? "Sending..." : "Resend verification email"}
+                </button>
+              )
             )}
 
             <button

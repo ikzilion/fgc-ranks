@@ -7,15 +7,22 @@ import { connectToDatabase } from "@/lib/db";
 import { User, UserRole } from "@/models/User";
 import { isAdminOrAbove, isSuperAdmin } from "@/lib/roles";
 import { Player } from "@/models/Player";
-import { Tournament } from "@/models/Tournament";
+import { Tournament, TournamentStatus } from "@/models/Tournament";
 import { Entrant } from "@/models/Entrant";
 import { Match, MatchStatus } from "@/models/Match";
 import { Bracket } from "@/models/Bracket";
 import { Notification } from "@/models/Notification";
 import { NewsPost } from "@/models/NewsPost";
 import { Event, EventStatus } from "@/models/Event";
-import { loginRateLimit, registerRateLimit, passwordResetRateLimit, getClientIp } from "@/lib/rateLimit";
-import { sendPasswordResetEmail } from "@/lib/email";
+import {
+  loginRateLimit,
+  registerRateLimit,
+  passwordResetRateLimit,
+  resendVerificationRateLimit,
+  createTournamentRateLimit,
+  getClientIp,
+} from "@/lib/rateLimit";
+import { sendPasswordResetEmail, sendVerificationEmail } from "@/lib/email";
 import { buildDoubleEliminationBracket, resolveSeedOrder, advanceBracketMatch, nextPowerOfTwo, SeedingMethod } from "@/lib/bracket";
 import { getNextSequence } from "@/lib/counter";
 import { formatPlayerNumber } from "@/lib/playerId";
@@ -143,12 +150,20 @@ export const resolvers = {
     },
 
     // Tournaments
+    // Query-time filter, not a background job — nothing is ever deleted,
+    // and tournament(id) below is deliberately NOT filtered, so a stale
+    // tournament's direct URL and its own creator/organizer view keep
+    // working; it just drops out of this general public listing.
     tournaments: async (
       _: unknown,
       { status, limit = 20, offset = 0 }: { status?: string; limit?: number; offset?: number }
     ) => {
       await connectToDatabase();
-      const filter = status ? { status } : {};
+      const filter: any = status ? { status } : {};
+      const staleZeroEntrantCutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      filter.$nor = [
+        { status: TournamentStatus.UPCOMING, entrantCount: 0, createdAt: { $lt: staleZeroEntrantCutoff } },
+      ];
       return await Tournament.find(filter).sort({ startDate: -1 }).skip(offset).limit(limit);
     },
 
@@ -238,10 +253,29 @@ export const resolvers = {
 
       await connectToDatabase();
       const passwordHash = await bcrypt.hash(password, 10);
-      const user = await User.create({ email, passwordHash });
+
+      // New accounts start unverified — same hashed-token-with-expiry
+      // pattern as the password reset flow, just a longer expiry (24h,
+      // standard for email verification vs. the 1h reset window).
+      const rawToken = randomBytes(32).toString("hex");
+      const emailVerificationTokenHash = createHash("sha256").update(rawToken).digest("hex");
+      const emailVerificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+      const user = await User.create({
+        email,
+        passwordHash,
+        emailVerified: false,
+        emailVerificationTokenHash,
+        emailVerificationTokenExpiry,
+      });
       const playerNumber = await getNextSequence("playerNumber");
       const player = await Player.create({ userId: user._id, tag, playerNumber });
       await User.findByIdAndUpdate(user._id, { playerId: player._id });
+
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+      const verifyUrl = `${baseUrl}/verify-email?token=${rawToken}`;
+      await sendVerificationEmail(email, verifyUrl);
+
       const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: "7d" });
       return { token, user };
     },
@@ -262,6 +296,9 @@ export const resolvers = {
       if (user.isDeleted) throw new Error("Invalid email or password");
       const valid = await bcrypt.compare(password, user.passwordHash);
       if (!valid) throw new Error("Invalid email or password");
+      // `=== false` (not falsy) — grandfathered legacy accounts (field
+      // never set) must NOT be blocked here.
+      if (user.emailVerified === false) throw new Error("Please verify your email before signing in. Check your inbox for the verification link.");
       const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: "7d" });
       return { token, user };
     },
@@ -310,6 +347,53 @@ export const resolvers = {
         resetTokenHash: null,
         resetTokenExpiry: null,
       });
+      return true;
+    },
+
+    verifyEmail: async (_: unknown, { token }: { token: string }) => {
+      await connectToDatabase();
+      const emailVerificationTokenHash = createHash("sha256").update(token).digest("hex");
+      const user = await User.findOne({
+        emailVerificationTokenHash,
+        emailVerificationTokenExpiry: { $gt: new Date() },
+      });
+      if (!user) throw new Error("Invalid or expired verification link");
+
+      await User.findByIdAndUpdate(user._id, {
+        emailVerified: true,
+        emailVerificationTokenHash: null,
+        emailVerificationTokenExpiry: null,
+      });
+      return true;
+    },
+
+    resendVerificationEmail: async (
+      _: unknown,
+      { email }: { email: string },
+      { req }: { req: NextRequest }
+    ) => {
+      const ip = getClientIp(req);
+      const { success } = await resendVerificationRateLimit.limit(ip);
+      if (!success) throw new Error("Too many requests. Please try again later.");
+
+      await connectToDatabase();
+      const user = await User.findOne({ email });
+
+      // Only send if there's an account that actually still needs
+      // verifying (`=== false`, not falsy — never re-verify a grandfathered
+      // account), but always return true either way, same
+      // anti-enumeration convention as requestPasswordReset.
+      if (user && user.emailVerified === false) {
+        const rawToken = randomBytes(32).toString("hex");
+        const emailVerificationTokenHash = createHash("sha256").update(rawToken).digest("hex");
+        const emailVerificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        await User.findByIdAndUpdate(user._id, { emailVerificationTokenHash, emailVerificationTokenExpiry });
+
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+        const verifyUrl = `${baseUrl}/verify-email?token=${rawToken}`;
+        await sendVerificationEmail(email, verifyUrl);
+      }
+
       return true;
     },
 
@@ -467,7 +551,25 @@ export const resolvers = {
     ) => {
       if (!playerId) throw new Error("Not authorized");
 
+      // Keyed by playerId (authenticated action), not IP.
+      const { success } = await createTournamentRateLimit.limit(playerId);
+      if (!success) throw new Error("You've created too many tournaments today. Please try again tomorrow.");
+
       await connectToDatabase();
+
+      // Minimum trust threshold — anti-spam floor for ALL tournament
+      // creation (not specific to the separate, not-yet-built TO
+      // permission overhaul). Either signal is enough on its own: account
+      // older than 24h, or has entered at least one prior tournament.
+      const player = await Player.findById(playerId);
+      const user = player?.userId ? await User.findById(player.userId) : null;
+      const accountAgeMs = user ? Date.now() - new Date(user.createdAt).getTime() : 0;
+      const isOldEnough = accountAgeMs > 24 * 60 * 60 * 1000;
+      const hasPriorEntry = (await Entrant.countDocuments({ playerId })) > 0;
+      if (!isOldEnough && !hasPriorEntry) {
+        throw new Error("Your account needs to be at least 24 hours old, or you need to have entered a tournament first, before you can create one.");
+      }
+
       // eventId is client-resolved (the form looks it up by displayId and
       // shows a confirmation first) but still validated here server-side —
       // never trust a raw id from the client without confirming it's real.

@@ -27,6 +27,24 @@ export const passwordResetRateLimit = new Ratelimit({
   prefix: "ratelimit:password-reset",
 });
 
+// Same reasoning/shape as passwordResetRateLimit — prevents the "resend
+// verification email" action from being used to spam an inbox.
+const resendVerificationLimit = process.env.NODE_ENV === "production" ? 3 : 20;
+
+export const resendVerificationRateLimit = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(resendVerificationLimit, "1 h"),
+  prefix: "ratelimit:resend-verification",
+});
+
+// Keyed by playerId (an authenticated action), not IP — 5/day is enough for
+// a legitimate TO running several brackets, while stopping rapid-fire spam.
+export const createTournamentRateLimit = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(5, "1 d"),
+  prefix: "ratelimit:create-tournament",
+});
+
 // Next.js 15+ dropped NextRequest#ip — Vercel's edge network sets these headers instead.
 // Accepts any Web-standard Request (NextRequest, or the raw Request NextAuth's authorize() receives).
 export function getClientIp(req: Request): string {

@@ -11,6 +11,10 @@ class RateLimitedSignin extends CredentialsSignin {
   code = "rate_limited";
 }
 
+class EmailNotVerifiedSignin extends CredentialsSignin {
+  code = "email_not_verified";
+}
+
 export const authConfig = {
   providers: [
     CredentialsProvider({
@@ -34,6 +38,9 @@ export const authConfig = {
         if (user.isDeleted) return null;
         const valid = await bcrypt.compare(credentials.password as string, user.passwordHash);
         if (!valid) return null;
+        // `=== false` (not falsy) — a grandfathered legacy account with no
+        // emailVerified field set (undefined) must NOT be blocked here.
+        if (user.emailVerified === false) throw new EmailNotVerifiedSignin();
         // Look up the player tag linked to this user
         const player = await Player.findOne({ userId: user._id });
         return {

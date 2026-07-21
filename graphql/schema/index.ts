@@ -213,6 +213,10 @@ export const typeDefs = `#graphql
     login(email: String!, password: String!): AuthPayload!
     requestPasswordReset(email: String!): Boolean!
     resetPassword(token: String!, newPassword: String!): Boolean!
+    verifyEmail(token: String!): Boolean!
+    # Same anti-enumeration convention as requestPasswordReset — always
+    # returns true regardless of whether the email exists or is already verified.
+    resendVerificationEmail(email: String!): Boolean!
 
     updatePlayer(id: ID!, tag: String, region: String, avatarUrl: String, characters: [String!], team: String): Player!
     # ADMIN-only. Soft-delete: disables login, scrubs personal info (email,
