@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import { maxUploadBytes, formatMaxSizeLabel } from "@/lib/uploadLimits";
 
 export function CreateTournamentButton() {
   const { data: session } = useSession();
@@ -91,6 +92,13 @@ export function CreateTournamentButton() {
   async function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const maxBytes = maxUploadBytes("tournament-logo");
+    if (file.size > maxBytes) {
+      setError(`Logo must be under ${formatMaxSizeLabel(maxBytes)}.`);
+      e.target.value = "";
+      return;
+    }
 
     setUploadingLogo(true);
     setError("");

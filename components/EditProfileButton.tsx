@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import { maxUploadBytes, formatMaxSizeLabel } from "@/lib/uploadLimits";
 
 interface Props {
   playerId: string;
@@ -34,6 +35,13 @@ export function EditProfileButton({ playerId, currentTag, currentRegion, current
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const maxBytes = maxUploadBytes("avatar");
+    if (file.size > maxBytes) {
+      setError(`Image must be under ${formatMaxSizeLabel(maxBytes)}.`);
+      e.target.value = "";
+      return;
+    }
 
     setUploading(true);
     setError("");

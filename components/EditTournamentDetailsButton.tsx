@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { maxUploadBytes, formatMaxSizeLabel } from "@/lib/uploadLimits";
 
 interface LinkedEvent {
   id: string;
@@ -120,6 +121,13 @@ export function EditTournamentDetailsButton({
   async function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const maxBytes = maxUploadBytes("tournament-logo");
+    if (file.size > maxBytes) {
+      setError(`Logo must be under ${formatMaxSizeLabel(maxBytes)}.`);
+      e.target.value = "";
+      return;
+    }
 
     setUploadingLogo(true);
     setError("");

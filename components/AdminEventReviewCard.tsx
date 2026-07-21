@@ -9,6 +9,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { maxUploadBytes, formatMaxSizeLabel } from "@/lib/uploadLimits";
 
 interface PendingEvent {
   id: string;
@@ -38,6 +39,13 @@ export function AdminEventReviewCard({ event }: { event: PendingEvent }) {
   async function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const maxBytes = maxUploadBytes("event-logo");
+    if (file.size > maxBytes) {
+      setError(`Logo must be under ${formatMaxSizeLabel(maxBytes)}.`);
+      e.target.value = "";
+      return;
+    }
 
     setUploadingLogo(true);
     setError("");

@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { HexColorPicker, HexColorInput } from "react-colorful";
+import { maxUploadBytes, formatMaxSizeLabel } from "@/lib/uploadLimits";
 
 const DEFAULT_LINE_COLOR = "#3a4066"; // matches BracketView's var(--border-strong) fallback
 const DEFAULT_BOX_COLOR = "#13162a"; // matches BracketView's .fgc-card background (var(--navy-2))
@@ -195,6 +196,12 @@ export function StreamAssetsButton({
   async function handleBackgroundChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    const maxBytes = maxUploadBytes("stream-bg");
+    if (file.size > maxBytes) {
+      setError(`Image must be under ${formatMaxSizeLabel(maxBytes)}.`);
+      e.target.value = "";
+      return;
+    }
     setUploadingBg(true);
     const url = await uploadImage(file, "stream-bg");
     if (url) setBackgroundUrl(url);
@@ -204,6 +211,12 @@ export function StreamAssetsButton({
   async function handleBannerChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    const maxBytes = maxUploadBytes("sponsor-banner");
+    if (file.size > maxBytes) {
+      setError(`Image must be under ${formatMaxSizeLabel(maxBytes)}.`);
+      e.target.value = "";
+      return;
+    }
     setUploadingBanner(true);
     const url = await uploadImage(file, "sponsor-banner");
     if (url) setBannerUrl(url);
