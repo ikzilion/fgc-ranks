@@ -32,6 +32,19 @@ import { NextRequest } from "next/server";
 
 const JWT_SECRET = process.env.NEXTAUTH_SECRET || "dev-secret";
 
+// Identifies which field a MongoDB E11000 duplicate-key error tripped on
+// (e.g. "email", "tag") so a catch block can blame the right field instead
+// of assuming — used by register, where User.email and Player.tag are both
+// unique indexes a signup can collide on. keyPattern/keyValue are the
+// reliable modern-driver fields; the index-name regex is a fallback for
+// older error shapes (index names conventionally look like "email_1").
+function duplicateKeyField(err: any): string | null {
+  if (err?.keyPattern) return Object.keys(err.keyPattern)[0] ?? null;
+  if (err?.keyValue) return Object.keys(err.keyValue)[0] ?? null;
+  const match = /index:\s*(\w+?)_\d+/.exec(err?.message ?? "");
+  return match ? match[1] : null;
+}
+
 // A player can manage a tournament if they're a global ADMIN, or if their
 // playerId is in that specific tournament's organizers list (Tournament
 // Organizer / TO access — scoped per-tournament, not a global role).
@@ -268,15 +281,36 @@ export const resolvers = {
       const emailVerificationTokenHash = createHash("sha256").update(rawToken).digest("hex");
       const emailVerificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-      const user = await User.create({
-        email,
-        passwordHash,
-        emailVerified: false,
-        emailVerificationTokenHash,
-        emailVerificationTokenExpiry,
-      });
+      let user;
+      try {
+        user = await User.create({
+          email,
+          passwordHash,
+          emailVerified: false,
+          emailVerificationTokenHash,
+          emailVerificationTokenExpiry,
+        });
+      } catch (err: any) {
+        if (err?.code === 11000) throw new Error("This email is already registered. Try signing in instead.");
+        throw err;
+      }
+
       const playerNumber = await getNextSequence("playerNumber");
-      const player = await Player.create({ userId: user._id, tag, playerNumber });
+      let player;
+      try {
+        player = await Player.create({ userId: user._id, tag, playerNumber });
+      } catch (err: any) {
+        // The User row was already created with the (now-unique) email —
+        // roll it back so a failed registration doesn't silently consume
+        // that email and block the person from ever retrying with it.
+        await User.findByIdAndDelete(user._id);
+        if (err?.code === 11000) {
+          const field = duplicateKeyField(err);
+          if (field === "tag") throw new Error("That player tag is already taken. Please choose another.");
+          throw new Error("That information is already in use. Please try different values.");
+        }
+        throw err;
+      }
       await User.findByIdAndUpdate(user._id, { playerId: player._id });
 
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
