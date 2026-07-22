@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { NotificationBell } from "@/components/NotificationBell";
-import { isAdminOrAbove, isSuperAdmin } from "@/lib/roles";
+import { isAdminOrAbove } from "@/lib/roles";
 
 const links = [
   { href: "/", label: "News" },
@@ -59,9 +59,14 @@ export function Navbar() {
               </Link>
             );
           })}
+          {/* Single consolidated entry point — /admin is one dashboard with
+              a sub-tab for each admin tool (Review queue, Manage games,
+              Manage TOs, and Admin roles for SUPER_ADMIN), replacing what
+              used to be four separate nav links to four separate /admin/*
+              routes. Those routes still exist and still work directly. */}
           {isAdminOrAbove(role) && (
             <Link
-              href="/admin/events"
+              href="/admin"
               style={{
                 fontSize: "13px",
                 fontWeight: 500,
@@ -70,77 +75,14 @@ export function Navbar() {
                 textDecoration: "none",
                 border: "1px solid",
                 transition: "all 0.15s",
-                color: pathname.startsWith("/admin/events") ? "var(--gold)" : "var(--text-secondary)",
-                background: pathname.startsWith("/admin/events") ? "var(--gold-dim)" : "transparent",
-                borderColor: pathname.startsWith("/admin/events") ? "rgba(240,180,41,0.25)" : "transparent",
+                color: pathname.startsWith("/admin") ? "var(--gold)" : "var(--text-secondary)",
+                background: pathname.startsWith("/admin") ? "var(--gold-dim)" : "transparent",
+                borderColor: pathname.startsWith("/admin") ? "rgba(240,180,41,0.25)" : "transparent",
                 whiteSpace: "nowrap",
                 flexShrink: 0,
               }}
             >
-              Review queue
-            </Link>
-          )}
-          {isAdminOrAbove(role) && (
-            <Link
-              href="/admin/games"
-              style={{
-                fontSize: "13px",
-                fontWeight: 500,
-                padding: "6px 14px",
-                borderRadius: "6px",
-                textDecoration: "none",
-                border: "1px solid",
-                transition: "all 0.15s",
-                color: pathname.startsWith("/admin/games") ? "var(--gold)" : "var(--text-secondary)",
-                background: pathname.startsWith("/admin/games") ? "var(--gold-dim)" : "transparent",
-                borderColor: pathname.startsWith("/admin/games") ? "rgba(240,180,41,0.25)" : "transparent",
-                whiteSpace: "nowrap",
-                flexShrink: 0,
-              }}
-            >
-              Manage games
-            </Link>
-          )}
-          {isAdminOrAbove(role) && (
-            <Link
-              href="/admin/to-status"
-              style={{
-                fontSize: "13px",
-                fontWeight: 500,
-                padding: "6px 14px",
-                borderRadius: "6px",
-                textDecoration: "none",
-                border: "1px solid",
-                transition: "all 0.15s",
-                color: pathname.startsWith("/admin/to-status") ? "var(--gold)" : "var(--text-secondary)",
-                background: pathname.startsWith("/admin/to-status") ? "var(--gold-dim)" : "transparent",
-                borderColor: pathname.startsWith("/admin/to-status") ? "rgba(240,180,41,0.25)" : "transparent",
-                whiteSpace: "nowrap",
-                flexShrink: 0,
-              }}
-            >
-              Manage TOs
-            </Link>
-          )}
-          {isSuperAdmin(role) && (
-            <Link
-              href="/admin/users"
-              style={{
-                fontSize: "13px",
-                fontWeight: 500,
-                padding: "6px 14px",
-                borderRadius: "6px",
-                textDecoration: "none",
-                border: "1px solid",
-                transition: "all 0.15s",
-                color: pathname.startsWith("/admin/users") ? "var(--gold)" : "var(--text-secondary)",
-                background: pathname.startsWith("/admin/users") ? "var(--gold-dim)" : "transparent",
-                borderColor: pathname.startsWith("/admin/users") ? "rgba(240,180,41,0.25)" : "transparent",
-                whiteSpace: "nowrap",
-                flexShrink: 0,
-              }}
-            >
-              Admin roles
+              Admin
             </Link>
           )}
         </div>
