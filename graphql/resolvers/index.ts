@@ -15,6 +15,7 @@ import { Notification } from "@/models/Notification";
 import { NewsPost } from "@/models/NewsPost";
 import { Event, EventStatus } from "@/models/Event";
 import { Game } from "@/models/Game";
+import { TORequest, TORequestStatus } from "@/models/TORequest";
 import {
   loginRateLimit,
   registerRateLimit,
@@ -111,6 +112,17 @@ function isEventManager(event: any, playerId?: string, role?: string): boolean {
   if (isAdminOrAbove(role)) return true;
   if (!playerId || !event?.managerIds) return false;
   return event.managerIds.some((id: any) => id.toString() === playerId);
+}
+
+// Shared by createTournament and requestTOStatus — the same minimum
+// account-trust threshold (Security Push Phase 4, narrowed to account age
+// alone in commit 0c3c1b1). Takes the already-fetched User doc rather than
+// a playerId so callers that already loaded it (both do, for other reasons)
+// don't pay for a second lookup.
+function isAccountOldEnough(user: { createdAt?: Date | string } | null): boolean {
+  if (!user) return false;
+  const accountAgeMs = Date.now() - new Date(user.createdAt!).getTime();
+  return accountAgeMs > 24 * 60 * 60 * 1000;
 }
 
 // Shared by reportResult/editMatchResult — resolves the winner/loser and the
@@ -305,6 +317,19 @@ export const resolvers = {
         .filter(name => name && !curatedNames.has(name))
         .map(name => ({ id: `orphan-${Buffer.from(name).toString("base64url")}`, name, iconUrl: "" }));
       return [...curated, ...orphans].sort((a: any, b: any) => a.name.localeCompare(b.name));
+    },
+
+    // TO permission overhaul
+    myTORequest: async (_: unknown, __: unknown, { playerId }: { playerId?: string }) => {
+      if (!playerId) return null;
+      await connectToDatabase();
+      return TORequest.findOne({ playerId }).sort({ createdAt: -1 });
+    },
+
+    pendingTORequests: async (_: unknown, __: unknown, { role }: { role?: string }) => {
+      if (!isAdminOrAbove(role)) throw new Error("Not authorized");
+      await connectToDatabase();
+      return TORequest.find({ status: TORequestStatus.PENDING }).sort({ createdAt: -1 });
     },
 
     // News
@@ -653,6 +678,122 @@ export const resolvers = {
       return true;
     },
 
+    // TO permission overhaul — request/approval flow.
+    requestTOStatus: async (
+      _: unknown,
+      { reason }: { reason?: string },
+      { playerId }: { playerId?: string }
+    ) => {
+      if (!playerId) throw new Error("Not authorized");
+      await connectToDatabase();
+
+      const player = await Player.findById(playerId);
+      const user = player?.userId ? await User.findById(player.userId) : null;
+      if (user?.isTO) throw new Error("You already have TO status.");
+      if (!isAccountOldEnough(user)) {
+        throw new Error("Your account needs to be at least 24 hours old before requesting TO status.");
+      }
+
+      // Enforced here (not just the UI disabling the button) — a raw API
+      // call can't queue a second request while one is already pending, and
+      // a rejected request blocks re-requesting until its 7-day cooldown
+      // (measured from resolvedAt) has passed. Only the single most recent
+      // request matters — an old rejection from before a since-approved (and
+      // later revoked) cycle should NOT re-trigger its cooldown.
+      const lastRequest = await TORequest.findOne({ playerId }).sort({ createdAt: -1 });
+      if (lastRequest?.status === TORequestStatus.PENDING) {
+        throw new Error("You already have a pending TO request.");
+      }
+      if (lastRequest?.status === TORequestStatus.REJECTED && lastRequest.resolvedAt) {
+        const cooldownMs = 7 * 24 * 60 * 60 * 1000;
+        const elapsedMs = Date.now() - new Date(lastRequest.resolvedAt).getTime();
+        if (elapsedMs < cooldownMs) {
+          const daysLeft = Math.ceil((cooldownMs - elapsedMs) / (24 * 60 * 60 * 1000));
+          throw new Error(`Your last TO request was rejected. You can request again in ${daysLeft} day${daysLeft === 1 ? "" : "s"}.`);
+        }
+      }
+
+      return TORequest.create({ playerId, reason: reason?.trim() || "" });
+    },
+
+    // ADMIN-only. Approving is what actually grants TO status.
+    approveTORequest: async (
+      _: unknown,
+      { id }: { id: string },
+      { role }: { role?: string }
+    ) => {
+      if (!isAdminOrAbove(role)) throw new Error("Not authorized");
+      await connectToDatabase();
+      const request = await TORequest.findById(id);
+      if (!request) throw new Error("Request not found");
+      if (request.status !== TORequestStatus.PENDING) throw new Error("This request has already been resolved.");
+
+      const player = await Player.findById(request.playerId);
+      if (player?.userId) await User.findByIdAndUpdate(player.userId, { isTO: true });
+
+      return TORequest.findByIdAndUpdate(id, { status: TORequestStatus.APPROVED, resolvedAt: new Date() }, { new: true });
+    },
+
+    // ADMIN-only. Reason is required, same convention as rejectEvent.
+    rejectTORequest: async (
+      _: unknown,
+      { id, reason }: { id: string; reason: string },
+      { role }: { role?: string }
+    ) => {
+      if (!isAdminOrAbove(role)) throw new Error("Not authorized");
+      if (!reason.trim()) throw new Error("A rejection reason is required");
+      await connectToDatabase();
+      const request = await TORequest.findById(id);
+      if (!request) throw new Error("Request not found");
+      if (request.status !== TORequestStatus.PENDING) throw new Error("This request has already been resolved.");
+
+      return TORequest.findByIdAndUpdate(
+        id,
+        { status: TORequestStatus.REJECTED, rejectionReason: reason.trim(), resolvedAt: new Date() },
+        { new: true }
+      );
+    },
+
+    // ADMIN-only direct grant/revoke — mirrors grantAdmin/revokeAdmin, no
+    // request required first (covers a real-world-trusted TO who hasn't
+    // gotten around to requesting it).
+    grantTOStatus: async (
+      _: unknown,
+      { playerId }: { playerId: string },
+      { role }: { role?: string }
+    ) => {
+      if (!isAdminOrAbove(role)) throw new Error("Not authorized");
+      await connectToDatabase();
+      const player = await Player.findById(playerId);
+      if (!player) throw new Error("Player not found");
+      if (!player.userId) throw new Error("This player has no linked account");
+
+      await User.findByIdAndUpdate(player.userId, { isTO: true });
+      // A dangling PENDING request for this player is auto-resolved
+      // (approved) rather than left sitting in the queue — both paths
+      // result in the same TO status either way.
+      await TORequest.updateMany(
+        { playerId, status: TORequestStatus.PENDING },
+        { status: TORequestStatus.APPROVED, resolvedAt: new Date() }
+      );
+      return true;
+    },
+
+    revokeTOStatus: async (
+      _: unknown,
+      { playerId }: { playerId: string },
+      { role }: { role?: string }
+    ) => {
+      if (!isAdminOrAbove(role)) throw new Error("Not authorized");
+      await connectToDatabase();
+      const player = await Player.findById(playerId);
+      if (!player) throw new Error("Player not found");
+      if (!player.userId) throw new Error("This player has no linked account");
+
+      await User.findByIdAndUpdate(player.userId, { isTO: false });
+      return true;
+    },
+
     // Tournaments
     createTournament: async (
       _: unknown,
@@ -683,7 +824,7 @@ export const resolvers = {
         prizePot?: string;
         eventId?: string;
       },
-      { playerId }: { playerId?: string }
+      { playerId, role }: { playerId?: string; role?: string }
     ) => {
       if (!playerId) throw new Error("Not authorized");
 
@@ -694,19 +835,26 @@ export const resolvers = {
       await connectToDatabase();
 
       // Minimum trust threshold — anti-spam floor for ALL tournament
-      // creation (not specific to the separate, not-yet-built TO
-      // permission overhaul). Account age alone gates this now — the
-      // "has entered a tournament" alternative (Security Push Phase 4)
-      // was removed per user request, July 23, 2026: a brand-new account
-      // can no longer bypass the 24h wait just by joining someone else's
-      // tournament first.
+      // creation. Account age alone gates this (the "has entered a
+      // tournament" alternative from Security Push Phase 4 was removed in
+      // commit 0c3c1b1: a brand-new account can no longer bypass the 24h
+      // wait just by joining someone else's tournament first).
       const player = await Player.findById(playerId);
       const user = player?.userId ? await User.findById(player.userId) : null;
-      const accountAgeMs = user ? Date.now() - new Date(user.createdAt).getTime() : 0;
-      const isOldEnough = accountAgeMs > 24 * 60 * 60 * 1000;
-      if (!isOldEnough) {
+      if (!isAccountOldEnough(user)) {
         throw new Error("Your account needs to be at least 24 hours old before you can create a tournament.");
       }
+
+      // TO permission overhaul (user request, July 20, 2026): only an
+      // admin-granted TO (User.isTO) or an admin themselves can create a
+      // "full" tournament. Everyone else still can, but restricted — forced
+      // PRIVATE (permanently; updateTournamentVisibility refuses PUBLIC on
+      // an isRestricted tournament) and, per the isRestricted field's own
+      // comment on the model, no stream background/sponsor banner and no
+      // ranking points. Decided once here, at creation, and never
+      // re-derived — a later TO grant/revoke doesn't retroactively change
+      // an already-created tournament.
+      const isRestricted = !isAdminOrAbove(role) && user?.isTO !== true;
 
       // eventId is client-resolved (the form looks it up by displayId and
       // shows a confirmation first) but still validated here server-side —
@@ -732,6 +880,11 @@ export const resolvers = {
         entryFee,
         prizePot,
         eventId: eventId || undefined,
+        isRestricted,
+        // Overrides the schema's PUBLIC default — omitted (letting the
+        // default apply) for a full tournament, unchanged from before this
+        // feature existed.
+        ...(isRestricted ? { visibility: "PRIVATE" } : {}),
       });
     },
 
@@ -862,6 +1015,13 @@ export const resolvers = {
       const tournament = await Tournament.findById(id);
       if (!tournament) throw new Error("Tournament not found");
       if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+      // A restricted tournament (TO permission overhaul) was forced PRIVATE
+      // at creation and stays that way permanently — not even an organizer
+      // or admin can flip it, since the restriction is a property of the
+      // tournament itself, not of whoever currently manages it.
+      if (visibility === "PUBLIC" && tournament.isRestricted) {
+        throw new Error("This tournament was created without TO status and can never be made public.");
+      }
 
       return Tournament.findByIdAndUpdate(id, { visibility }, { new: true });
     },
@@ -995,6 +1155,15 @@ export const resolvers = {
       const tournament = await Tournament.findById(id);
       if (!tournament) throw new Error("Tournament not found");
       if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+      // A restricted tournament (TO permission overhaul) can never get a
+      // stream background/sponsor banner — StreamAssetsButton's UI already
+      // skips calling this mutation at all for one (it only ever sends its
+      // OTHER mutation, for bracket colors, in that case), so this is a
+      // defense-in-depth backstop against a direct API call, not something
+      // the normal UI flow should ever actually hit.
+      if (tournament.isRestricted && (streamBackgroundUrl || sponsorBannerUrl)) {
+        throw new Error("This tournament was created without TO status and can't set a stream background or sponsor banner.");
+      }
 
       const update: any = {};
       if (streamBackgroundUrl !== undefined) update.streamBackgroundUrl = streamBackgroundUrl;
@@ -1652,6 +1821,10 @@ export const resolvers = {
 
   User: {
     player: async (parent: { playerId: string }) => await Player.findById(parent.playerId),
+    // Same missing-field-on-legacy-documents issue as Tournament.isRestricted
+    // below — every account created before the TO permission overhaul has
+    // `isTO` genuinely absent, not `false`, in its stored document.
+    isTO: (parent: { isTO?: boolean }) => parent.isTO ?? false,
   },
 
   Player: {
@@ -1693,6 +1866,13 @@ export const resolvers = {
   },
 
   Tournament: {
+    // Mongoose schema defaults only apply to newly-created documents, not
+    // ones hydrated from data that predates this field — every tournament
+    // created before the TO permission overhaul has `isRestricted` genuinely
+    // absent (not `false`) in its stored document, which a non-null GraphQL
+    // field can't return as-is. Coalescing here is what actually makes
+    // "existing tournaments unaffected" (full capabilities) true in practice.
+    isRestricted: (parent: { isRestricted?: boolean }) => parent.isRestricted ?? false,
     entrants: async (parent: { _id: string }) => await Entrant.find({ tournamentId: parent._id }),
     matches: async (parent: { _id: string }) => await Match.find({ tournamentId: parent._id }),
     isEntered: async (parent: { _id: string }, { playerId }: { playerId?: string }) => {
@@ -1770,6 +1950,10 @@ export const resolvers = {
       await connectToDatabase();
       return await Tournament.countDocuments({ game: parent.name });
     },
+  },
+
+  TORequest: {
+    player: async (parent: { playerId: string }) => await Player.findById(parent.playerId),
   },
 
   Match: {

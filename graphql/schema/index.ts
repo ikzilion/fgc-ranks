@@ -9,6 +9,7 @@ export const typeDefs = `#graphql
   enum MatchStatus      { PENDING IN_PROGRESS COMPLETED }
   enum UserRole         { PLAYER ADMIN SUPER_ADMIN }
   enum EventStatus      { PENDING APPROVED REJECTED }
+  enum TORequestStatus  { PENDING APPROVED REJECTED }
   enum SeedingMethod    { RANDOM RANDOM_WITHIN_TIERS MANUAL }
   enum BracketSide      { WINNERS LOSERS GRAND_FINAL GRAND_FINAL_RESET }
   enum NotificationType {
@@ -22,8 +23,25 @@ export const typeDefs = `#graphql
     id: ID!
     email: String!
     role: UserRole!
+    # Tournament Organizer trust flag — see models/User.ts. Independent of
+    # role; grants only the ability to create a "full" (non-restricted)
+    # tournament, nothing else ADMIN/SUPER_ADMIN can do.
+    isTO: Boolean!
     player: Player
     createdAt: Date!
+  }
+
+  type TORequest {
+    id: ID!
+    player: Player!
+    reason: String
+    status: TORequestStatus!
+    # Only set when status is REJECTED.
+    rejectionReason: String
+    createdAt: Date!
+    # Set the moment status leaves PENDING — the 7-day re-request cooldown
+    # after a rejection is measured from this.
+    resolvedAt: Date
   }
 
   type Player {
@@ -96,6 +114,11 @@ export const typeDefs = `#graphql
     # CURRENT data instead of this tournament's own stored fields — a live
     # link, not a value copied at link time. See the field resolvers.
     event: Event
+    # TO permission overhaul — set once at creation (never re-derived), see
+    # models/Tournament.ts. When true: visibility can never become PUBLIC,
+    # streamBackgroundUrl/sponsorBannerUrl can never be set, and this
+    # tournament is excluded from the ranking/points computation.
+    isRestricted: Boolean!
   }
 
   type Event {
@@ -218,6 +241,13 @@ export const typeDefs = `#graphql
     # see models/Game.ts) — public, no auth required, same as tournaments.
     games: [Game!]!
 
+    # The calling session's own most recent TO request (any status), or null
+    # if it's never made one — lets the profile page show "Request pending",
+    # a rejection-cooldown message, or a fresh "Request TO status" button.
+    myTORequest: TORequest
+    # ADMIN-only — the TO-request review queue's data source.
+    pendingTORequests: [TORequest!]!
+
     # eventId omitted = global homepage posts only (unchanged pre-Events
     # behavior). eventId set = that Event's own news section instead.
     newsPosts(limit: Int, offset: Int, eventId: ID): [NewsPost!]!
@@ -256,6 +286,23 @@ export const typeDefs = `#graphql
     # ADMINs cannot call these.
     grantAdmin(playerId: ID!): Boolean!
     revokeAdmin(playerId: ID!): Boolean!
+
+    # TO permission overhaul — request/approval flow. Requires the same
+    # account-trust threshold as createTournament (24h account age).
+    # Enforces server-side (not just UI) that a player can't queue a second
+    # request while one is already PENDING, and that a REJECTED request
+    # blocks re-requesting for 7 days from its resolvedAt.
+    requestTOStatus(reason: String): TORequest!
+    # ADMIN-only. Approving sets the requester's User.isTO to true.
+    approveTORequest(id: ID!): TORequest!
+    # ADMIN-only. Reason is required, same convention as rejectEvent.
+    rejectTORequest(id: ID!, reason: String!): TORequest!
+    # ADMIN-only direct grant/revoke — mirrors grantAdmin/revokeAdmin, no
+    # request required first. Granting auto-resolves (approves) any
+    # dangling PENDING request for that player instead of leaving it in
+    # the queue.
+    grantTOStatus(playerId: ID!): Boolean!
+    revokeTOStatus(playerId: ID!): Boolean!
 
     createTournament(
       name: String!

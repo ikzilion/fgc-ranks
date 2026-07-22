@@ -55,7 +55,10 @@ export async function computeRankingPointsForPlayers(
   // Tournament.endDate is never actually stamped when a tournament ends
   // (nothing in the codebase writes to it) so startDate — always set at
   // creation — is the only reliable "when was this earned" date.
-  const tournaments = await Tournament.find({ _id: { $in: tournamentIds }, status: "ENDED" }).lean();
+  // isRestricted (TO permission overhaul) tournaments never award points at
+  // all — `$ne: true` (not `$eq: false`) so every pre-existing tournament,
+  // which predates the field entirely, still counts exactly as before.
+  const tournaments = await Tournament.find({ _id: { $in: tournamentIds }, status: "ENDED", isRestricted: { $ne: true } }).lean();
   const tournamentById = new Map(tournaments.map((t: any) => [t._id.toString(), t]));
 
   const now = Date.now();

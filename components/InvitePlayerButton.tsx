@@ -16,6 +16,11 @@ export function InvitePlayerButton({
   entrants,
   allPlayers,
   canManage,
+  // TO permission overhaul — a restricted tournament was forced PRIVATE at
+  // creation and can never become PUBLIC (updateTournamentVisibility
+  // refuses it), so the toggle itself is pointless to show — just explain
+  // why, invite management below is unaffected.
+  isRestricted,
 }: {
   tournamentId: string;
   visibility: string;
@@ -23,6 +28,7 @@ export function InvitePlayerButton({
   entrants: { player: PlayerOption }[];
   allPlayers: PlayerOption[];
   canManage: boolean;
+  isRestricted?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -115,25 +121,29 @@ export function InvitePlayerButton({
           <div className="fgc-card p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
             <h2 className="font-rajdhani text-xl font-bold text-[var(--text-primary)] mb-1">Visibility &amp; Invites</h2>
             <p className="text-[12px] text-[var(--text-secondary)] mb-4">
-              {isPrivate
+              {isRestricted
+                ? "Private — this tournament was created without TO status, so it can never be made public."
+                : isPrivate
                 ? "Private — only invited players can join. Still visible (locked) to everyone else."
                 : "Public — anyone can join without an invite."}
             </p>
 
-            <button
-              onClick={handleToggleVisibility}
-              disabled={loading}
-              className="w-full py-2 rounded font-rajdhani text-[13px] font-bold mb-5"
-              style={{
-                background: isPrivate ? "var(--green-dim)" : "var(--navy-4)",
-                color: isPrivate ? "var(--green)" : "var(--text-secondary)",
-                border: "1px solid var(--border-strong)",
-                cursor: loading ? "not-allowed" : "pointer",
-                opacity: loading ? 0.6 : 1,
-              }}
-            >
-              {isPrivate ? "Make public" : "Make private"}
-            </button>
+            {!isRestricted && (
+              <button
+                onClick={handleToggleVisibility}
+                disabled={loading}
+                className="w-full py-2 rounded font-rajdhani text-[13px] font-bold mb-5"
+                style={{
+                  background: isPrivate ? "var(--green-dim)" : "var(--navy-4)",
+                  color: isPrivate ? "var(--green)" : "var(--text-secondary)",
+                  border: "1px solid var(--border-strong)",
+                  cursor: loading ? "not-allowed" : "pointer",
+                  opacity: loading ? 0.6 : 1,
+                }}
+              >
+                {isPrivate ? "Make public" : "Make private"}
+              </button>
+            )}
 
             {isPrivate && (
               <>

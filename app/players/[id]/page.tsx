@@ -3,6 +3,7 @@
 
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { QRCodeSVG } from "qrcode.react";
 import { auth } from "@/lib/auth";
 import { isAdminOrAbove } from "@/lib/roles";
@@ -11,6 +12,7 @@ import { DeletePlayerButton } from "@/components/DeletePlayerButton";
 import { DeleteAccountButton } from "@/components/DeleteAccountButton";
 import { HeadToHeadSection } from "@/components/HeadToHeadSection";
 import { ZoomableAvatar } from "@/components/ZoomableAvatar";
+import { RequestTOButton } from "@/components/RequestTOButton";
 
 export const dynamic = "force-dynamic";
 
@@ -76,9 +78,23 @@ const GET_PLAYERS_FOR_PICKER = `
   }
 `;
 
+// TO permission overhaul — only ever needed/fetched when viewing your OWN
+// profile (see getPlayerPageData); `myTORequest` resolves off the session's
+// own playerId regardless of which profile `id` is being viewed, so there's
+// no point fetching it for anyone else's page.
+const GET_MY_TO_REQUEST = `
+  query GetMyTORequest {
+    myTORequest {
+      status
+      resolvedAt
+    }
+  }
+`;
+
 async function getPlayerPageData(id: string, viewerId?: string) {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL;
-  const [playerJson, viewerH2hJson, playersJson] = await Promise.all([
+  const isOwnProfile = viewerId === id;
+  const [playerJson, viewerH2hJson, playersJson, myTORequestJson] = await Promise.all([
     fetch(`${baseUrl}/api/graphql`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -99,12 +115,25 @@ async function getPlayerPageData(id: string, viewerId?: string) {
       body: JSON.stringify({ query: GET_PLAYERS_FOR_PICKER }),
       next: { revalidate: 60 },
     }).then(r => r.json()),
+    // A plain server-side fetch() doesn't carry the session cookie on its
+    // own (same reason app/admin/events forwards it explicitly) — needed
+    // here since myTORequest resolves off context.playerId from the
+    // session, not an argument. Only fetched for your own profile at all.
+    isOwnProfile
+      ? fetch(`${baseUrl}/api/graphql`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", cookie: (await cookies()).toString() },
+          body: JSON.stringify({ query: GET_MY_TO_REQUEST }),
+          cache: "no-store",
+        }).then(r => r.json())
+      : Promise.resolve(null),
   ]);
 
   return {
     player: playerJson.data?.player ?? null,
     viewerHeadToHead: viewerH2hJson?.data?.player?.headToHead ?? null,
     players: playersJson.data?.players ?? [],
+    myTORequest: myTORequestJson?.data?.myTORequest ?? null,
   };
 }
 
@@ -120,7 +149,7 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
   const session = await auth();
   const viewerId = (session?.user as any)?.playerId ?? undefined;
   const viewerRole = (session?.user as any)?.role;
-  const { player, viewerHeadToHead, players } = await getPlayerPageData(id, viewerId);
+  const { player, viewerHeadToHead, players, myTORequest } = await getPlayerPageData(id, viewerId);
   if (!player) notFound();
 
   const totalGames = player.wins + player.losses;
@@ -142,6 +171,9 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
                   belt-and-suspenders guard for "no editable fields". */}
               {!player.isDeleted && (
                 <>
+                  {viewerId === player.id && (
+                    <RequestTOButton isTO={!!(session?.user as any)?.isTO} myRequest={myTORequest} />
+                  )}
                   <EditProfileButton
                     playerId={player.id}
                     currentTag={player.tag}

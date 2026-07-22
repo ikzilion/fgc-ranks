@@ -87,6 +87,16 @@ const TournamentSchema = new Schema(
     // tournaments still linked to it (no block), and a dangling eventId
     // just resolves to nothing found, falling back automatically.
     eventId: { type: Schema.Types.ObjectId, ref: "Event" },
+    // Set once at creation time (never re-derived) based on whether the
+    // creator had TO status (or was an admin) at that moment — see
+    // createTournament. `false`/unset (every pre-existing tournament) means
+    // full capabilities, unchanged from before this flag existed — this
+    // only ever restricts tournaments created going forward by a non-TO
+    // player: forced PRIVATE visibility (permanently — updateTournamentVisibility
+    // refuses PUBLIC on these), no stream background/sponsor banner
+    // (updateTournamentStreamAssets refuses both), and excluded entirely
+    // from the ranking/points computation (lib/ranking.ts).
+    isRestricted: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

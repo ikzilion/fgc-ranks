@@ -15,6 +15,13 @@ const UserSchema = new Schema(
     email: { type: String, required: true, unique: true },
     passwordHash: { type: String, required: true },
     role: { type: String, enum: Object.values(UserRole), default: UserRole.PLAYER },
+    // Tournament Organizer status — a narrower, independent trust flag, NOT
+    // part of the role hierarchy above (an isTO player gains only the
+    // ability to create a "full" tournament, see createTournament; nothing
+    // else ADMIN/SUPER_ADMIN can do). Granted via the request/approval flow
+    // (models/TORequest.ts) or a direct admin grant — see
+    // grantTOStatus/revokeTOStatus/approveTORequest.
+    isTO: { type: Boolean, default: false },
     // Reference to the player profile linked to this account
     playerId: { type: Schema.Types.ObjectId, ref: "Player" },
     // Password reset flow — token is hashed (SHA-256) before storage, never plaintext

@@ -111,6 +111,11 @@ export function StreamAssetsButton({
   bracketBoxColor,
   bracketFontColor,
   canManage,
+  // TO permission overhaul — a restricted tournament can never get a stream
+  // background/sponsor banner (set once at creation, see
+  // models/Tournament.ts). Bracket color customization is unaffected —
+  // only the background/banner section below is hidden.
+  isRestricted,
 }: {
   tournamentId: string;
   streamBackgroundUrl?: string;
@@ -119,6 +124,7 @@ export function StreamAssetsButton({
   bracketBoxColor?: string;
   bracketFontColor?: string;
   canManage: boolean;
+  isRestricted?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -228,19 +234,13 @@ export function StreamAssetsButton({
     setError("");
 
     try {
-      const [assetsRes, colorRes] = await Promise.all([
-        fetch("/api/graphql", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            query: `
-              mutation UpdateStreamAssets($id: ID!, $streamBackgroundUrl: String, $sponsorBannerUrl: String) {
-                updateTournamentStreamAssets(id: $id, streamBackgroundUrl: $streamBackgroundUrl, sponsorBannerUrl: $sponsorBannerUrl) { id }
-              }
-            `,
-            variables: { id: tournamentId, streamBackgroundUrl: backgroundUrl, sponsorBannerUrl: bannerUrl },
-          }),
-        }),
+      // A restricted tournament never sends the assets mutation at all —
+      // it would always be rejected server-side anyway (see
+      // updateTournamentStreamAssets), and this section's own inputs are
+      // hidden below, but this Save button also commits bracket color
+      // changes, which ARE allowed on a restricted tournament, so it can't
+      // just no-op entirely here.
+      const requests = [
         fetch("/api/graphql", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -253,12 +253,30 @@ export function StreamAssetsButton({
             variables: { id: tournamentId, bracketLineColor: lineColor, bracketBoxColor: boxColor, bracketFontColor: fontColor },
           }),
         }),
-      ]);
+      ];
+      if (!isRestricted) {
+        requests.push(
+          fetch("/api/graphql", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              query: `
+                mutation UpdateStreamAssets($id: ID!, $streamBackgroundUrl: String, $sponsorBannerUrl: String) {
+                  updateTournamentStreamAssets(id: $id, streamBackgroundUrl: $streamBackgroundUrl, sponsorBannerUrl: $sponsorBannerUrl) { id }
+                }
+              `,
+              variables: { id: tournamentId, streamBackgroundUrl: backgroundUrl, sponsorBannerUrl: bannerUrl },
+            }),
+          })
+        );
+      }
 
-      const [assetsJson, colorJson] = await Promise.all([assetsRes.json(), colorRes.json()]);
+      const responses = await Promise.all(requests);
+      const jsons = await Promise.all(responses.map(r => r.json()));
+      const firstError = jsons.find(j => j.errors)?.errors?.[0]?.message;
 
-      if (assetsJson.errors || colorJson.errors) {
-        setError(assetsJson.errors?.[0]?.message ?? colorJson.errors?.[0]?.message ?? "Failed to save stream settings");
+      if (firstError) {
+        setError(firstError);
       } else {
         setOpen(false);
         router.refresh();
@@ -307,6 +325,12 @@ export function StreamAssetsButton({
                 parent's own `maxHeight: 90vh` instead of shrinking to fit
                 and scrolling internally — min-h-0 overrides that. */}
             <div className="overflow-y-auto pr-1 -mr-1 flex-1 min-h-0">
+              {isRestricted && (
+                <p className="text-[12px] mb-6 px-3 py-2 rounded" style={{ background: "var(--navy-4)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>
+                  This tournament was created without TO status, so a stream background/sponsor banner isn't available — bracket color customization below still is.
+                </p>
+              )}
+              {!isRestricted && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                 <div>
                   <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Background image</label>
@@ -362,6 +386,7 @@ export function StreamAssetsButton({
                   </div>
                 </div>
               </div>
+              )}
 
               <div className="flex flex-wrap gap-4">
                 <div className="flex-1 min-w-[280px]">

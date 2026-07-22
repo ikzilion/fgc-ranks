@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { maxUploadBytes, formatMaxSizeLabel } from "@/lib/uploadLimits";
+import { isAdminOrAbove } from "@/lib/roles";
 
 // Sentinel dropdown value that reveals the free-text "type your own" input
 // below the Game select — a custom-typed value is never auto-added as a
@@ -231,7 +232,17 @@ export function CreateTournamentButton() {
           onClick={() => setOpen(false)}
         >
           <div className="fgc-card p-6 w-full max-w-2xl flex flex-col" style={{ maxHeight: "90vh" }} onClick={e => e.stopPropagation()}>
-            <h2 className="font-rajdhani text-xl font-bold text-[var(--text-primary)] mb-4">Create tournament</h2>
+            <h2 className="font-rajdhani text-xl font-bold text-[var(--text-primary)] mb-1">Create tournament</h2>
+
+            {/* TO permission overhaul — informs the creator up front rather
+                than surprising them after creation. Reads straight off the
+                session (already fetched via useSession above) — isTO/role
+                are carried through the JWT the same way, no extra query. */}
+            {!isAdminOrAbove((session?.user as any)?.role) && !(session?.user as any)?.isTO && (
+              <p className="text-[12px] mb-4" style={{ color: "var(--text-muted)" }}>
+                You don't have TO status yet, so this tournament will be created private (invite-only), without stream background/sponsor banner options, and its matches won't count toward ranking points. Request TO status from your profile to remove these restrictions on future tournaments.
+              </p>
+            )}
 
             {/* Same flex-1 min-h-0 scroll-region pattern as the Stream
                 Settings modal — lets this reflow into a compact multi-

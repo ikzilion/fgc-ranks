@@ -27,6 +27,7 @@ const GET_TOURNAMENT = `
       status
       cancellationReason
       visibility
+      isRestricted
       entrantCount
       startDate
       endDate
@@ -314,6 +315,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                   entrants={tournament.entrants}
                   allPlayers={players}
                   canManage={canManage}
+                  isRestricted={tournament.isRestricted}
                 />
                 <StreamAssetsButton
                   tournamentId={tournament.id}
@@ -323,6 +325,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                   bracketBoxColor={tournament.bracketBoxColor}
                   bracketFontColor={tournament.bracketFontColor}
                   canManage={canManage}
+                  isRestricted={tournament.isRestricted}
                 />
               </div>
             )}

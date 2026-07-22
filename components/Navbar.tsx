@@ -101,6 +101,27 @@ export function Navbar() {
               Manage games
             </Link>
           )}
+          {isAdminOrAbove(role) && (
+            <Link
+              href="/admin/to-status"
+              style={{
+                fontSize: "13px",
+                fontWeight: 500,
+                padding: "6px 14px",
+                borderRadius: "6px",
+                textDecoration: "none",
+                border: "1px solid",
+                transition: "all 0.15s",
+                color: pathname.startsWith("/admin/to-status") ? "var(--gold)" : "var(--text-secondary)",
+                background: pathname.startsWith("/admin/to-status") ? "var(--gold-dim)" : "transparent",
+                borderColor: pathname.startsWith("/admin/to-status") ? "rgba(240,180,41,0.25)" : "transparent",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+              }}
+            >
+              Manage TOs
+            </Link>
+          )}
           {isSuperAdmin(role) && (
             <Link
               href="/admin/users"

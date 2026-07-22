@@ -47,6 +47,7 @@ export const authConfig = {
           id: user._id.toString(),
           email: user.email,
           role: user.role,
+          isTO: user.isTO ?? false,
           tag: player?.tag ?? user.email.split("@")[0],
           playerId: player?._id.toString() ?? null,
           avatarUrl: player?.avatarUrl ?? null,
@@ -58,6 +59,7 @@ export const authConfig = {
     async jwt({ token, user }: any) {
       if (user) {
         token.role = user.role;
+        token.isTO = user.isTO;
         token.tag = user.tag;
         token.playerId = user.playerId;
         token.avatarUrl = user.avatarUrl;
@@ -67,6 +69,7 @@ export const authConfig = {
     async session({ session, token }: any) {
       if (session.user) {
         session.user.role = token.role;
+        session.user.isTO = token.isTO;
         session.user.tag = token.tag;
         session.user.playerId = token.playerId;
         session.user.avatarUrl = token.avatarUrl;
