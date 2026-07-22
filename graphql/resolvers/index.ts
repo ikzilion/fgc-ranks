@@ -27,6 +27,7 @@ import { sendPasswordResetEmail, sendVerificationEmail, sendAccountDeletionEmail
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { buildDoubleEliminationBracket, resolveSeedOrder, advanceBracketMatch, nextPowerOfTwo, SeedingMethod } from "@/lib/bracket";
 import { getNextSequence } from "@/lib/counter";
+import { computeRankingPoints, computeRankingPointsForPlayers } from "@/lib/ranking";
 import { formatPlayerNumber } from "@/lib/playerId";
 import { formatEventNumber } from "@/lib/eventId";
 import { NextRequest } from "next/server";
@@ -197,7 +198,15 @@ export const resolvers = {
     // all of them at once.
     players: async (_: unknown, { limit = 20, offset = 0 }: { limit?: number; offset?: number }) => {
       await connectToDatabase();
-      return await Player.find({ isDeleted: { $ne: true } }).sort({ points: -1 }).skip(offset).limit(limit);
+      // points is now computed (see lib/ranking.ts), not a stored field, so
+      // sorting by it means fetching everyone, ranking in memory, then
+      // paginating — fine at this app's scale (tens of players).
+      const allPlayers = await Player.find({ isDeleted: { $ne: true } });
+      const pointsById = await computeRankingPointsForPlayers(allPlayers.map((p: any) => p._id.toString()));
+      const sorted = [...allPlayers].sort(
+        (a: any, b: any) => (pointsById.get(b._id.toString()) ?? 0) - (pointsById.get(a._id.toString()) ?? 0)
+      );
+      return sorted.slice(offset, offset + limit);
     },
 
     player: async (_: unknown, { id }: { id: string }) => {
@@ -1041,8 +1050,22 @@ export const resolvers = {
       return entrant;
     },
 
-    setPlacement: async (_: unknown, { entrantId, placement }: { entrantId: string; placement: number }) => {
+    setPlacement: async (
+      _: unknown,
+      { entrantId, placement }: { entrantId: string; placement: number },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      if (!Number.isInteger(placement) || placement < 1) {
+        throw new Error("Placement must be a positive whole number");
+      }
+
       await connectToDatabase();
+      const entrant = await Entrant.findById(entrantId);
+      if (!entrant) throw new Error("Entrant not found");
+
+      const tournament = await Tournament.findById(entrant.tournamentId);
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+
       return Entrant.findByIdAndUpdate(entrantId, { placement }, { new: true });
     },
 
@@ -1152,7 +1175,7 @@ export const resolvers = {
       const updated = await Match.findByIdAndUpdate(matchId, updateFields, { new: true });
 
       // Update win/loss records on both players
-      await Player.findByIdAndUpdate(winnerId, { $inc: { wins: 1, points: 100 } });
+      await Player.findByIdAndUpdate(winnerId, { $inc: { wins: 1 } });
       await Player.findByIdAndUpdate(loserId, { $inc: { losses: 1 } });
 
       // Notify both players their match result was reported
@@ -1192,14 +1215,14 @@ export const resolvers = {
         throw new Error("This match hasn't been reported yet — use reportResult instead");
       }
 
-      // Reverse the previously-applied win/loss/points effects before applying
-      // the corrected result, so stats don't get double-counted (same pattern
+      // Reverse the previously-applied win/loss effects before applying the
+      // corrected result, so stats don't get double-counted (same pattern
       // deleteMatch uses).
       let previousLoserId: any;
       if (match.winnerId) {
         previousLoserId =
           match.winnerId.toString() === match.player1Id.toString() ? match.player2Id : match.player1Id;
-        await Player.findByIdAndUpdate(match.winnerId, { $inc: { wins: -1, points: -100 } });
+        await Player.findByIdAndUpdate(match.winnerId, { $inc: { wins: -1 } });
         await Player.findByIdAndUpdate(previousLoserId, { $inc: { losses: -1 } });
 
         // Bracket matches: undo this match's OLD contribution to its
@@ -1223,7 +1246,7 @@ export const resolvers = {
 
       const updated = await Match.findByIdAndUpdate(matchId, updateFields, { new: true });
 
-      await Player.findByIdAndUpdate(winnerId, { $inc: { wins: 1, points: 100 } });
+      await Player.findByIdAndUpdate(winnerId, { $inc: { wins: 1 } });
       await Player.findByIdAndUpdate(loserId, { $inc: { losses: 1 } });
 
       // Re-run the same bracket-advancement the match would have gotten from
@@ -1251,11 +1274,11 @@ export const resolvers = {
         throw new Error("Bracket matches can't be deleted individually — delete the whole bracket instead.");
       }
 
-      // Undo the win/loss/points effects reportResult applied, so deleting a
+      // Undo the win/loss effects reportResult applied, so deleting a
       // completed match doesn't leave stale stats behind.
       if (match.status === MatchStatus.COMPLETED && match.winnerId) {
         const loserId = match.winnerId.toString() === match.player1Id.toString() ? match.player2Id : match.player1Id;
-        await Player.findByIdAndUpdate(match.winnerId, { $inc: { wins: -1, points: -100 } });
+        await Player.findByIdAndUpdate(match.winnerId, { $inc: { wins: -1 } });
         await Player.findByIdAndUpdate(loserId, { $inc: { losses: -1 } });
       }
 
@@ -1273,12 +1296,12 @@ export const resolvers = {
       if (!tournament) return false;
       if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
 
-      // Undo the win/loss/points effects reportResult applied for any
-      // completed matches, so deleting the tournament doesn't leave stale stats.
+      // Undo the win/loss effects reportResult applied for any completed
+      // matches, so deleting the tournament doesn't leave stale stats.
       const completedMatches = await Match.find({ tournamentId: id, status: MatchStatus.COMPLETED, winnerId: { $ne: null } });
       for (const match of completedMatches) {
         const loserId = match.winnerId.toString() === match.player1Id.toString() ? match.player2Id : match.player1Id;
-        await Player.findByIdAndUpdate(match.winnerId, { $inc: { wins: -1, points: -100 } });
+        await Player.findByIdAndUpdate(match.winnerId, { $inc: { wins: -1 } });
         await Player.findByIdAndUpdate(loserId, { $inc: { losses: -1 } });
       }
 
@@ -1579,6 +1602,9 @@ export const resolvers = {
 
   Player: {
     user: async (parent: { userId: string }) => await User.findById(parent.userId),
+    // Computed at read time (best-10, 52-week-rolling ranking points) — see
+    // lib/ranking.ts. Player.points is no longer a stored counter.
+    points: async (parent: { _id: string }) => await computeRankingPoints(parent._id.toString()),
     tournaments: async (parent: { _id: string }) => await Entrant.find({ playerId: parent._id }),
     displayId: (parent: { playerNumber?: number }) =>
       parent.playerNumber != null ? formatPlayerNumber(parent.playerNumber) : null,

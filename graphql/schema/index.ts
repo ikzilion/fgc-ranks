@@ -38,6 +38,8 @@ export const typeDefs = `#graphql
     characters: [String!]!
     wins: Int!
     losses: Int!
+    # ATP-style rolling ranking points — computed at read time from this
+    # player's tournament placements, not a stored counter. See lib/ranking.ts.
     points: Int!
     winRate: Float
     tournaments: [Entrant!]!

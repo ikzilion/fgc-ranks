@@ -12,6 +12,7 @@ import { ReportMatchButton } from "@/components/ReportMatchButton";
 import { ManageOrganizersButton } from "@/components/ManageOrganizersButton";
 import { InvitePlayerButton } from "@/components/InvitePlayerButton";
 import { RemoveEntrantButton } from "@/components/RemoveEntrantButton";
+import { SetPlacementButton } from "@/components/SetPlacementButton";
 import { GenerateBracketButton } from "@/components/GenerateBracketButton";
 import { BracketView } from "@/components/BracketView";
 import { StreamAssetsButton } from "@/components/StreamAssetsButton";
@@ -215,6 +216,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                     )}
                   </div>
                 </Link>
+                <SetPlacementButton entrantId={entrant.id} placement={entrant.placement} canManage={canManage} />
                 <RemoveEntrantButton entrantId={entrant.id} playerTag={entrant.player.tag} canManage={canManage} status={tournament.status} />
               </div>
             ))

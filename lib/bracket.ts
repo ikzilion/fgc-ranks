@@ -32,8 +32,8 @@
 // and resolveSeedOrder() are the two pieces that do need DB access.
 
 import { Types } from "mongoose";
-import { Player } from "@/models/Player";
 import { Match } from "@/models/Match";
+import { computeRankingPointsForPlayers } from "@/lib/ranking";
 
 // ─── Small utilities ─────────────────────────────────────────────────────
 
@@ -98,8 +98,7 @@ export async function resolveSeedOrder(
   }
 
   if (seedingMethod === "RANDOM_WITHIN_TIERS") {
-    const players = await Player.find({ _id: { $in: entrantPlayerIds } });
-    const pointsById = new Map(players.map((p: any) => [p._id.toString(), p.points as number]));
+    const pointsById = await computeRankingPointsForPlayers(entrantPlayerIds);
     const sorted = [...entrantPlayerIds].sort(
       (a, b) => (pointsById.get(b) ?? 0) - (pointsById.get(a) ?? 0)
     );

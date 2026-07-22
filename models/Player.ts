@@ -21,8 +21,6 @@ const PlayerSchema = new Schema(
     characters: { type: [String], default: [] },
     wins: { type: Number, default: 0 },
     losses: { type: Number, default: 0 },
-    // Season points for the leaderboard ranking
-    points: { type: Number, default: 0 },
     // Soft-delete (admin-triggered account deletion) — see deletePlayer
     // resolver. The document itself is kept (not removed) so existing
     // Match/Entrant/Tournament/Event references keep resolving; the
