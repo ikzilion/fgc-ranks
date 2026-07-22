@@ -7,7 +7,6 @@ import Link from "next/link";
 interface Player {
   id: string;
   tag: string;
-  displayId?: string | null;
   region: string;
   avatarUrl?: string;
   characters: string[];
@@ -49,7 +48,6 @@ export function PlayerSearchFilter({ players }: { players: Player[] }) {
     return ranked.filter(
       p =>
         p.tag.toLowerCase().includes(q) ||
-        p.displayId?.toLowerCase().includes(q) ||
         p.region?.toLowerCase().includes(q) ||
         p.characters.some(c => c.toLowerCase().includes(q))
     );
@@ -62,7 +60,7 @@ export function PlayerSearchFilter({ players }: { players: Player[] }) {
           type="text"
           value={query}
           onChange={e => setQuery(e.target.value)}
-          placeholder="Search by tag, Player ID, character, or region…"
+          placeholder="Search by tag, character, or region…"
           className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
           style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
         />
@@ -94,12 +92,7 @@ export function PlayerSearchFilter({ players }: { players: Player[] }) {
               )}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="font-rajdhani text-[16px] font-bold text-[var(--text-primary)] leading-tight">{player.tag}</p>
-                {player.displayId && (
-                  <span className="text-[10px] font-mono text-[var(--text-muted)]">{player.displayId}</span>
-                )}
-              </div>
+              <p className="font-rajdhani text-[16px] font-bold text-[var(--text-primary)] leading-tight">{player.tag}</p>
               <p className="text-[12px] text-[var(--text-secondary)] truncate">
                 {player.characters.length > 0 ? player.characters.join(", ") : "No main"} · {player.region || "Unknown region"}
               </p>

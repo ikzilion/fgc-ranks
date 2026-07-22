@@ -199,8 +199,10 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
       {/* Player ID + QR code — foundation for the separately-planned
           QR-based tournament check-in feature. Plain-text encoding of the
           formatted ID for now; check-in can decide later if it needs a
-          richer payload. */}
-      {player.displayId && (
+          richer payload. Only the profile owner sees their own Player ID
+          here (viewerId === player.id) — every other visitor, logged in or
+          not, gets nothing rendered in this slot at all. */}
+      {player.displayId && viewerId === player.id && (
         <div className="fgc-card p-4 mb-6 flex items-center gap-4">
           <div className="bg-white p-2 rounded flex-shrink-0">
             <QRCodeSVG value={player.displayId} size={72} />
