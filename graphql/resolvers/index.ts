@@ -430,7 +430,18 @@ export const resolvers = {
 
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
       const verifyUrl = `${baseUrl}/verify-email?token=${rawToken}`;
-      await sendVerificationEmail(email, verifyUrl);
+      try {
+        await sendVerificationEmail(email, verifyUrl);
+      } catch (err) {
+        // Both documents already exist at this point — roll both back, same
+        // reasoning as the tag-collision rollback above, so a transient
+        // Resend/network failure doesn't leave an orphaned, unverifiable
+        // account behind that silently consumes the email/tag forever with
+        // no way for the person to log in or cleanly re-register.
+        await Player.findByIdAndDelete(player._id);
+        await User.findByIdAndDelete(user._id);
+        throw new Error("We couldn't send your verification email. Please try registering again.");
+      }
 
       const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: "7d" });
       return { token, user };
