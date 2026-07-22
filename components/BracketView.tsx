@@ -194,11 +194,24 @@ function BracketSideSection({
     sortedByRound.set(r, [...rounds.get(r)!].sort((a, b) => a.bracketPosition - b.bracketPosition));
   }
 
-  // Classic bracket "pyramid" positioning: each round's cards are centered
-  // on their same-side feeder match(es) from the previous round, computed
-  // recursively outward from round 0's evenly-spaced baseline — rather than
-  // the plain even-stacking (`justify-center` on a `gap-6` column) this
-  // replaces, which never aligned a card with its feeders' actual midpoint.
+  // Bracket "pyramid" positioning — a match's Y-center is derived STRICTLY
+  // from its real same-side feeder(s) (nextMatchId), recursively outward
+  // from round 0's fixed baseline. This is the one invariant that must never
+  // be broken: a 1- or 2-feeder match's center is ALWAYS exactly equal to
+  // (or the exact average of) its real feeder(s)' own centers, with nothing
+  // ever adjusting it afterward. The connector lines below independently
+  // draw from each feeder's actual rendered position to its real target's
+  // actual rendered position — so if a target's center is ever nudged away
+  // from what its feeders dictate (as a since-reverted attempt at this fix
+  // did, sweeping cards apart to avoid collisions), the rendered card and
+  // the line pointing to it silently drift apart, and a line can end up
+  // visually passing near — or appearing to terminate at — a DIFFERENT
+  // card than the one it actually connects to. That was a real, confirmed
+  // bug (not just a spacing complaint): Losers Round 1's SimPlayer07 match
+  // legitimately feeds Losers Round 2's SimPlayer07 match via nextMatchId,
+  // but the previous sweep had pushed that Round 2 card away from its
+  // feeder's position to dodge an unrelated orphan card sorted before it,
+  // making the two look disconnected.
   //
   // Reuses the exact same feeder-collection rule the connector lines below
   // use: only `nextMatch` (same-side progression) counts. A WB→LB drop via
@@ -212,17 +225,26 @@ function BracketSideSection({
   // consolidation/drop-in rounds (see lib/bracket.ts) without assuming
   // every round simply halves in count:
   //  - 2 feeders (every WB round; LB consolidation rounds) — center is the
-  //    midpoint of both feeders, and the tree visually narrows here.
+  //    exact midpoint of both feeders, and the tree visually narrows here.
   //  - 1 feeder (LB drop-in rounds — the other slot is a freshly-dropped WB
-  //    loser, not a same-side match) — center = that lone feeder's center,
-  //    unchanged. Match count didn't shrink this round, so there's no
-  //    narrowing, matching how a real double-elim bracket actually looks.
-  //  - 0 feeders (round 0 of this side) — evenly-spaced baseline.
-  // Byes are handled the same way: a round's real match count can be less
-  // than a naive power-of-two count would assume, but this only ever reads
-  // the REAL feeder relationships, never an assumed index/count pattern, so
-  // a bye-shortened round just naturally has fewer entries — nothing here
-  // miscounts or needs special-casing for it.
+  //    loser, not a same-side match) — center = that lone feeder's exact
+  //    center, unchanged. Match count didn't shrink this round, so there's
+  //    no narrowing, matching how a real double-elim bracket actually looks.
+  //  - 0 feeders — round 0 of this side (no same-side round precedes it),
+  //    OR a rarer later-round case where BOTH of a match's occupants
+  //    arrived directly from the other bracket (e.g. two Winners-bracket
+  //    losers dropping straight in via nextLoserMatch, because the
+  //    Losers-bracket round that would normally host one of them was
+  //    itself entirely bye-skipped by an earlier bye). Both cases use the
+  //    same bracketPosition-based baseline — bracketPosition reflects a
+  //    match's true slot among the FULL set (see lib/bracket.ts's
+  //    buildMatch/wireFeeder), reserving exactly the gap a skipped bye-slot
+  //    should occupy. Crucially, for every drop-in round chained forward
+  //    from this baseline (1:1 position mapping — see buildDropInRound),
+  //    a real feeder's exact center ALWAYS equals that same round's own
+  //    bracketPosition formula by construction, so this never collides with
+  //    (or duplicates) a real feeder-derived center — no separate collision
+  //    pass is needed, and none should be added back.
   const idsInSide = new Set(matches.map(m => m.id));
   const feedersByTarget = new Map<string, string[]>();
   for (const m of matches) {
@@ -233,47 +255,16 @@ function BracketSideSection({
   }
   const centerById = new Map<string, number>();
   for (const r of roundNumbers) {
-    sortedByRound.get(r)!.forEach((m, idx) => {
+    sortedByRound.get(r)!.forEach(m => {
       const feeders = feedersByTarget.get(m.id) ?? [];
       if (feeders.length === 2) {
         centerById.set(m.id, (centerById.get(feeders[0])! + centerById.get(feeders[1])!) / 2);
       } else if (feeders.length === 1) {
         centerById.set(m.id, centerById.get(feeders[0])!);
       } else {
-        // Round-0 baseline (this side's first round), OR a rarer later-round
-        // case where a match has NO same-side feeder at all — both of its
-        // occupants arrived directly from the other bracket (e.g. two
-        // Winners-bracket losers dropping straight in via nextLoserMatch,
-        // because the Losers-bracket round that would normally host one of
-        // them was itself entirely bye-skipped by an earlier bye). Either
-        // way, position it densely packed among this round's OTHER real
-        // matches — index within the filtered round, not bracketPosition —
-        // so the taper stays tight and visually matches its siblings, same
-        // as every round always looked before byes were accounted for at
-        // all. This can, on its own, land two different matches on the
-        // exact same center (the original collision bug this replaced) —
-        // the sweep below is what actually prevents that, not this formula.
-        centerById.set(m.id, idx * ROUND0_SPACING + CARD_HEIGHT / 2);
+        centerById.set(m.id, m.bracketPosition * ROUND0_SPACING + CARD_HEIGHT / 2);
       }
     });
-
-    // Collision guard: sweep this round's real matches in position order
-    // and push any match whose computed center lands too close to (or
-    // exactly on) the previous one down just far enough to clear it. This
-    // is what actually prevents the original overlap bug — reserving
-    // bye-gap space up front (the first attempt at this fix) also prevented
-    // it, but did so by permanently widening every later round's spacing
-    // too, which is what broke the pyramid taper. Nudging only the specific
-    // matches that would otherwise collide leaves everything else exactly
-    // where the classic tight taper already puts it.
-    const roundMatches = sortedByRound.get(r)!;
-    for (let i = 1; i < roundMatches.length; i++) {
-      const prevCenter = centerById.get(roundMatches[i - 1].id)!;
-      const center = centerById.get(roundMatches[i].id)!;
-      if (center < prevCenter + ROUND0_SPACING) {
-        centerById.set(roundMatches[i].id, prevCenter + ROUND0_SPACING);
-      }
-    }
   }
 
   return (
