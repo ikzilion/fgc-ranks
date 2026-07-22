@@ -695,15 +695,17 @@ export const resolvers = {
 
       // Minimum trust threshold — anti-spam floor for ALL tournament
       // creation (not specific to the separate, not-yet-built TO
-      // permission overhaul). Either signal is enough on its own: account
-      // older than 24h, or has entered at least one prior tournament.
+      // permission overhaul). Account age alone gates this now — the
+      // "has entered a tournament" alternative (Security Push Phase 4)
+      // was removed per user request, July 23, 2026: a brand-new account
+      // can no longer bypass the 24h wait just by joining someone else's
+      // tournament first.
       const player = await Player.findById(playerId);
       const user = player?.userId ? await User.findById(player.userId) : null;
       const accountAgeMs = user ? Date.now() - new Date(user.createdAt).getTime() : 0;
       const isOldEnough = accountAgeMs > 24 * 60 * 60 * 1000;
-      const hasPriorEntry = (await Entrant.countDocuments({ playerId })) > 0;
-      if (!isOldEnough && !hasPriorEntry) {
-        throw new Error("Your account needs to be at least 24 hours old, or you need to have entered a tournament first, before you can create one.");
+      if (!isOldEnough) {
+        throw new Error("Your account needs to be at least 24 hours old before you can create a tournament.");
       }
 
       // eventId is client-resolved (the form looks it up by displayId and
