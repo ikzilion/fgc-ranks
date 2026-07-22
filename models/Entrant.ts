@@ -10,6 +10,12 @@ const EntrantSchema = new Schema(
     seed: { type: Number },
     // Final placement after the tournament ends (1 = champion)
     placement: { type: Number },
+    // True once a TO has set this entrant's placement directly via
+    // setPlacement — marks it as a manual override so the automatic
+    // bracket-placement logic (lib/bracket.ts) never overwrites it, even if
+    // it re-runs later (e.g. an editMatchResult correction on the Grand
+    // Final re-triggers advancement).
+    placementSetManually: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

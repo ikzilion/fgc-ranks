@@ -1066,7 +1066,10 @@ export const resolvers = {
       const tournament = await Tournament.findById(entrant.tournamentId);
       if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
 
-      return Entrant.findByIdAndUpdate(entrantId, { placement }, { new: true });
+      // Marks this as a manual override -- the automatic bracket-placement
+      // logic (lib/bracket.ts) skips any entrant with this flag set, even if
+      // it re-runs later.
+      return Entrant.findByIdAndUpdate(entrantId, { placement, placementSetManually: true }, { new: true });
     },
 
     // Brackets
@@ -1229,9 +1232,11 @@ export const resolvers = {
 
       // Re-run the same bracket-advancement the match would have gotten from
       // a fresh reportResult, so the new winner/loser correctly land in the
-      // (now-cleared) downstream slot(s).
+      // (now-cleared) downstream slot(s). isCorrection: true so a corrected
+      // Grand Final result is treated as final (not misread as "game 1 of a
+      // new set") -- see advanceBracketMatch's comment.
       if (updated.bracketId) {
-        await advanceBracketMatch(updated, winnerId, loserId);
+        await advanceBracketMatch(updated, winnerId, loserId, { isCorrection: true });
       }
 
       // Intentionally no notification here — this is a correction, not a new

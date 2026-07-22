@@ -33,6 +33,7 @@
 
 import { Types } from "mongoose";
 import { Match } from "@/models/Match";
+import { Entrant } from "@/models/Entrant";
 import { computeRankingPointsForPlayers } from "@/lib/ranking";
 
 // ─── Small utilities ─────────────────────────────────────────────────────
@@ -312,7 +313,15 @@ export function buildDoubleEliminationBracket(params: {
 // winner/loser. Advances the winner into its next Winners/Losers slot, drops
 // the loser into its next Losers-bracket slot (Winners-side matches only),
 // and handles the Grand Final bracket-reset case.
-export async function advanceBracketMatch(match: any, winnerId: any, loserId: any) {
+//
+// `isCorrection` (true only from editMatchResult) disables reset-creation:
+// without it, correcting an already-decided Grand Final's winner to the
+// losers-side finalist would be misread as "they just won game 1 of a new
+// set," spuriously creating a reset match instead of just finalizing the
+// corrected result. editMatchResult can only ever run on a Grand Final that
+// has no reset yet (assertBracketMatchEditable blocks it once one exists),
+// so a correction's result is always the final answer for that match.
+export async function advanceBracketMatch(match: any, winnerId: any, loserId: any, options: { isCorrection?: boolean } = {}) {
   if (match.nextMatchId) {
     const field = match.nextMatchSlot === 1 ? "player1Id" : "player2Id";
     await Match.findByIdAndUpdate(match.nextMatchId, { [field]: winnerId });
@@ -322,7 +331,7 @@ export async function advanceBracketMatch(match: any, winnerId: any, loserId: an
     await Match.findByIdAndUpdate(match.nextLoserMatchId, { [field]: loserId });
   }
 
-  if (match.bracketSide === "GRAND_FINAL" && winnerId.toString() === match.player2Id?.toString()) {
+  if (!options.isCorrection && match.bracketSide === "GRAND_FINAL" && winnerId.toString() === match.player2Id?.toString()) {
     // The losers-side finalist won game 1 — this is their first loss of the
     // set (they already had exactly one loss coming in), so the winners-side
     // finalist now also has one loss. Neither is eliminated yet: a bracket
@@ -341,5 +350,78 @@ export async function advanceBracketMatch(match: any, winnerId: any, loserId: an
         status: "PENDING",
       });
     }
+    return; // not decided yet -- waiting on the reset match
+  }
+
+  // The bracket is fully decided once the Grand Final (no reset needed) or
+  // the Grand Final Reset (decider) reaches COMPLETED.
+  if (match.bracketSide === "GRAND_FINAL" || match.bracketSide === "GRAND_FINAL_RESET") {
+    await computeAndApplyBracketPlacements(match.tournamentId, match.bracketId);
+  }
+}
+
+// ─── Automatic bracket placement ─────────────────────────────────────────
+//
+// Once the bracket is fully decided (Grand Final, or Grand Final Reset if
+// one was played, reaches COMPLETED), placements are derivable entirely from
+// existing bracket data:
+//   1st = Grand Final (or Reset) winner
+//   2nd = Grand Final (or Reset) loser
+//   3rd = Losers Bracket Final loser
+//   4th+ = grouped by which Losers-bracket round an entrant was eliminated
+//     in, mapped onto the SAME coarse buckets the ranking system already
+//     uses (3rd-4th, 5th-8th, 9th-16th — see lib/ranking.ts's
+//     pointsForPlacement), not the finer-grained tie sizes a real
+//     double-elimination bracket produces round-by-round. The ranking
+//     table doesn't distinguish within a bucket anyway, so there's nothing
+//     to gain from finer precision here.
+//
+// A manual override via setPlacement (Entrant.placementSetManually) is never
+// overwritten by this function, even on a re-run (e.g. editMatchResult
+// correcting the Grand Final result re-triggers this).
+function placementForEliminationDepth(depth: number): number | null {
+  if (depth === 0) return 3; // Losers Bracket Final loser
+  if (depth === 1) return 5; // one Losers round earlier
+  if (depth === 2) return 9; // two Losers rounds earlier
+  return null; // deeper than that maps to the "no placement" 1-point floor
+}
+
+// Only ever called from advanceBracketMatch, and only once it has already
+// determined the bracket is truly decided (see the isCorrection reasoning
+// above) -- no "is this actually the reset-needed case" check is needed
+// here, since that decision has already been made by the caller.
+export async function computeAndApplyBracketPlacements(tournamentId: any, bracketId: any) {
+  const matches = await Match.find({ bracketId });
+
+  // Prefer the reset match if one was played -- it's the true decider.
+  const terminal =
+    matches.find(m => m.bracketSide === "GRAND_FINAL_RESET" && m.status === "COMPLETED") ??
+    matches.find(m => m.bracketSide === "GRAND_FINAL" && m.status === "COMPLETED");
+  if (!terminal || !terminal.winnerId) return; // bracket not decided yet
+
+  const placementByPlayerId = new Map<string, number>();
+  const winnerId = terminal.winnerId.toString();
+  const loserId = (
+    terminal.winnerId.toString() === terminal.player1Id.toString() ? terminal.player2Id : terminal.player1Id
+  ).toString();
+  placementByPlayerId.set(winnerId, 1);
+  placementByPlayerId.set(loserId, 2);
+
+  const loserSideMatches = matches.filter(m => m.bracketSide === "LOSERS" && m.status === "COMPLETED" && m.winnerId);
+  const totalLBRounds = loserSideMatches.reduce((max, m) => Math.max(max, m.bracketRound), 0);
+
+  for (const m of loserSideMatches) {
+    const eliminationDepth = totalLBRounds - m.bracketRound; // 0 = last Losers round (Losers Finals)
+    const placement = placementForEliminationDepth(eliminationDepth);
+    if (placement === null) continue;
+    const loser = (m.winnerId.toString() === m.player1Id.toString() ? m.player2Id : m.player1Id).toString();
+    placementByPlayerId.set(loser, placement);
+  }
+
+  for (const [playerId, placement] of placementByPlayerId) {
+    await Entrant.findOneAndUpdate(
+      { tournamentId, playerId, placementSetManually: { $ne: true } },
+      { placement }
+    );
   }
 }
