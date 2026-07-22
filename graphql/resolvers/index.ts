@@ -743,6 +743,17 @@ export const resolvers = {
       const player = await Player.findById(request.playerId);
       if (player?.userId) await User.findByIdAndUpdate(player.userId, { isTO: true });
 
+      // Session-staleness caveat (isTO is JWT-cached, same as role) — the
+      // player won't actually see their new capabilities until they
+      // re-authenticate, so the notification says so up front rather than
+      // leaving them confused when nothing changes mid-session.
+      await Notification.create({
+        playerId: request.playerId,
+        type: "TO_STATUS_GRANTED",
+        message: "Your Tournament Organizer (TO) status has been granted! Sign out and back in for it to take effect.",
+        link: `/players/${request.playerId}`,
+      });
+
       return TORequest.findByIdAndUpdate(id, { status: TORequestStatus.APPROVED, resolvedAt: new Date() }, { new: true });
     },
 
@@ -788,6 +799,16 @@ export const resolvers = {
         { playerId, status: TORequestStatus.PENDING },
         { status: TORequestStatus.APPROVED, resolvedAt: new Date() }
       );
+
+      // Same notification as approveTORequest — both paths grant the exact
+      // same TO status, so the player hears about it the same way either way.
+      await Notification.create({
+        playerId,
+        type: "TO_STATUS_GRANTED",
+        message: "Your Tournament Organizer (TO) status has been granted! Sign out and back in for it to take effect.",
+        link: `/players/${playerId}`,
+      });
+
       return true;
     },
 

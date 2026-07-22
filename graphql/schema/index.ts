@@ -17,6 +17,7 @@ export const typeDefs = `#graphql
     TOURNAMENT_LIVE
     TOURNAMENT_ENDED
     PLAYER_JOINED
+    TO_STATUS_GRANTED
   }
 
   type User {
