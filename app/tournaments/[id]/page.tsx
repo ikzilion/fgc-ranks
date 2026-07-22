@@ -7,8 +7,6 @@ import { auth } from "@/lib/auth";
 import { isAdminOrAbove } from "@/lib/roles";
 import { JoinTournamentButton } from "@/components/JoinTournamentButton";
 import { TournamentStatusButton } from "@/components/TournamentStatusButton";
-import { CreateMatchButton } from "@/components/CreateMatchButton";
-import { ReportMatchButton } from "@/components/ReportMatchButton";
 import { ManageOrganizersButton } from "@/components/ManageOrganizersButton";
 import { InvitePlayerButton } from "@/components/InvitePlayerButton";
 import { RemoveEntrantButton } from "@/components/RemoveEntrantButton";
@@ -72,18 +70,6 @@ const GET_TOURNAMENT = `
           avatarUrl
           characters
         }
-      }
-      matches {
-        id
-        round
-        status
-        bracketSide
-        player1Score
-        player2Score
-        isForfeit
-        player1 { id tag avatarUrl }
-        player2 { id tag avatarUrl }
-        winner { id tag }
       }
       bracket {
         id
@@ -166,17 +152,6 @@ export default async function TournamentDetailPage({ params }: { params: Promise
 
   const canManage = tournament.isOrganizer || isAdminOrAbove(role);
   const myEntrant = tournament.entrants.find((e: any) => e.player.id === playerId);
-
-  // Freeform (non-bracket) matches — bracket matches are shown separately in
-  // the TO-only bracket section below.
-  const freeformMatches = tournament.matches.filter((m: any) => !m.bracketSide);
-
-  // Group freeform matches by round
-  const rounds: Record<string, any[]> = {};
-  for (const match of freeformMatches) {
-    if (!rounds[match.round]) rounds[match.round] = [];
-    rounds[match.round].push(match);
-  }
 
   // Defined once, used in two spots below: as the left sidebar next to the
   // Bracket section when one is shown, or standalone (full width, not a
@@ -449,72 +424,6 @@ export default async function TournamentDetailPage({ params }: { params: Promise
       )}
 
       <div className="max-w-5xl mx-auto">
-        {/* Matches */}
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Matches</p>
-          <CreateMatchButton tournamentId={tournament.id} entrants={tournament.entrants} canManage={canManage} />
-        </div>
-        {freeformMatches.length === 0 ? (
-          <div className="fgc-card p-6 text-[var(--text-secondary)]">No matches yet.</div>
-        ) : (
-          Object.entries(rounds).map(([round, matches]) => (
-            <div key={round} className="mb-4">
-              <p className="text-[11px] uppercase tracking-wider text-[var(--text-muted)] mb-2 px-1">{round}</p>
-              <div className="fgc-card">
-                {matches.map((match: any) => (
-                  <div key={match.id} className="px-4 py-3 border-b border-[var(--border)] last:border-0">
-                    <div className="flex items-center justify-end mb-1">
-                      <ReportMatchButton match={match} canManage={canManage} />
-                    </div>
-                    {/* Player 1 */}
-                    <div className={`flex items-center justify-between py-1 ${match.winner?.id === match.player1.id ? "opacity-100" : "opacity-50"}`}>
-                      <div className="flex items-center gap-2">
-                        {match.winner?.id === match.player1.id && (
-                          <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "var(--green)" }} />
-                        )}
-                        <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ background: "var(--navy-4)", border: "1px solid var(--border-strong)" }}>
-                          {match.player1.avatarUrl ? (
-                            <img src={match.player1.avatarUrl} alt={match.player1.tag} className="w-full h-full object-cover" />
-                          ) : (
-                            <span className="text-[8px] font-bold" style={{ color: "var(--text-secondary)" }}>{match.player1.tag.slice(0, 2).toUpperCase()}</span>
-                          )}
-                        </div>
-                        <Link href={`/players/${match.player1.id}`} className="font-rajdhani text-[14px] font-semibold text-[var(--text-primary)] hover:text-[var(--blue)]">
-                          {match.player1.tag}
-                        </Link>
-                      </div>
-                      <span className="font-rajdhani text-[14px] font-bold" style={{ color: match.winner?.id === match.player1.id ? "var(--green)" : "var(--text-muted)" }}>
-                        {match.status === "COMPLETED" ? (match.isForfeit ? "FF" : match.player1Score) : "—"}
-                      </span>
-                    </div>
-                    {/* Player 2 */}
-                    <div className={`flex items-center justify-between py-1 ${match.winner?.id === match.player2.id ? "opacity-100" : "opacity-50"}`}>
-                      <div className="flex items-center gap-2">
-                        {match.winner?.id === match.player2.id && (
-                          <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "var(--green)" }} />
-                        )}
-                        <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ background: "var(--navy-4)", border: "1px solid var(--border-strong)" }}>
-                          {match.player2.avatarUrl ? (
-                            <img src={match.player2.avatarUrl} alt={match.player2.tag} className="w-full h-full object-cover" />
-                          ) : (
-                            <span className="text-[8px] font-bold" style={{ color: "var(--text-secondary)" }}>{match.player2.tag.slice(0, 2).toUpperCase()}</span>
-                          )}
-                        </div>
-                        <Link href={`/players/${match.player2.id}`} className="font-rajdhani text-[14px] font-semibold text-[var(--text-primary)] hover:text-[var(--blue)]">
-                          {match.player2.tag}
-                        </Link>
-                      </div>
-                      <span className="font-rajdhani text-[14px] font-bold" style={{ color: match.winner?.id === match.player2.id ? "var(--green)" : "var(--text-muted)" }}>
-                        {match.status === "COMPLETED" ? (match.isForfeit ? "FF" : match.player2Score) : "—"}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))
-        )}
-
         {/* Back link */}
         <div className="mt-6">
           <Link href="/tournaments" className="text-[13px] text-[var(--text-secondary)] hover:text-[var(--blue)]">

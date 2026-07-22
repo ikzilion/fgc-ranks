@@ -19,8 +19,7 @@ const MatchSchema = new Schema(
   {
     tournamentId: { type: Schema.Types.ObjectId, ref: "Tournament", required: true },
     // Not required at the schema level: bracket matches are created with one
-    // or both slots TBD (null) until a feeder match resolves. The freeform
-    // createMatch resolver still always supplies both up front.
+    // or both slots TBD (null) until a feeder match resolves.
     player1Id: { type: Schema.Types.ObjectId, ref: "Player" },
     player2Id: { type: Schema.Types.ObjectId, ref: "Player" },
     player1Score: { type: Number, default: 0 },
@@ -40,7 +39,8 @@ const MatchSchema = new Schema(
       enum: Object.values(MatchStatus),
       default: MatchStatus.PENDING,
     },
-    // ── Bracket fields — undefined for freeform (non-bracket) matches ──
+    // ── Bracket fields — every Match is a bracket match now that the
+    // freeform (manual, non-bracket) match system has been removed ──
     bracketId: { type: Schema.Types.ObjectId, ref: "Bracket" },
     bracketSide: { type: String, enum: Object.values(BracketSide) },
     bracketRound: { type: Number },

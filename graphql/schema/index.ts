@@ -295,7 +295,6 @@ export const typeDefs = `#graphql
     joinTournament(tournamentId: ID!, playerId: ID!): Entrant!
     setPlacement(entrantId: ID!, placement: Int!): Entrant!
 
-    createMatch(tournamentId: ID!, player1Id: ID!, player2Id: ID!, round: String!): Match!
     reportResult(matchId: ID!, player1Score: Int, player2Score: Int, isForfeit: Boolean, forfeitingPlayerId: ID): Match!
     editMatchResult(matchId: ID!, player1Score: Int, player2Score: Int, isForfeit: Boolean, forfeitingPlayerId: ID): Match!
 

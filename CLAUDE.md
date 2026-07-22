@@ -38,8 +38,7 @@ A Fighting Game Community (FGC) web platform with two core features:
 │   ├── CreateTournamentButton.tsx
 │   ├── DeleteTournamentButton.tsx
 │   ├── TournamentStatusButton.tsx
-│   ├── PlayerSearchFilter.tsx
-│   └── CreateMatchButton.tsx
+│   └── PlayerSearchFilter.tsx
 ├── graphql/
 │   ├── schema/index.ts
 │   └── resolvers/index.ts
@@ -67,7 +66,7 @@ MongoDB collection names: players, tournaments, users, entrants, matches, notifi
 
 ## GraphQL Schema Summary
 - Types: `Player`, `Tournament`, `Entrant`, `Match`, `User`, `Notification`
-- Mutations: `register`, `login`, `requestPasswordReset`, `resetPassword`, `updatePlayer`, `createTournament`, `updateTournamentStatus`, `joinTournament` (status-gated), `setPlacement`, `createMatch`, `reportResult`, `deleteMatch`, `deleteTournament`, `leaveTournament`, `markNotificationRead`, `markAllNotificationsRead`
+- Mutations: `register`, `login`, `requestPasswordReset`, `resetPassword`, `updatePlayer`, `createTournament`, `updateTournamentStatus`, `joinTournament` (status-gated), `setPlacement`, `reportResult`, `deleteMatch`, `deleteTournament`, `leaveTournament`, `markNotificationRead`, `markAllNotificationsRead`
 
 ## Commands
 ```bash
