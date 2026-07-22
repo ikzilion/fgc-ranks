@@ -37,21 +37,28 @@ const SIDE_LABELS: Record<string, string> = {
 // Design system default when a tournament hasn't set a custom line color.
 const DEFAULT_LINE_COLOR = "var(--border-strong)";
 
-// Bracket "pyramid" spacing constants — MatchCard's rendered height is
-// effectively fixed (p-3 padding + the round-label row + two PlayerRows,
-// all driven by fixed Tailwind classes with truncating text, no wrapping),
-// measured directly against the live Community Showdown bracket via
-// headless Chrome + getBoundingClientRect (58/58 cards, mixed TBD/pending/
-// completed states, all exactly the same height). CARD_GAP is the gap-6
-// column spacing (measured, not the nominal 1.5rem, since the project's
-// root font-size isn't the 16px default). If MatchCard's internal
-// structure/classes ever change (last bumped when the score text grew
-// from text-[13px] to text-[17px], 98px -> 110px), remeasure and update
-// these two numbers — everything below is computed from them, not
-// re-guessed per round.
-const CARD_HEIGHT = 110;
+// Bracket "pyramid" spacing constants. CARD_GAP is the desired vertical gap
+// between two stacked cards (measured against the rendered gap-10/marginTop
+// layout, not the nominal 1.5rem, since the project's root font-size isn't
+// the 16px default) — this doesn't depend on who's viewing the bracket, so
+// it stays a fixed constant.
+//
+// Card HEIGHT, on the other hand, is deliberately NOT a constant below —
+// MatchCard's header row only renders ReportMatchButton's "Report/Edit
+// result" + "Delete" pills for a canManage viewer (organizer/admin); a
+// public/non-privileged viewer's card is missing that row content and
+// renders noticeably shorter (measured: 110px public vs 137-140px as an
+// organizer). A single hardcoded height can only ever be correct for
+// whichever view it was tuned against — this used to be 110 (tuned against
+// a public view) and silently mispositioned every card for organizer
+// viewers, who saw the pyramid taper drift further off from the real
+// feeder graph the deeper into a round column they looked, without ever
+// producing an outright overlap (so it passed every previous overlap-only
+// verification pass). BracketView now measures the ACTUALLY rendered card
+// height live (see its measuredCardHeight state) and passes it down here
+// as `cardHeight`, so both view types position correctly.
 const CARD_GAP = 21;
-const ROUND0_SPACING = CARD_HEIGHT + CARD_GAP;
+const DEFAULT_CARD_HEIGHT = 110; // only an initial guess for the very first paint, before measurement runs
 
 function PlayerRow({
   player,
@@ -136,9 +143,20 @@ function MatchCard({
         {/* Same fontColor prop/fallback pattern as PlayerRow's tag text below
             — was left out when bracketFontColor was originally scoped, per
             user follow-up now brought into scope alongside it. TBD text and
-            win/loss score styling remain deliberately untouched. */}
-        <p className="text-[10px] uppercase tracking-widest" style={{ color: fontColor || "var(--text-muted)" }}>{match.round}</p>
-        {ready && <ReportMatchButton match={match as any} canManage={canManage} />}
+            win/loss score styling remain deliberately untouched.
+            min-w-0 + truncate: a long round label (e.g. "Grand Finals
+            (Reset)") combined with ReportMatchButton's two pills otherwise
+            has nowhere to go but wrap onto a second line — flex children
+            don't shrink below their content's natural width by default,
+            and truncate alone is a no-op without min-w-0 letting this
+            specific child shrink past that. Every other card on the exact
+            same round-column relies on this row staying single-line: the
+            pyramid positioning measures one rendered card's height and
+            applies it to every sibling, so a card that silently wraps
+            taller than the rest throws off its neighbors' spacing instead
+            of just clipping its own label. */}
+        <p className="text-[10px] uppercase tracking-widest truncate min-w-0" style={{ color: fontColor || "var(--text-muted)" }}>{match.round}</p>
+        {ready && <div className="flex-shrink-0"><ReportMatchButton match={match as any} canManage={canManage} /></div>}
       </div>
 
       <PlayerRow player={match.player1} score={match.player1Score} status={match.status} isForfeit={match.isForfeit} isWinner={!!match.winner && match.winner.id === match.player1?.id} fontColor={fontColor} />
@@ -152,6 +170,7 @@ function BracketSideSection({
   matches,
   canManage,
   registerRef,
+  cardHeight,
   emphasized,
   dividerAbove,
   accentColor,
@@ -162,6 +181,11 @@ function BracketSideSection({
   matches: BracketMatch[];
   canManage: boolean;
   registerRef: (id: string, el: HTMLDivElement | null) => void;
+  // The ACTUALLY rendered height of a match card in this session's view —
+  // see BracketView's measuredCardHeight. Differs between a canManage
+  // (organizer/admin) viewer and a public viewer, since only canManage
+  // viewers get the ReportMatchButton row inside the card header.
+  cardHeight: number;
   // Winners/Losers are the two big top-level sections of the tree and get
   // a bigger, bolder heading than the default — Grand Finals/Bracket Reset
   // stay at the small muted style since they read fine as a single column,
@@ -180,6 +204,7 @@ function BracketSideSection({
   boxColor?: string;
   fontColor?: string;
 }) {
+  const roundSpacing = cardHeight + CARD_GAP;
   const rounds = new Map<number, BracketMatch[]>();
   for (const m of matches) {
     if (!rounds.has(m.bracketRound)) rounds.set(m.bracketRound, []);
@@ -262,7 +287,7 @@ function BracketSideSection({
       } else if (feeders.length === 1) {
         centerById.set(m.id, centerById.get(feeders[0])!);
       } else {
-        centerById.set(m.id, m.bracketPosition * ROUND0_SPACING + CARD_HEIGHT / 2);
+        centerById.set(m.id, m.bracketPosition * roundSpacing + cardHeight / 2);
       }
     });
   }
@@ -296,7 +321,7 @@ function BracketSideSection({
                 // achieve the computed `center` values above, since flex
                 // children stack from the previous child's bottom edge.
                 const marginTop =
-                  idx === 0 ? center - CARD_HEIGHT / 2 : center - centerById.get(roundMatches[idx - 1].id)! - CARD_HEIGHT;
+                  idx === 0 ? center - cardHeight / 2 : center - centerById.get(roundMatches[idx - 1].id)! - cardHeight;
                 return (
                   <MatchCard
                     key={m.id}
@@ -342,6 +367,15 @@ export function BracketView({
     clientWidth: 0,
     paths: [],
   });
+  // A match card's rendered height depends on canManage — only an organizer/
+  // admin viewer's card includes ReportMatchButton's "Report/Edit result" +
+  // "Delete" row (measured: ~110px for a public viewer vs ~137-140px for an
+  // organizer/admin), so it can't be a hardcoded constant shared by every
+  // viewer. DEFAULT_CARD_HEIGHT is only the initial guess for the very first
+  // paint, before any card exists to measure — the effect below replaces it
+  // with the real value as soon as one is rendered, and BracketSideSection's
+  // whole pyramid layout is computed from whatever this currently holds.
+  const [measuredCardHeight, setMeasuredCardHeight] = useState(DEFAULT_CARD_HEIGHT);
   // Mirrors containerRef's scrollLeft so the sticky range-slider scrollbar
   // below can show/drive the current scroll position without re-measuring
   // the whole bracket on every scroll tick.
@@ -364,6 +398,62 @@ export function BracketView({
       const containerEl = containerRef.current;
       if (!containerEl) return;
       const containerRect = containerEl.getBoundingClientRect();
+
+      // A card's own height is purely intrinsic (padding + content), never
+      // affected by the marginTop this component computes for positioning —
+      // every card in a given view is meant to share the same height (the
+      // truncate/min-w-0 fix on the round label keeps it that way even for
+      // an unusually long label like "Grand Finals (Reset)" combined with
+      // canManage's button row). Taking the MODE (most common rounded
+      // height) rather than the first-registered card or the max is a
+      // deliberate belt-and-suspenders choice: it's correct in the normal
+      // case where every card really is uniform, and it also can't be
+      // thrown off by a single rare outlier the way MAX can — an earlier
+      // version of this fix used MAX and that one card alone (a rarer,
+      // always-solo match with no siblings to space against, so its own
+      // slightly-different height was harmless in isolation) dragged the
+      // SHARED height used by every OTHER round/side in the whole bracket
+      // away from what those cards actually render at, reintroducing the
+      // exact cumulative-drift bug this fix exists to close. Only updates
+      // state when the value actually changed, so this settles after one
+      // correction pass instead of looping (the corrected marginTop values
+      // don't change any card's own height, so the next measure() call
+      // reads back the same number and this is a no-op).
+      // Bucketed by rounded-to-integer height (tolerates sub-pixel float
+      // jitter between otherwise-identical cards), but the value stored per
+      // bucket is the SUM of the real fractional heights seen — so the
+      // winning bucket's average is the true rendered height (e.g. 120.5),
+      // not the rounded integer key (121). Using the rounded key directly
+      // here previously fed a slightly-wrong cardHeight into every card's
+      // marginTop math, and since each round's marginTop subtracts the
+      // previous card's cardHeight, a mere 0.5px per-card error compounded
+      // deeper into the tree every round — the exact cumulative-drift
+      // pattern this component's positioning math is designed to avoid.
+      const heightBuckets = new Map<number, { count: number; sum: number }>();
+      for (const el of cardEls.current.values()) {
+        const raw = el.getBoundingClientRect().height;
+        const key = Math.round(raw);
+        const bucket = heightBuckets.get(key) ?? { count: 0, sum: 0 };
+        bucket.count++;
+        bucket.sum += raw;
+        heightBuckets.set(key, bucket);
+      }
+      let modeHeight = 0;
+      let modeCount = 0;
+      for (const { count, sum } of heightBuckets.values()) {
+        if (count > modeCount) {
+          modeHeight = sum / count;
+          modeCount = count;
+        }
+      }
+      if (modeHeight > 0) {
+        // Functional form so this is always compared against the latest
+        // state, not whatever measuredCardHeight this closure captured when
+        // the effect last ran (it isn't in the dependency array, since
+        // re-running the whole effect on every height correction would
+        // re-attach the ResizeObserver/scroll listener for no reason).
+        setMeasuredCardHeight(prev => (Math.abs(modeHeight - prev) > 0.5 ? modeHeight : prev));
+      }
 
       const posById = new Map<string, { top: number; bottom: number; left: number; right: number; midY: number }>();
       const matchById = new Map(bracket.matches.map(m => [m.id, m]));
@@ -547,8 +637,8 @@ export function BracketView({
           {/* Winners Bracket stacked above Losers Bracket, both reading
               left-to-right by round. */}
           <div className="flex flex-col">
-            {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} canManage={canManage} registerRef={registerRef} emphasized accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
-            {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} canManage={canManage} registerRef={registerRef} emphasized dividerAbove={bySide.WINNERS.length > 0} accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
+            {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
+            {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized dividerAbove={bySide.WINNERS.length > 0} accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
           </div>
           {/* Grand Finals is its own final column to the right of both
               brackets — not interleaved — vertically centered between them,
@@ -556,8 +646,8 @@ export function BracketView({
               winners) actually land. */}
           {(bySide.GRAND_FINAL.length > 0 || bySide.GRAND_FINAL_RESET.length > 0) && (
             <div className="flex flex-col justify-center">
-              {bySide.GRAND_FINAL.length > 0 && <BracketSideSection side="GRAND_FINAL" matches={bySide.GRAND_FINAL} canManage={canManage} registerRef={registerRef} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
-              {bySide.GRAND_FINAL_RESET.length > 0 && <BracketSideSection side="GRAND_FINAL_RESET" matches={bySide.GRAND_FINAL_RESET} canManage={canManage} registerRef={registerRef} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
+              {bySide.GRAND_FINAL.length > 0 && <BracketSideSection side="GRAND_FINAL" matches={bySide.GRAND_FINAL} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
+              {bySide.GRAND_FINAL_RESET.length > 0 && <BracketSideSection side="GRAND_FINAL_RESET" matches={bySide.GRAND_FINAL_RESET} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
             </div>
           )}
         </div>
