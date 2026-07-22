@@ -56,8 +56,7 @@ export function RegisterForm({ siteKey }: { siteKey: string }) {
     setLoading(true);
 
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
-      const res = await fetch(`${baseUrl}/api/graphql`, {
+      const res = await fetch("/api/graphql", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -95,8 +94,7 @@ export function RegisterForm({ siteKey }: { siteKey: string }) {
 
   async function handleResend() {
     setResendLoading(true);
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
-    await fetch(`${baseUrl}/api/graphql`, {
+    await fetch("/api/graphql", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

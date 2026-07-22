@@ -27,8 +27,7 @@ function ResetPasswordForm() {
 
     setLoading(true);
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
-    const res = await fetch(`${baseUrl}/api/graphql`, {
+    const res = await fetch("/api/graphql", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

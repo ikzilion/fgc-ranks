@@ -13,8 +13,7 @@ export default function ForgotPasswordPage() {
     e.preventDefault();
     setLoading(true);
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
-    await fetch(`${baseUrl}/api/graphql`, {
+    await fetch("/api/graphql", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

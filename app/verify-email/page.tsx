@@ -25,9 +25,8 @@ function VerifyEmailInner() {
     }
 
     (async () => {
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
       try {
-        const res = await fetch(`${baseUrl}/api/graphql`, {
+        const res = await fetch("/api/graphql", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -52,8 +51,7 @@ function VerifyEmailInner() {
   async function handleResend(e: React.FormEvent) {
     e.preventDefault();
     setResendLoading(true);
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
-    await fetch(`${baseUrl}/api/graphql`, {
+    await fetch("/api/graphql", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
