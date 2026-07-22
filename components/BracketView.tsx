@@ -60,6 +60,43 @@ const DEFAULT_LINE_COLOR = "var(--border-strong)";
 const CARD_GAP = 21;
 const DEFAULT_CARD_HEIGHT = 110; // only an initial guess for the very first paint, before measurement runs
 
+// A bye slot (an entrant advancing with no opponent) never gets a Match
+// document created for it at all — see lib/bracket.ts's buildMatch, which
+// returns a pass-through winner instead of pushing a draft whenever either
+// side of a pairing is BYE. That means a bye shows up here only as an
+// absent bracketPosition, not as a match with a missing player. To render a
+// placeholder in that gap we need to know how many positions a round is
+// SUPPOSED to have, independent of how many of them actually got a match —
+// this mirrors buildDoubleEliminationBracket's round-shape math exactly
+// (WB round r always has size/2^r positions; LB alternates consolidation
+// (halves) and drop-in (unchanged) rounds), since those array lengths are
+// fixed by `size` alone and never change based on which specific positions
+// are byes.
+function getRoundPositionCounts(size: number, side: string): number[] {
+  const m = Math.log2(size);
+  if (side === "WINNERS") {
+    const counts: number[] = [];
+    for (let r = 1; r <= m; r++) counts.push(size / 2 ** r);
+    return counts;
+  }
+  if (side === "LOSERS") {
+    if (m === 1) return []; // 2-entrant bracket has no Losers bracket at all
+    const counts: number[] = [];
+    let current = size / 4;
+    counts.push(current); // Losers Round 1 (consolidation)
+    for (let j = 1; j <= m - 1; j++) {
+      const isLastDropIn = j === m - 1;
+      counts.push(current); // drop-in round — length unchanged
+      if (!isLastDropIn) {
+        current = current / 2;
+        counts.push(current); // consolidation round — length halves
+      }
+    }
+    return counts;
+  }
+  return []; // GRAND_FINAL / GRAND_FINAL_RESET are single matches, never byed
+}
+
 function PlayerRow({
   player,
   score,
@@ -165,9 +202,37 @@ function MatchCard({
   );
 }
 
+// Placeholder for a bye slot — a bracketPosition with no Match document at
+// all (see getRoundPositionCounts above). Deliberately NOT registered via
+// registerRef: it has no match id, never participates in feeder/connector
+// tracing, and nothing ever draws a line to or from it. Its height is
+// pinned to the shared `cardHeight` (not just intrinsic content) so the
+// pyramid marginTop math — which assumes every column item is exactly
+// `cardHeight` tall — stays correct for whatever renders after it in the
+// same column. Deliberately NOT styled via boxColor/fontColor: it needs to
+// read as "not a real match" regardless of a TO's card color customization.
+function ByeCard({ cardHeight, marginTop }: { cardHeight: number; marginTop?: number }) {
+  return (
+    <div
+      className="w-56 flex-shrink-0 flex items-center justify-center rounded-md border border-dashed"
+      style={{
+        height: cardHeight,
+        borderColor: "var(--border-strong)",
+        opacity: 0.5,
+        ...(marginTop ? { marginTop } : undefined),
+      }}
+    >
+      <p className="font-rajdhani text-[11px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
+        Bye
+      </p>
+    </div>
+  );
+}
+
 function BracketSideSection({
   side,
   matches,
+  bracketSize,
   canManage,
   registerRef,
   cardHeight,
@@ -179,6 +244,10 @@ function BracketSideSection({
 }: {
   side: string;
   matches: BracketMatch[];
+  // Top-level bracket.size — needed to compute each round's expected
+  // position count (see getRoundPositionCounts) so a bye gap can be
+  // detected and rendered even though no Match document exists for it.
+  bracketSize: number;
   canManage: boolean;
   registerRef: (id: string, el: HTMLDivElement | null) => void;
   // The ACTUALLY rendered height of a match card in this session's view —
@@ -210,13 +279,20 @@ function BracketSideSection({
     if (!rounds.has(m.bracketRound)) rounds.set(m.bracketRound, []);
     rounds.get(m.bracketRound)!.push(m);
   }
-  const roundNumbers = [...rounds.keys()].sort((a, b) => a - b);
+  // The expected position counts (index 0 = round 1) cover every round this
+  // side is SUPPOSED to have, including one that's entirely bye-skipped and
+  // so would otherwise have zero real matches and never appear at all —
+  // this is the superset roundNumbers must iterate, not just `rounds.keys()`.
+  const expectedCounts = getRoundPositionCounts(bracketSize, side);
+  const roundNumbers =
+    expectedCounts.length > 0 ? expectedCounts.map((_, i) => i + 1) : [...rounds.keys()].sort((a, b) => a - b);
 
   // Sorted once per round, reused for both the pyramid-position computation
-  // below and rendering.
+  // below and rendering. A round with no real matches at all (fully bye-
+  // skipped) is legitimately absent from `rounds`, hence the `?? []`.
   const sortedByRound = new Map<number, BracketMatch[]>();
   for (const r of roundNumbers) {
-    sortedByRound.set(r, [...rounds.get(r)!].sort((a, b) => a.bracketPosition - b.bracketPosition));
+    sortedByRound.set(r, [...(rounds.get(r) ?? [])].sort((a, b) => a.bracketPosition - b.bracketPosition));
   }
 
   // Bracket "pyramid" positioning — a match's Y-center is derived STRICTLY
@@ -309,10 +385,31 @@ function BracketSideSection({
       <div className="flex gap-10">
         {roundNumbers.map(r => {
           const roundMatches = sortedByRound.get(r)!;
+          const expectedCount = expectedCounts[r - 1];
+          // Merge real matches with bye placeholders into one position-
+          // ordered column. A bye position's center uses the exact same
+          // 0-feeder formula as a real match with no traceable same-side
+          // feeder (see centerById above) — a bye slot by definition has no
+          // real same-side match feeding it either, so this stays
+          // consistent with the one invariant that must never be broken.
+          type ColumnItem = { kind: "match"; match: BracketMatch } | { kind: "bye"; position: number };
+          let columnItems: ColumnItem[];
+          if (expectedCount !== undefined) {
+            const byPosition = new Map(roundMatches.map(m => [m.bracketPosition, m]));
+            columnItems = [];
+            for (let p = 0; p < expectedCount; p++) {
+              const m = byPosition.get(p);
+              columnItems.push(m ? { kind: "match", match: m } : { kind: "bye", position: p });
+            }
+          } else {
+            columnItems = roundMatches.map(m => ({ kind: "match", match: m }));
+          }
+          const centerOf = (item: ColumnItem) =>
+            item.kind === "match" ? centerById.get(item.match.id)! : item.position * roundSpacing + cardHeight / 2;
           return (
             <div key={r} className="flex flex-col">
-              {roundMatches.map((m, idx) => {
-                const center = centerById.get(m.id)!;
+              {columnItems.map((item, idx) => {
+                const center = centerOf(item);
                 // First card in the column: offset from the column's own
                 // top (y=0) to this card's top. Every card after: the gap
                 // needed between the previous card's bottom and this one's
@@ -320,12 +417,14 @@ function BracketSideSection({
                 // apart — this is what lets the *rendered* margin actually
                 // achieve the computed `center` values above, since flex
                 // children stack from the previous child's bottom edge.
-                const marginTop =
-                  idx === 0 ? center - cardHeight / 2 : center - centerById.get(roundMatches[idx - 1].id)! - cardHeight;
+                const marginTop = idx === 0 ? center - cardHeight / 2 : center - centerOf(columnItems[idx - 1]) - cardHeight;
+                if (item.kind === "bye") {
+                  return <ByeCard key={`bye-${r}-${item.position}`} cardHeight={cardHeight} marginTop={marginTop} />;
+                }
                 return (
                   <MatchCard
-                    key={m.id}
-                    match={m}
+                    key={item.match.id}
+                    match={item.match}
                     canManage={canManage}
                     registerRef={registerRef}
                     boxColor={boxColor}
@@ -637,8 +736,8 @@ export function BracketView({
           {/* Winners Bracket stacked above Losers Bracket, both reading
               left-to-right by round. */}
           <div className="flex flex-col">
-            {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
-            {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized dividerAbove={bySide.WINNERS.length > 0} accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
+            {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} bracketSize={bracket.size} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
+            {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} bracketSize={bracket.size} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized dividerAbove={bySide.WINNERS.length > 0} accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
           </div>
           {/* Grand Finals is its own final column to the right of both
               brackets — not interleaved — vertically centered between them,
@@ -646,8 +745,8 @@ export function BracketView({
               winners) actually land. */}
           {(bySide.GRAND_FINAL.length > 0 || bySide.GRAND_FINAL_RESET.length > 0) && (
             <div className="flex flex-col justify-center">
-              {bySide.GRAND_FINAL.length > 0 && <BracketSideSection side="GRAND_FINAL" matches={bySide.GRAND_FINAL} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
-              {bySide.GRAND_FINAL_RESET.length > 0 && <BracketSideSection side="GRAND_FINAL_RESET" matches={bySide.GRAND_FINAL_RESET} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
+              {bySide.GRAND_FINAL.length > 0 && <BracketSideSection side="GRAND_FINAL" matches={bySide.GRAND_FINAL} bracketSize={bracket.size} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
+              {bySide.GRAND_FINAL_RESET.length > 0 && <BracketSideSection side="GRAND_FINAL_RESET" matches={bySide.GRAND_FINAL_RESET} bracketSize={bracket.size} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
             </div>
           )}
         </div>
