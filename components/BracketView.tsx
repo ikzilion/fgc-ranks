@@ -1,7 +1,7 @@
 // components/BracketView.tsx
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ReportMatchButton } from "./ReportMatchButton";
 
 interface BracketMatch {
@@ -95,6 +95,70 @@ function getRoundPositionCounts(size: number, side: string): number[] {
     return counts;
   }
   return []; // GRAND_FINAL / GRAND_FINAL_RESET are single matches, never byed
+}
+
+// A bye gap has no Match document of its own, so "who took the bye" and
+// "where do they land" can only be recovered by tracing forward one round:
+// WINNERS always pairs adjacent slots (buildMatch(wbCurrent[i], wbCurrent[i+1]))
+// so a round-r position p feeds round r+1's position floor(p/2), slot 1 (p
+// even) or slot 2 (p odd) — see lib/bracket.ts's main WB loop. LOSERS
+// alternates the same halving rule on odd ("consolidation") rounds with a
+// "drop-in" rule on even rounds, where the previous round's output feeds
+// forward 1:1 as slot 1 (the survivors side) against that round's incoming
+// WB-loser wave (buildDropInRound(lbCurrent, wbLoserOutputsByRound[j])) — see
+// lib/bracket.ts's buildConsolidationRound/buildDropInRound.
+//
+// This only traces ONE hop forward, which is sufficient for every bye this
+// bracket structure can actually produce: a WB bye's target round (r+1) is
+// guaranteed to be a real match (WB round 1 never pairs two byes together —
+// see seedSlotOrder's proof — so WB round 2+ never itself has a gap), and an
+// LB round's bye gap is the WINNER of a real player passing through (not a
+// literal BYE slot), which can only combine with a real WB-loser wave entry
+// next round (WB round 2+ never produces a bye-side loser either) — so it
+// always resolves into a real match too. A gap whose target round doesn't
+// exist (e.g. a bye at a bracket's very last round) is the one case this
+// can't resolve — targetMatchId/player stay null and the card just shows a
+// generic placeholder with no connector line rather than guessing.
+interface ByeSlot {
+  id: string; // synthetic — never collides with a real match id
+  side: string;
+  bracketRound: number;
+  bracketPosition: number;
+  targetMatchId: string | null;
+  player: { id: string; tag: string } | null;
+}
+
+function computeByeSlots(matches: BracketMatch[], size: number): ByeSlot[] {
+  const result: ByeSlot[] = [];
+  for (const side of ["WINNERS", "LOSERS"]) {
+    const counts = getRoundPositionCounts(size, side);
+    if (counts.length === 0) continue;
+    const byRoundPos = new Map<string, BracketMatch>();
+    for (const m of matches) {
+      if (m.bracketSide === side) byRoundPos.set(`${m.bracketRound}-${m.bracketPosition}`, m);
+    }
+    for (let r = 1; r <= counts.length; r++) {
+      const expected = counts[r - 1];
+      for (let p = 0; p < expected; p++) {
+        if (byRoundPos.has(`${r}-${p}`)) continue; // real match exists — not a bye gap
+        const isDropInRound = side === "LOSERS" && r % 2 === 0;
+        const targetRound = r + 1;
+        const targetPosition = isDropInRound ? p : Math.floor(p / 2);
+        const targetSlot: 1 | 2 = isDropInRound ? 1 : p % 2 === 0 ? 1 : 2;
+        const target = targetRound <= counts.length ? byRoundPos.get(`${targetRound}-${targetPosition}`) : undefined;
+        const player = target ? (targetSlot === 1 ? target.player1 : target.player2) ?? null : null;
+        result.push({
+          id: `bye-${side}-${r}-${p}`,
+          side,
+          bracketRound: r,
+          bracketPosition: p,
+          targetMatchId: target?.id ?? null,
+          player,
+        });
+      }
+    }
+  }
+  return result;
 }
 
 function PlayerRow({
@@ -203,18 +267,43 @@ function MatchCard({
 }
 
 // Placeholder for a bye slot — a bracketPosition with no Match document at
-// all (see getRoundPositionCounts above). Deliberately NOT registered via
-// registerRef: it has no match id, never participates in feeder/connector
-// tracing, and nothing ever draws a line to or from it. Its height is
-// pinned to the shared `cardHeight` (not just intrinsic content) so the
-// pyramid marginTop math — which assumes every column item is exactly
-// `cardHeight` tall — stays correct for whatever renders after it in the
-// same column. Deliberately NOT styled via boxColor/fontColor: it needs to
-// read as "not a real match" regardless of a TO's card color customization.
-function ByeCard({ cardHeight, marginTop }: { cardHeight: number; marginTop?: number }) {
+// all (see getRoundPositionCounts above). Its height is pinned to the
+// shared `cardHeight` (not just intrinsic content) so the pyramid marginTop
+// math — which assumes every column item is exactly `cardHeight` tall —
+// stays correct for whatever renders after it in the same column.
+// Deliberately NOT styled via boxColor/fontColor: it needs to read as "not
+// a real match" regardless of a TO's card color customization.
+//
+// Registered via `registerByeRef` — a SEPARATE ref map from MatchCard's
+// registerRef, on purpose. This card now needs a real DOM position for the
+// connector line to its Round 2 destination, but its height is force-pinned
+// (not intrinsic) — if it were added to registerRef's cardEls instead, it
+// would also enter BracketView's card-height MODE calculation, and on a
+// bye-heavy bracket where byes approach or exceed the real-card count, a
+// self-referential pinned height could tip the mode away from the true
+// rendered card height, reintroducing the exact per-viewer drift bug
+// `5fcaeb3` fixed. registerByeRef's byeEls map is read only for connector
+// positions, never for height measurement.
+function ByeCard({
+  cardHeight,
+  marginTop,
+  byeId,
+  registerByeRef,
+  player,
+}: {
+  cardHeight: number;
+  marginTop?: number;
+  byeId: string;
+  registerByeRef: (id: string, el: HTMLDivElement | null) => void;
+  // The actual bye recipient, resolved from their real next-round match's
+  // slot (see computeByeSlots) — null only when that match itself couldn't
+  // be resolved (see computeByeSlots's comment on the rare last-round case).
+  player: { id: string; tag: string } | null;
+}) {
   return (
     <div
-      className="w-56 flex-shrink-0 flex items-center justify-center rounded-md border border-dashed"
+      ref={el => registerByeRef(byeId, el)}
+      className="w-56 flex-shrink-0 flex flex-col items-center justify-center gap-1 rounded-md border border-dashed overflow-hidden px-3"
       style={{
         height: cardHeight,
         borderColor: "var(--border-strong)",
@@ -222,8 +311,17 @@ function ByeCard({ cardHeight, marginTop }: { cardHeight: number; marginTop?: nu
         ...(marginTop ? { marginTop } : undefined),
       }}
     >
-      <p className="font-rajdhani text-[11px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
-        Bye
+      <p
+        className="font-rajdhani text-[10px] font-semibold uppercase tracking-widest text-center truncate w-full"
+        style={{ color: "var(--text-muted)" }}
+      >
+        Bye player skipping round
+      </p>
+      <p
+        className="font-rajdhani text-[15px] font-semibold truncate w-full text-center"
+        style={{ color: "var(--text-muted)", fontStyle: player ? "normal" : "italic" }}
+      >
+        {player ? player.tag : "TBD"}
       </p>
     </div>
   );
@@ -233,8 +331,10 @@ function BracketSideSection({
   side,
   matches,
   bracketSize,
+  byeSlots = [],
   canManage,
   registerRef,
+  registerByeRef,
   cardHeight,
   emphasized,
   dividerAbove,
@@ -248,8 +348,17 @@ function BracketSideSection({
   // position count (see getRoundPositionCounts) so a bye gap can be
   // detected and rendered even though no Match document exists for it.
   bracketSize: number;
+  // Pre-computed by BracketView (computeByeSlots), already filtered to this
+  // side — one entry per detected bye gap, carrying the resolved bye
+  // recipient and their real next-round target match id. Optional/empty for
+  // GRAND_FINAL/GRAND_FINAL_RESET sections, which never have byes.
+  byeSlots?: ByeSlot[];
   canManage: boolean;
   registerRef: (id: string, el: HTMLDivElement | null) => void;
+  // Only needed alongside byeSlots — registers each ByeCard's DOM node into
+  // BracketView's separate byeEls map, purely for connector-line position
+  // lookup (see ByeCard's comment on why this is NOT registerRef/cardEls).
+  registerByeRef?: (id: string, el: HTMLDivElement | null) => void;
   // The ACTUALLY rendered height of a match card in this session's view —
   // see BracketView's measuredCardHeight. Differs between a canManage
   // (organizer/admin) viewer and a public viewer, since only canManage
@@ -274,6 +383,8 @@ function BracketSideSection({
   fontColor?: string;
 }) {
   const roundSpacing = cardHeight + CARD_GAP;
+  const byeByRoundPos = new Map<string, ByeSlot>();
+  for (const b of byeSlots) byeByRoundPos.set(`${b.bracketRound}-${b.bracketPosition}`, b);
   const rounds = new Map<number, BracketMatch[]>();
   for (const m of matches) {
     if (!rounds.has(m.bracketRound)) rounds.set(m.bracketRound, []);
@@ -392,20 +503,20 @@ function BracketSideSection({
           // feeder (see centerById above) — a bye slot by definition has no
           // real same-side match feeding it either, so this stays
           // consistent with the one invariant that must never be broken.
-          type ColumnItem = { kind: "match"; match: BracketMatch } | { kind: "bye"; position: number };
+          type ColumnItem = { kind: "match"; match: BracketMatch } | { kind: "bye"; byeSlot: ByeSlot };
           let columnItems: ColumnItem[];
           if (expectedCount !== undefined) {
             const byPosition = new Map(roundMatches.map(m => [m.bracketPosition, m]));
             columnItems = [];
             for (let p = 0; p < expectedCount; p++) {
               const m = byPosition.get(p);
-              columnItems.push(m ? { kind: "match", match: m } : { kind: "bye", position: p });
+              columnItems.push(m ? { kind: "match", match: m } : { kind: "bye", byeSlot: byeByRoundPos.get(`${r}-${p}`)! });
             }
           } else {
             columnItems = roundMatches.map(m => ({ kind: "match", match: m }));
           }
           const centerOf = (item: ColumnItem) =>
-            item.kind === "match" ? centerById.get(item.match.id)! : item.position * roundSpacing + cardHeight / 2;
+            item.kind === "match" ? centerById.get(item.match.id)! : item.byeSlot.bracketPosition * roundSpacing + cardHeight / 2;
           return (
             <div key={r} className="flex flex-col">
               {columnItems.map((item, idx) => {
@@ -419,7 +530,16 @@ function BracketSideSection({
                 // children stack from the previous child's bottom edge.
                 const marginTop = idx === 0 ? center - cardHeight / 2 : center - centerOf(columnItems[idx - 1]) - cardHeight;
                 if (item.kind === "bye") {
-                  return <ByeCard key={`bye-${r}-${item.position}`} cardHeight={cardHeight} marginTop={marginTop} />;
+                  return (
+                    <ByeCard
+                      key={item.byeSlot.id}
+                      byeId={item.byeSlot.id}
+                      registerByeRef={registerByeRef ?? (() => {})}
+                      player={item.byeSlot.player}
+                      cardHeight={cardHeight}
+                      marginTop={marginTop}
+                    />
+                  );
                 }
                 return (
                   <MatchCard
@@ -460,6 +580,10 @@ export function BracketView({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cardEls = useRef<Map<string, HTMLDivElement>>(new Map());
+  // Separate from cardEls on purpose — see ByeCard's comment. Read only for
+  // connector-line positions in measure() below, never for card-height
+  // measurement.
+  const byeEls = useRef<Map<string, HTMLDivElement>>(new Map());
   const [overlay, setOverlay] = useState<{ width: number; height: number; clientWidth: number; paths: string[] }>({
     width: 0,
     height: 0,
@@ -488,6 +612,17 @@ export function BracketView({
     if (el) cardEls.current.set(id, el);
     else cardEls.current.delete(id);
   }
+
+  function registerByeRef(id: string, el: HTMLDivElement | null) {
+    if (el) byeEls.current.set(id, el);
+    else byeEls.current.delete(id);
+  }
+
+  // Memoized on bracket.matches/bracket.size so it's stable across renders
+  // that don't actually change the bracket — lets the effect below list it
+  // as a real dependency instead of silently reading a fresh-every-render
+  // value out of closure.
+  const byeSlots = useMemo(() => computeByeSlots(bracket.matches, bracket.size), [bracket.matches, bracket.size]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -564,6 +699,19 @@ export function BracketView({
         const left = r.left - containerRect.left + containerEl.scrollLeft;
         posById.set(m.id, { top, bottom: top + r.height, left, right: left + r.width, midY: top + r.height / 2 });
       }
+      // Bye cards get a position entry too (from the separate byeEls map,
+      // never cardEls — see ByeCard's comment), keyed by their synthetic id
+      // alongside real match ids in the SAME posById map, so the feeder/
+      // connector-drawing logic below can treat a bye exactly like any
+      // other feeder without needing its own separate code path.
+      for (const bye of byeSlots) {
+        const el = byeEls.current.get(bye.id);
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        const top = r.top - containerRect.top + containerEl.scrollTop;
+        const left = r.left - containerRect.left + containerEl.scrollLeft;
+        posById.set(bye.id, { top, bottom: top + r.height, left, right: left + r.width, midY: top + r.height / 2 });
+      }
 
       // Collect every source ("feeder") card's exit point, grouped by which
       // downstream match it feeds into. A target match normally has exactly
@@ -596,6 +744,20 @@ export function BracketView({
         if (m.nextLoserMatch && matchById.get(m.nextLoserMatch.id)?.bracketSide === "GRAND_FINAL" && posById.has(m.nextLoserMatch.id)) {
           addFeeder(m.nextLoserMatch.id, from.right, from.midY);
         }
+      }
+      // A bye's connector — same treatment as a real feeder (see
+      // computeByeSlots for how targetMatchId is resolved). This never adds
+      // a feeder to a target that wasn't already going to have one drawn:
+      // byeSlots only contains genuine gaps, so a fully-matched round's
+      // targets are completely unaffected. A target with one real feeder
+      // plus its bye feeder now has feeders.length === 2, landing on the
+      // exact same shared-trunk elbow branch below as any ordinary
+      // 2-feeder match — no changes needed to that drawing logic itself.
+      for (const bye of byeSlots) {
+        if (!bye.targetMatchId) continue;
+        const from = posById.get(bye.id);
+        if (!from || !posById.has(bye.targetMatchId)) continue;
+        addFeeder(bye.targetMatchId, from.right, from.midY);
       }
 
       // Classic "elbow bracket per sibling pair" connector: for a target
@@ -692,7 +854,7 @@ export function BracketView({
       window.removeEventListener("resize", measure);
       container!.removeEventListener("scroll", onScroll);
     };
-  }, [bracket.matches]);
+  }, [bracket.matches, byeSlots]);
 
   const bySide: Record<string, BracketMatch[]> = { WINNERS: [], LOSERS: [], GRAND_FINAL: [], GRAND_FINAL_RESET: [] };
   for (const m of bracket.matches) {
@@ -736,8 +898,8 @@ export function BracketView({
           {/* Winners Bracket stacked above Losers Bracket, both reading
               left-to-right by round. */}
           <div className="flex flex-col">
-            {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} bracketSize={bracket.size} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
-            {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} bracketSize={bracket.size} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized dividerAbove={bySide.WINNERS.length > 0} accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
+            {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} bracketSize={bracket.size} byeSlots={byeSlots.filter(b => b.side === "WINNERS")} registerByeRef={registerByeRef} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
+            {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} bracketSize={bracket.size} byeSlots={byeSlots.filter(b => b.side === "LOSERS")} registerByeRef={registerByeRef} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized dividerAbove={bySide.WINNERS.length > 0} accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
           </div>
           {/* Grand Finals is its own final column to the right of both
               brackets — not interleaved — vertically centered between them,
