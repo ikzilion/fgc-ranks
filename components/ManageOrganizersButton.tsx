@@ -9,34 +9,63 @@ interface Organizer {
   tag: string;
 }
 
-interface EntrantOption {
-  id: string;
-  player: { id: string; tag: string };
-}
-
 export function ManageOrganizersButton({
   tournamentId,
   organizers,
-  entrants,
   canManage,
 }: {
   tournamentId: string;
   organizers: Organizer[];
-  entrants: EntrantOption[];
   canManage: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [addPlayerId, setAddPlayerId] = useState("");
+  // Add-by-Player-ID — same type/look-up/confirm shape as CreateTournamentButton's
+  // Event ID linking, works for any real player regardless of whether
+  // they've entered this tournament as an entrant (the old picker was
+  // limited to entrants only; addTournamentOrganizer itself never was).
+  const [playerIdInput, setPlayerIdInput] = useState("");
+  const [foundPlayer, setFoundPlayer] = useState<{ id: string; tag: string; displayId?: string | null } | null>(null);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupError, setLookupError] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   if (!canManage) return null;
 
-  // Only entrants who aren't already organizers can be added
-  const addableEntrants = entrants.filter(
-    e => !organizers.some(o => o.id === e.player.id)
-  );
+  const alreadyOrganizer = !!foundPlayer && organizers.some(o => o.id === foundPlayer.id);
+
+  async function handleLookup() {
+    if (!playerIdInput.trim()) return;
+    setLookupLoading(true);
+    setLookupError("");
+    setFoundPlayer(null);
+
+    try {
+      const res = await fetch("/api/graphql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: `
+            query LookupPlayer($displayId: String!) {
+              playerByDisplayId(displayId: $displayId) { id tag displayId }
+            }
+          `,
+          variables: { displayId: playerIdInput.trim() },
+        }),
+      });
+      const json = await res.json();
+      if (json.errors || !json.data?.playerByDisplayId) {
+        setLookupError("No player found with that ID.");
+      } else {
+        setFoundPlayer(json.data.playerByDisplayId);
+      }
+    } catch {
+      setLookupError("Something went wrong. Try again.");
+    }
+
+    setLookupLoading(false);
+  }
 
   async function runMutation(query: string, variables: Record<string, unknown>) {
     setLoading(true);
@@ -51,7 +80,8 @@ export function ManageOrganizersButton({
       if (json.errors) {
         setError(json.errors[0]?.message ?? "Something went wrong");
       } else {
-        setAddPlayerId("");
+        setPlayerIdInput("");
+        setFoundPlayer(null);
         router.refresh();
       }
     } catch {
@@ -61,14 +91,14 @@ export function ManageOrganizersButton({
   }
 
   function handleAdd() {
-    if (!addPlayerId) return;
+    if (!foundPlayer) return;
     runMutation(
       `
         mutation AddOrganizer($tournamentId: ID!, $playerId: ID!) {
           addTournamentOrganizer(tournamentId: $tournamentId, playerId: $playerId) { id }
         }
       `,
-      { tournamentId, playerId: addPlayerId }
+      { tournamentId, playerId: foundPlayer.id }
     );
   }
 
@@ -129,32 +159,59 @@ export function ManageOrganizersButton({
               )}
             </div>
 
-            {addableEntrants.length > 0 && (
-              <div className="mb-4">
-                <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Add organizer</label>
-                <div className="flex gap-2">
-                  <select
-                    value={addPlayerId}
-                    onChange={e => setAddPlayerId(e.target.value)}
-                    className="flex-1 px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] outline-none focus:border-[var(--blue)]"
-                    style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
-                  >
-                    <option value="">Select entrant…</option>
-                    {addableEntrants.map(e => (
-                      <option key={e.player.id} value={e.player.id}>{e.player.tag}</option>
-                    ))}
-                  </select>
+            <div className="mb-4">
+              <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Add organizer by Player ID</label>
+              {foundPlayer ? (
+                <div className="flex items-center gap-3 px-3 py-2.5 rounded-md" style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-semibold text-[var(--text-primary)] truncate">{foundPlayer.tag}</p>
+                    <p className="text-[10px] font-mono text-[var(--text-muted)]">{foundPlayer.displayId}</p>
+                  </div>
+                  {alreadyOrganizer ? (
+                    <span className="text-[11px] text-[var(--text-muted)] flex-shrink-0">Already an organizer</span>
+                  ) : (
+                    <button
+                      onClick={handleAdd}
+                      disabled={loading}
+                      className="text-[11px] font-semibold px-3 py-1.5 rounded flex-shrink-0"
+                      style={{ background: "var(--blue)", color: "white", border: "none", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.6 : 1 }}
+                    >
+                      {loading ? "Adding..." : "Add"}
+                    </button>
+                  )}
                   <button
-                    onClick={handleAdd}
-                    disabled={loading || !addPlayerId}
-                    className="px-4 py-2 rounded font-rajdhani text-[13px] font-bold"
-                    style={{ background: "var(--blue)", color: "white", border: "none", cursor: loading || !addPlayerId ? "not-allowed" : "pointer", opacity: loading || !addPlayerId ? 0.6 : 1 }}
+                    type="button"
+                    onClick={() => { setFoundPlayer(null); setPlayerIdInput(""); }}
+                    className="text-[11px] font-semibold px-2 py-1 rounded flex-shrink-0"
+                    style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)", cursor: "pointer" }}
                   >
-                    Add
+                    Clear
                   </button>
                 </div>
-              </div>
-            )}
+              ) : (
+                <>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={playerIdInput}
+                      onChange={e => { setPlayerIdInput(e.target.value); setLookupError(""); }}
+                      placeholder="e.g. FGC-000001"
+                      className="flex-1 px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
+                      style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
+                    />
+                    <button
+                      onClick={handleLookup}
+                      disabled={lookupLoading || !playerIdInput.trim()}
+                      className="text-[12px] font-semibold px-3 py-2 rounded"
+                      style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)", cursor: lookupLoading ? "not-allowed" : "pointer" }}
+                    >
+                      {lookupLoading ? "Looking up..." : "Look up"}
+                    </button>
+                  </div>
+                  {lookupError && <p className="text-[12px] mt-1" style={{ color: "var(--coral)" }}>{lookupError}</p>}
+                </>
+              )}
+            </div>
 
             {error && (
               <p className="text-[12px] mb-4 px-3 py-2 rounded" style={{ background: "var(--coral-dim)", color: "var(--coral)" }}>

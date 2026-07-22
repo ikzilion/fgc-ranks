@@ -305,7 +305,6 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                 <ManageOrganizersButton
                   tournamentId={tournament.id}
                   organizers={tournament.organizers}
-                  entrants={tournament.entrants}
                   canManage={canManage}
                 />
                 <InvitePlayerButton

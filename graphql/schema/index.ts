@@ -220,6 +220,11 @@ export const typeDefs = `#graphql
     players(limit: Int, offset: Int): [Player!]!
     player(id: ID!): Player
     playerByTag(tag: String!): Player
+    # Looks up by the human-readable displayId (e.g. "FGC-000001") — what a
+    # TO types into "Add organizer by Player ID", not the raw Mongo _id.
+    # Same pattern as eventByDisplayId. Works for any player regardless of
+    # whether they've entered the tournament in question.
+    playerByDisplayId(displayId: String!): Player
 
     tournaments(status: TournamentStatus, limit: Int, offset: Int): [Tournament!]!
     tournament(id: ID!): Tournament

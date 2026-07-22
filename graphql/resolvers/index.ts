@@ -232,6 +232,18 @@ export const resolvers = {
       return await Player.findOne({ tag });
     },
 
+    playerByDisplayId: async (_: unknown, { displayId }: { displayId: string }) => {
+      await connectToDatabase();
+      // "FGC-000001" -> 1, same parsing convention as eventByDisplayId.
+      const match = displayId.trim().match(/^FGC-0*(\d+)$/i);
+      if (!match) return null;
+      const playerNumber = Number(match[1]);
+      if (!playerNumber) return null;
+      // Excludes soft-deleted players, same as the `players` list query —
+      // a deleted account shouldn't be addable as an organizer.
+      return await Player.findOne({ playerNumber, isDeleted: { $ne: true } });
+    },
+
     // Tournaments
     // Query-time filter, not a background job — nothing is ever deleted,
     // and tournament(id) below is deliberately NOT filtered, so a stale
