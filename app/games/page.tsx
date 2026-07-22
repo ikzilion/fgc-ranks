@@ -62,7 +62,7 @@ export default async function GamesPage() {
               className="fgc-card p-5 flex flex-col items-center gap-3 text-center hover:bg-[var(--navy-3)] transition-colors"
             >
               <div
-                className="w-14 h-14 rounded-full flex items-center justify-center flex-shrink-0 font-rajdhani text-lg font-bold overflow-hidden"
+                className="w-14 h-14 rounded-[10px] flex items-center justify-center flex-shrink-0 font-rajdhani text-lg font-bold overflow-hidden"
                 style={{ background: "var(--blue-dim)", border: "1px solid rgba(79,142,247,0.3)", color: "var(--blue)" }}
               >
                 {game.iconUrl ? (
