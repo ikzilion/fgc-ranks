@@ -260,10 +260,10 @@ export function CreateTournamentButton() {
                     style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
                   >
                     <option value="">Select a game…</option>
+                    <option value={OTHER_GAME}>Other (type your own)</option>
                     {games.map(g => (
                       <option key={g.id} value={g.name}>{g.name}</option>
                     ))}
-                    <option value={OTHER_GAME}>Other (type your own)</option>
                   </select>
                   {/* Not added as a curated Game — stays a plain
                       Tournament.game string, same as any pre-existing
