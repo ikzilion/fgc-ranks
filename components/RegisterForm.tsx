@@ -160,7 +160,6 @@ export function RegisterForm({ siteKey }: { siteKey: string }) {
                   value={tag}
                   onChange={e => setTag(e.target.value)}
                   required
-                  placeholder="MenaRD"
                   className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
                   style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
                 />

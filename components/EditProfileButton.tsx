@@ -166,7 +166,6 @@ export function EditProfileButton({ playerId, currentTag, currentRegion, current
                 type="text"
                 value={region}
                 onChange={e => setRegion(e.target.value)}
-                placeholder="e.g. Dominican Republic"
                 className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
                 style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
               />
@@ -178,7 +177,6 @@ export function EditProfileButton({ playerId, currentTag, currentRegion, current
                 type="text"
                 value={team}
                 onChange={e => setTeam(e.target.value)}
-                placeholder="e.g. Team Liquid"
                 className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
                 style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
               />
