@@ -35,6 +35,7 @@ const GET_OWN_PLAYER = `
       wins
       losses
       points
+      user { id isTO }
     }
   }
 `;

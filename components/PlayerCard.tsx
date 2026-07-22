@@ -17,6 +17,10 @@ interface PlayerCardData {
   wins: number;
   losses: number;
   points: number;
+  // TO permission overhaul — same gold "TO" pill AdminTOManager's player
+  // list already uses, shown wherever this card renders (it's always the
+  // viewer's own card, never someone else's).
+  user?: { id: string; isTO?: boolean } | null;
 }
 
 export function PlayerCard({ player }: { player: PlayerCardData | null }) {
@@ -49,7 +53,17 @@ export function PlayerCard({ player }: { player: PlayerCardData | null }) {
       <div className="flex items-center gap-3 mb-4">
         <ZoomableAvatar avatarUrl={player.avatarUrl} tag={player.tag} sizeClassName="w-12 h-12" textClassName="text-base" />
         <div className="min-w-0">
-          <p className="font-rajdhani text-lg font-bold text-[var(--text-primary)] leading-tight truncate">{player.tag}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="font-rajdhani text-lg font-bold text-[var(--text-primary)] leading-tight truncate">{player.tag}</p>
+            {player.user?.isTO && (
+              <span
+                className="text-[10px] font-bold uppercase px-2 py-1 rounded flex-shrink-0"
+                style={{ background: "var(--gold-dim)", color: "var(--gold)", border: "1px solid rgba(240,180,41,0.25)" }}
+              >
+                TO
+              </span>
+            )}
+          </div>
           {player.team && <p className="text-[11px] font-semibold truncate" style={{ color: "var(--blue)" }}>{player.team}</p>}
           {player.region && <p className="text-[11px] text-[var(--text-secondary)] truncate">{player.region}</p>}
         </div>

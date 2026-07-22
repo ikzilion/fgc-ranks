@@ -46,6 +46,7 @@ const GET_HOME_PLAYER = `
       losses
       points
       winRate
+      user { id isTO }
     }
   }
 `;
