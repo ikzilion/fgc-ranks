@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 
 interface PendingRequest {
   id: string;
+  contactEmail: string;
   reason?: string | null;
   createdAt: string;
   player: {
@@ -101,6 +102,7 @@ function PendingTORequestCard({ request }: { request: PendingRequest }) {
             <p className="text-[11px] text-[var(--text-muted)]">
               {accountAgeLabel(player.user?.createdAt)} · {player.tournaments.length} tournament{player.tournaments.length === 1 ? "" : "s"} entered
             </p>
+            <p className="text-[11px] text-[var(--text-secondary)]">{request.contactEmail}</p>
           </div>
         </div>
         <p className="text-[11px] text-[var(--text-muted)] text-right flex-shrink-0">

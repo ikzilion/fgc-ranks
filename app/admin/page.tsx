@@ -39,6 +39,7 @@ const GET_ADMIN_DASHBOARD_DATA = `
     }
     pendingTORequests {
       id
+      contactEmail
       reason
       createdAt
       player {

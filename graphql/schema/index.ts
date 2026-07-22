@@ -35,6 +35,9 @@ export const typeDefs = `#graphql
   type TORequest {
     id: ID!
     player: Player!
+    # Required at request time — a way for the reviewing admin to reach the
+    # requester outside the app if needed.
+    contactEmail: String!
     reason: String
     status: TORequestStatus!
     # Only set when status is REJECTED.
@@ -298,7 +301,7 @@ export const typeDefs = `#graphql
     # Enforces server-side (not just UI) that a player can't queue a second
     # request while one is already PENDING, and that a REJECTED request
     # blocks re-requesting for 7 days from its resolvedAt.
-    requestTOStatus(reason: String): TORequest!
+    requestTOStatus(contactEmail: String!, reason: String): TORequest!
     # ADMIN-only. Approving sets the requester's User.isTO to true.
     approveTORequest(id: ID!): TORequest!
     # ADMIN-only. Reason is required, same convention as rejectEvent.

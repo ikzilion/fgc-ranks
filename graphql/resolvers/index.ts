@@ -114,6 +114,10 @@ function isEventManager(event: any, playerId?: string, role?: string): boolean {
   return event.managerIds.some((id: any) => id.toString() === playerId);
 }
 
+// Basic (not exhaustive/RFC-compliant) email format check — used by
+// requestTOStatus's required contactEmail field.
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 // Shared by createTournament and requestTOStatus — the same minimum
 // account-trust threshold (Security Push Phase 4, narrowed to account age
 // alone in commit 0c3c1b1). Takes the already-fetched User doc rather than
@@ -693,10 +697,17 @@ export const resolvers = {
     // TO permission overhaul — request/approval flow.
     requestTOStatus: async (
       _: unknown,
-      { reason }: { reason?: string },
+      { contactEmail, reason }: { contactEmail: string; reason?: string },
       { playerId }: { playerId?: string }
     ) => {
       if (!playerId) throw new Error("Not authorized");
+      // Basic format check (not exhaustive/RFC-compliant, matching the
+      // "basic email format validation" ask) — real enforcement, since the
+      // matching client-side check in RequestTOButton can be bypassed by a
+      // direct API call.
+      if (!EMAIL_REGEX.test(contactEmail.trim())) {
+        throw new Error("Please enter a valid contact email.");
+      }
       await connectToDatabase();
 
       const player = await Player.findById(playerId);
@@ -725,7 +736,7 @@ export const resolvers = {
         }
       }
 
-      return TORequest.create({ playerId, reason: reason?.trim() || "" });
+      return TORequest.create({ playerId, contactEmail: contactEmail.trim(), reason: reason?.trim() || "" });
     },
 
     // ADMIN-only. Approving is what actually grants TO status.

@@ -13,6 +13,10 @@ export enum TORequestStatus {
 const TORequestSchema = new Schema(
   {
     playerId: { type: Schema.Types.ObjectId, ref: "Player", required: true },
+    // Required (unlike `reason` below) — a way for the reviewing admin to
+    // reach the requester outside the app if needed. Format validated in
+    // the requestTOStatus resolver before this document is ever created.
+    contactEmail: { type: String, required: true },
     // Optional short note the requester can leave for the reviewing admin.
     reason: { type: String, default: "" },
     status: {

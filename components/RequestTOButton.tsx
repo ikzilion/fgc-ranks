@@ -10,6 +10,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 const COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+// Basic (not exhaustive) format check, mirrored server-side in the
+// requestTOStatus resolver — the real enforcement, since this client-side
+// check alone can be bypassed by a direct API call.
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface MyTORequest {
   status: "PENDING" | "APPROVED" | "REJECTED";
@@ -19,6 +23,7 @@ interface MyTORequest {
 export function RequestTOButton({ isTO, myRequest }: { isTO: boolean; myRequest: MyTORequest | null }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [contactEmail, setContactEmail] = useState("");
   const [reason, setReason] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -63,7 +68,13 @@ export function RequestTOButton({ isTO, myRequest }: { isTO: boolean; myRequest:
     );
   }
 
+  const isEmailValid = EMAIL_REGEX.test(contactEmail.trim());
+
   async function handleSubmit() {
+    if (!isEmailValid) {
+      setError("Please enter a valid contact email.");
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -71,8 +82,8 @@ export function RequestTOButton({ isTO, myRequest }: { isTO: boolean; myRequest:
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          query: `mutation RequestTOStatus($reason: String) { requestTOStatus(reason: $reason) { id status } }`,
-          variables: { reason: reason.trim() || undefined },
+          query: `mutation RequestTOStatus($contactEmail: String!, $reason: String) { requestTOStatus(contactEmail: $contactEmail, reason: $reason) { id status } }`,
+          variables: { contactEmail: contactEmail.trim(), reason: reason.trim() || undefined },
         }),
       });
       const json = await res.json();
@@ -111,6 +122,19 @@ export function RequestTOButton({ isTO, myRequest }: { isTO: boolean; myRequest:
             </p>
 
             <div className="mb-4">
+              <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Contact email (required)</label>
+              <input
+                type="email"
+                value={contactEmail}
+                onChange={e => setContactEmail(e.target.value)}
+                placeholder="you@example.com"
+                className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
+                style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
+              />
+              <p className="text-[11px] text-[var(--text-muted)] mt-1">So the reviewing admin can reach you if needed.</p>
+            </div>
+
+            <div className="mb-4">
               <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Reason (optional)</label>
               <textarea
                 value={reason}
@@ -138,9 +162,9 @@ export function RequestTOButton({ isTO, myRequest }: { isTO: boolean; myRequest:
               </button>
               <button
                 onClick={handleSubmit}
-                disabled={loading}
+                disabled={loading || !isEmailValid}
                 className="flex-1 py-2 rounded font-rajdhani text-[14px] font-bold"
-                style={{ background: "var(--blue)", color: "white", border: "none", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.6 : 1 }}
+                style={{ background: "var(--blue)", color: "white", border: "none", cursor: loading || !isEmailValid ? "not-allowed" : "pointer", opacity: loading || !isEmailValid ? 0.6 : 1 }}
               >
                 {loading ? "Submitting..." : "Submit request"}
               </button>
