@@ -6,24 +6,29 @@ const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN!,
 });
 
+// Every limiter below uses a flat 5-minute window (user request, July 23,
+// 2026) — previously each had its own duration (15m/1h/1d, noted per limiter
+// below for reference). Uniform across every account, no role-based
+// exceptions (an ADMIN/TO account is rate-limited identically to anyone else
+// — see lib/auth.ts's authorize(), which never branches on role).
 export const loginRateLimit = new Ratelimit({
   redis,
-  limiter: Ratelimit.slidingWindow(5, "15 m"), // 5 attempts per 15 min
+  limiter: Ratelimit.slidingWindow(5, "5 m"), // 5 attempts per 5 min (was 15 min)
   prefix: "ratelimit:login",
 });
 
 export const registerRateLimit = new Ratelimit({
   redis,
-  limiter: Ratelimit.slidingWindow(3, "1 h"), // 3 accounts per hour
+  limiter: Ratelimit.slidingWindow(3, "5 m"), // 3 accounts per 5 min (was 1 hour)
   prefix: "ratelimit:register",
 });
 
-// Raised in dev so local testing doesn't get stuck waiting out the 1h window — prod stays at 3.
+// Raised in dev so local testing doesn't get stuck waiting out the window — prod stays at 3.
 const passwordResetLimit = process.env.NODE_ENV === "production" ? 3 : 20;
 
 export const passwordResetRateLimit = new Ratelimit({
   redis,
-  limiter: Ratelimit.slidingWindow(passwordResetLimit, "1 h"),
+  limiter: Ratelimit.slidingWindow(passwordResetLimit, "5 m"), // was 1 hour
   prefix: "ratelimit:password-reset",
 });
 
@@ -33,7 +38,7 @@ const resendVerificationLimit = process.env.NODE_ENV === "production" ? 3 : 20;
 
 export const resendVerificationRateLimit = new Ratelimit({
   redis,
-  limiter: Ratelimit.slidingWindow(resendVerificationLimit, "1 h"),
+  limiter: Ratelimit.slidingWindow(resendVerificationLimit, "5 m"), // was 1 hour
   prefix: "ratelimit:resend-verification",
 });
 
@@ -44,15 +49,14 @@ const deleteAccountRequestLimit = process.env.NODE_ENV === "production" ? 3 : 20
 
 export const deleteAccountRequestRateLimit = new Ratelimit({
   redis,
-  limiter: Ratelimit.slidingWindow(deleteAccountRequestLimit, "1 h"),
+  limiter: Ratelimit.slidingWindow(deleteAccountRequestLimit, "5 m"), // was 1 hour
   prefix: "ratelimit:delete-account-request",
 });
 
-// Keyed by playerId (an authenticated action), not IP — 5/day is enough for
-// a legitimate TO running several brackets, while stopping rapid-fire spam.
+// Keyed by playerId (an authenticated action), not IP.
 export const createTournamentRateLimit = new Ratelimit({
   redis,
-  limiter: Ratelimit.slidingWindow(5, "1 d"),
+  limiter: Ratelimit.slidingWindow(5, "5 m"), // 5 per 5 min (was 5 per day)
   prefix: "ratelimit:create-tournament",
 });
 
