@@ -2,10 +2,17 @@ import { Resend } from "resend";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+// mail.fgc-ranks.com is now verified with Resend (confirmed via Resend's
+// domains API — the root fgc-ranks.com itself is NOT the verified entry,
+// the subdomain is). Previously this fell back to Resend's own
+// onboarding@resend.dev sandbox sender, which silently refuses delivery to
+// anyone but the Resend account owner's own email.
+const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "FGC Ranks <noreply@mail.fgc-ranks.com>";
+
 export async function sendPasswordResetEmail(to: string, resetUrl: string) {
   try {
     const { error } = await resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || "FGC Ranks <onboarding@resend.dev>",
+      from: FROM_EMAIL,
       to,
       subject: "Reset your FGC Ranks password",
       html: `
@@ -31,7 +38,7 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string) {
 export async function sendAccountDeletionEmail(to: string, confirmUrl: string) {
   try {
     const { error } = await resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || "FGC Ranks <onboarding@resend.dev>",
+      from: FROM_EMAIL,
       to,
       subject: "Confirm deleting your FGC Ranks account",
       html: `
@@ -56,7 +63,7 @@ export async function sendAccountDeletionEmail(to: string, confirmUrl: string) {
 export async function sendVerificationEmail(to: string, verifyUrl: string) {
   try {
     const { error } = await resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || "FGC Ranks <onboarding@resend.dev>",
+      from: FROM_EMAIL,
       to,
       subject: "Verify your FGC Ranks email",
       html: `
