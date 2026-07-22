@@ -271,8 +271,12 @@ function MatchCard({
 // shared `cardHeight` (not just intrinsic content) so the pyramid marginTop
 // math — which assumes every column item is exactly `cardHeight` tall —
 // stays correct for whatever renders after it in the same column.
-// Deliberately NOT styled via boxColor/fontColor: it needs to read as "not
-// a real match" regardless of a TO's card color customization.
+// Uses the same `.fgc-card` class + boxColor/fontColor props as MatchCard
+// (per user follow-up request, July 22, 2026) so its background/text ride
+// the same theme variables (and future Color theme system) MatchCard does,
+// instead of the old separate dashed/greyed treatment a theme switch
+// wouldn't have touched. It still reads as "not a real match" purely
+// through its content/label ("Bye player skipping round"), not color.
 //
 // Registered via `registerByeRef` — a SEPARATE ref map from MatchCard's
 // registerRef, on purpose. This card now needs a real DOM position for the
@@ -290,6 +294,8 @@ function ByeCard({
   byeId,
   registerByeRef,
   player,
+  boxColor,
+  fontColor,
 }: {
   cardHeight: number;
   marginTop?: number;
@@ -299,27 +305,35 @@ function ByeCard({
   // slot (see computeByeSlots) — null only when that match itself couldn't
   // be resolved (see computeByeSlots's comment on the rare last-round case).
   player: { id: string; tag: string } | null;
+  // Same TO-configurable card background/text colors MatchCard receives —
+  // a bye card now shares in a TO's color customization exactly like a real
+  // match card would, rather than being exempted from it.
+  boxColor?: string;
+  fontColor?: string;
 }) {
   return (
     <div
       ref={el => registerByeRef(byeId, el)}
-      className="w-56 flex-shrink-0 flex flex-col items-center justify-center gap-1 rounded-md border border-dashed overflow-hidden px-3"
+      className="fgc-card w-56 flex-shrink-0 flex flex-col items-center justify-center gap-1 px-3"
       style={{
         height: cardHeight,
-        borderColor: "var(--border-strong)",
-        opacity: 0.5,
+        ...(boxColor ? { background: boxColor } : undefined),
         ...(marginTop ? { marginTop } : undefined),
       }}
     >
       <p
         className="font-rajdhani text-[10px] font-semibold uppercase tracking-widest text-center truncate w-full"
-        style={{ color: "var(--text-muted)" }}
+        style={{ color: fontColor || "var(--text-muted)" }}
       >
         Bye player skipping round
       </p>
+      {/* Same fontColor/fallback + TBD-italic convention as PlayerRow's tag
+          text — a resolved bye recipient reads as a normal player name, not
+          a dimmed one, matching how MatchCard treats a real advancing
+          player. */}
       <p
         className="font-rajdhani text-[15px] font-semibold truncate w-full text-center"
-        style={{ color: "var(--text-muted)", fontStyle: player ? "normal" : "italic" }}
+        style={{ color: player ? (fontColor || "var(--text-primary)") : "var(--text-muted)", fontStyle: player ? "normal" : "italic" }}
       >
         {player ? player.tag : "TBD"}
       </p>
@@ -538,6 +552,8 @@ function BracketSideSection({
                       player={item.byeSlot.player}
                       cardHeight={cardHeight}
                       marginTop={marginTop}
+                      boxColor={boxColor}
+                      fontColor={fontColor}
                     />
                   );
                 }
