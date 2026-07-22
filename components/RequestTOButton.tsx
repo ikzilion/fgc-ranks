@@ -24,12 +24,16 @@ export function RequestTOButton({ isTO, myRequest }: { isTO: boolean; myRequest:
   const [error, setError] = useState("");
 
   if (isTO) {
+    // Granted-status UI (settled) — a green indicator once TO status is
+    // granted (either path: request/approval or a direct admin grant),
+    // replacing the now-irrelevant request button entirely rather than
+    // just disabling it.
     return (
       <span
         className="text-[11px] font-bold uppercase px-2 py-1 rounded"
-        style={{ background: "var(--gold-dim)", color: "var(--gold)", border: "1px solid rgba(240,180,41,0.25)" }}
+        style={{ background: "var(--green-dim)", color: "var(--green)", border: "1px solid rgba(58,199,120,0.2)" }}
       >
-        Tournament Organizer
+        ✓ TO
       </span>
     );
   }
