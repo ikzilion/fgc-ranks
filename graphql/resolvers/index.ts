@@ -11,6 +11,7 @@ import { Tournament, TournamentStatus } from "@/models/Tournament";
 import { Entrant } from "@/models/Entrant";
 import { Match, MatchStatus } from "@/models/Match";
 import { Bracket } from "@/models/Bracket";
+import { Pool } from "@/models/Pool";
 import { Notification } from "@/models/Notification";
 import { NewsPost } from "@/models/NewsPost";
 import { Event, EventStatus } from "@/models/Event";
@@ -27,7 +28,7 @@ import {
 } from "@/lib/rateLimit";
 import { sendPasswordResetEmail, sendVerificationEmail, sendAccountDeletionEmail } from "@/lib/email";
 import { verifyTurnstileToken } from "@/lib/turnstile";
-import { buildDoubleEliminationBracket, resolveSeedOrder, advanceBracketMatch, nextPowerOfTwo, SeedingMethod } from "@/lib/bracket";
+import { buildDoubleEliminationBracket, resolveSeedOrder, advanceBracketMatch, nextPowerOfTwo, computeMainBracketSeedOrder, shuffle, SeedingMethod } from "@/lib/bracket";
 import { getNextSequence } from "@/lib/counter";
 import { computeRankingPoints, computeRankingPointsForPlayers } from "@/lib/ranking";
 import { formatPlayerNumber } from "@/lib/playerId";
@@ -102,6 +103,42 @@ function isOrganizer(tournament: any, playerId?: string, role?: string): boolean
   if (isAdminOrAbove(role)) return true;
   if (!playerId || !tournament?.organizers) return false;
   return tournament.organizers.some((orgId: any) => orgId.toString() === playerId);
+}
+
+// Pool play + top-cut: auto-suggested pool count targeting ~6-8 entrants per
+// pool (7 as the midpoint) — a pure function of entrant count, purely a UI
+// convenience the TO can always override with a direct number.
+function suggestPoolCount(entrantCount: number): number {
+  return Math.max(1, Math.round(entrantCount / 7));
+}
+
+// A bracket is "decided" the same way computeAndApplyBracketPlacements
+// (lib/bracket.ts) treats it: if a Grand Final Reset match exists at all, it
+// (not the original Grand Final) is the true decider — advanceBracketMatch
+// only ever creates one synchronously alongside marking the original Grand
+// Final COMPLETED, so a reader never observes "reset needed but not yet
+// created" as separate states. No reset match at all means the Grand Final
+// itself was a straight, non-reset win.
+async function isBracketDecided(bracketId: any): Promise<boolean> {
+  const resetMatch = await Match.findOne({ bracketId, bracketSide: "GRAND_FINAL_RESET" });
+  if (resetMatch) return resetMatch.status === "COMPLETED";
+  const grandFinal = await Match.findOne({ bracketId, bracketSide: "GRAND_FINAL" });
+  return grandFinal?.status === "COMPLETED";
+}
+
+// Pool play + top-cut: true only once every Pool for this tournament has a
+// Bracket whose Grand Final (or Reset) has completed. False (not an error)
+// when there are no pools yet, so it's safe to use directly as a boolean
+// field/gate.
+async function arePoolsComplete(tournamentId: string): Promise<boolean> {
+  const pools = await Pool.find({ tournamentId });
+  if (pools.length === 0) return false;
+  for (const pool of pools) {
+    const bracket = await Bracket.findOne({ poolId: pool._id });
+    if (!bracket) return false;
+    if (!(await isBracketDecided(bracket._id))) return false;
+  }
+  return true;
 }
 
 // Same pattern as isOrganizer, for Events — managerIds is the single
@@ -982,7 +1019,18 @@ export const resolvers = {
       if (isOnlineOnly !== undefined) update.isOnlineOnly = isOnlineOnly;
       if (address !== undefined) update.address = address;
       if (twitchUrl !== undefined) update.twitchUrl = twitchUrl;
-      if (format !== undefined) update.format = format;
+      if (format !== undefined) {
+        // Once pools exist, the tournament's whole data model (Pool
+        // documents, per-pool Brackets, mainBracketId) is committed to the
+        // Pools + Bracket flow — switching format away at that point would
+        // orphan them with no corresponding UI. Changing INTO this format is
+        // still allowed at any time (it only starts to matter once pools
+        // are actually generated).
+        if (tournament.format === "Pools + Bracket" && format !== "Pools + Bracket" && (await Pool.exists({ tournamentId: id }))) {
+          throw new Error("Can't change format away from Pools + Bracket once pools have been generated");
+        }
+        update.format = format;
+      }
       if (capacity !== undefined) update.capacity = capacity;
       if (entryFee !== undefined) update.entryFee = entryFee;
       if (prizePot !== undefined) update.prizePot = prizePot;
@@ -1329,8 +1377,11 @@ export const resolvers = {
       if (tournament.status === "ENDED" || tournament.status === "CANCELLED") {
         throw new Error("Cannot generate a bracket for a tournament that has ended or was cancelled");
       }
+      if (tournament.format === "Pools + Bracket") {
+        throw new Error("This tournament uses Pools + Bracket format — generate pools and the main bracket separately");
+      }
 
-      const existing = await Bracket.findOne({ tournamentId });
+      const existing = await Bracket.findOne({ tournamentId, poolId: null });
       if (existing) throw new Error("This tournament already has a bracket — delete it first to regenerate");
 
       const entrants = await Entrant.find({ tournamentId });
@@ -1369,13 +1420,157 @@ export const resolvers = {
       const tournament = await Tournament.findById(tournamentId);
       if (!tournament) throw new Error("Tournament not found");
       if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+      if (tournament.format === "Pools + Bracket") {
+        throw new Error("This tournament uses Pools + Bracket format — generate pools and the main bracket separately");
+      }
 
-      const bracket = await Bracket.findOne({ tournamentId });
+      const bracket = await Bracket.findOne({ tournamentId, poolId: null });
       if (!bracket) return false;
 
       await Match.deleteMany({ bracketId: bracket._id });
       await Bracket.findByIdAndDelete(bracket._id);
       return true;
+    },
+
+    // Pool play + top-cut bracket format. Splits every current entrant
+    // evenly across poolCount pools (round-robin over a shuffled order —
+    // pool ASSIGNMENT is a simple even/random split, not skill-based;
+    // skill-aware seeding only applies later, to the main bracket) and
+    // generates each pool's own double-elimination Bracket via the exact
+    // same generator generateBracket uses, scoped to that pool's entrant
+    // subset. Entrant itself is never duplicated — Pool.entrantIds just
+    // references the tournament's existing Entrant documents.
+    generatePools: async (
+      _: unknown,
+      { tournamentId, poolCount }: { tournamentId: string; poolCount?: number },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const tournament = await Tournament.findById(tournamentId);
+      if (!tournament) throw new Error("Tournament not found");
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+      if (tournament.format !== "Pools + Bracket") {
+        throw new Error("This tournament isn't using the Pools + Bracket format");
+      }
+      if (tournament.status === "ENDED" || tournament.status === "CANCELLED") {
+        throw new Error("Cannot generate pools for a tournament that has ended or was cancelled");
+      }
+
+      const existingPools = await Pool.countDocuments({ tournamentId });
+      if (existingPools > 0) throw new Error("Pools have already been generated for this tournament");
+
+      const entrants = await Entrant.find({ tournamentId });
+      if (entrants.length < 4) throw new Error("Need at least 4 entrants to generate pools");
+
+      const count = poolCount && poolCount >= 1 ? Math.floor(poolCount) : suggestPoolCount(entrants.length);
+      if (entrants.length < count * 2) {
+        throw new Error("Not enough entrants for that many pools — each pool needs at least 2 entrants");
+      }
+
+      const shuffledEntrants = shuffle([...entrants]);
+      const poolEntrantGroups: (typeof entrants)[] = Array.from({ length: count }, () => []);
+      shuffledEntrants.forEach((entrant, i) => poolEntrantGroups[i % count].push(entrant));
+
+      const createdPools = [];
+      for (let i = 0; i < count; i++) {
+        const group = poolEntrantGroups[i];
+        if (group.length === 0) continue;
+
+        const pool = await Pool.create({
+          tournamentId,
+          poolNumber: i + 1,
+          entrantIds: group.map((e: any) => e._id),
+        });
+
+        const orderedPlayerIds = group.map((e: any) => e.playerId.toString());
+        const bracketId = new Types.ObjectId();
+        const { matches } = buildDoubleEliminationBracket({ tournamentId, bracketId, orderedPlayerIds });
+
+        await Bracket.create({
+          _id: bracketId,
+          tournamentId,
+          poolId: pool._id,
+          seedingMethod: "RANDOM",
+          seedOrder: orderedPlayerIds,
+          size: nextPowerOfTwo(orderedPlayerIds.length),
+        });
+
+        if (matches.length > 0) await Match.insertMany(matches);
+        createdPools.push(pool);
+      }
+
+      return createdPools;
+    },
+
+    // Pool play + top-cut only. Requires every pool's Grand Final to have
+    // completed. Seeds a fresh main bracket from the 2 advancers per pool
+    // (that pool's Grand Final player1/player2 — the winners-finalist and
+    // losers-finalist, by the same convention lib/bracket.ts's Grand Final
+    // build always uses, regardless of who actually won that Grand Final).
+    generateMainBracket: async (
+      _: unknown,
+      { tournamentId, seedingMethod }: { tournamentId: string; seedingMethod: "RANDOM" | "AVOID_SAME_POOL" },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const tournament = await Tournament.findById(tournamentId);
+      if (!tournament) throw new Error("Tournament not found");
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+      if (tournament.format !== "Pools + Bracket") {
+        throw new Error("This tournament isn't using the Pools + Bracket format");
+      }
+      if (tournament.mainBracketId) {
+        throw new Error("The main bracket has already been generated");
+      }
+      if (seedingMethod !== "RANDOM" && seedingMethod !== "AVOID_SAME_POOL") {
+        throw new Error("Main bracket seeding must be Random or Avoid same-pool matchups");
+      }
+
+      const pools = await Pool.find({ tournamentId }).sort({ poolNumber: 1 });
+      if (pools.length === 0) throw new Error("No pools have been generated yet");
+      if (!(await arePoolsComplete(tournamentId))) {
+        throw new Error("Every pool must finish (reach its Grand Final result) before generating the main bracket");
+      }
+
+      const winnersFinalistIds: string[] = [];
+      const losersFinalistIds: string[] = [];
+      for (const pool of pools) {
+        const poolBracket = await Bracket.findOne({ poolId: pool._id });
+        const grandFinal = poolBracket
+          ? await Match.findOne({ bracketId: poolBracket._id, bracketSide: "GRAND_FINAL" })
+          : null;
+        if (!grandFinal?.player1Id || !grandFinal?.player2Id) {
+          throw new Error(`Pool ${pool.poolNumber} doesn't have a complete Grand Final yet`);
+        }
+        winnersFinalistIds.push(grandFinal.player1Id.toString());
+        losersFinalistIds.push(grandFinal.player2Id.toString());
+      }
+
+      const orderedPlayerIds = computeMainBracketSeedOrder(winnersFinalistIds, losersFinalistIds, seedingMethod);
+
+      // Reflect the main-bracket seed number onto each advancing Entrant —
+      // same convention generateBracket uses for a standard tournament.
+      await Promise.all(
+        orderedPlayerIds.map((pid, i) => Entrant.updateOne({ tournamentId, playerId: pid }, { seed: i + 1 }))
+      );
+
+      const bracketId = new Types.ObjectId();
+      const { matches } = buildDoubleEliminationBracket({ tournamentId, bracketId, orderedPlayerIds });
+
+      const bracket = await Bracket.create({
+        _id: bracketId,
+        tournamentId,
+        poolId: null,
+        seedingMethod,
+        seedOrder: orderedPlayerIds,
+        size: nextPowerOfTwo(orderedPlayerIds.length),
+      });
+
+      if (matches.length > 0) await Match.insertMany(matches);
+
+      await Tournament.findByIdAndUpdate(tournamentId, { mainBracketId: bracket._id });
+
+      return bracket;
     },
 
     reportResult: async (
@@ -1947,7 +2142,15 @@ export const resolvers = {
       if (!playerId || !parent.invitedPlayerIds) return false;
       return parent.invitedPlayerIds.some((id: any) => id.toString() === playerId);
     },
-    bracket: async (parent: { _id: string }) => await Bracket.findOne({ tournamentId: parent._id }),
+    bracket: async (parent: { _id: string }) => await Bracket.findOne({ tournamentId: parent._id, poolId: null }),
+    // Pool play + top-cut bracket format fields — empty/false/the plain
+    // count-based suggestion for every tournament that isn't using this
+    // format (and before generatePools has run for one that is).
+    pools: async (parent: { _id: string }) => await Pool.find({ tournamentId: parent._id }).sort({ poolNumber: 1 }),
+    mainBracket: async (parent: { mainBracketId?: string }) =>
+      parent.mainBracketId ? await Bracket.findById(parent.mainBracketId) : null,
+    allPoolsComplete: async (parent: { _id: string }) => await arePoolsComplete(parent._id),
+    suggestedPoolCount: (parent: { entrantCount?: number }) => suggestPoolCount(parent.entrantCount ?? 0),
     event: async (parent: { eventId?: string }) => (parent.eventId ? await Event.findById(parent.eventId) : null),
     // Live-link overrides: when eventId is set, these three resolve from
     // the LINKED EVENT's current data instead of this tournament's own
@@ -1977,6 +2180,12 @@ export const resolvers = {
       }
       return parent.twitchUrl;
     },
+  },
+
+  Pool: {
+    entrants: async (parent: { entrantIds?: string[] }) =>
+      parent.entrantIds ? await Entrant.find({ _id: { $in: parent.entrantIds } }) : [],
+    bracket: async (parent: { _id: string }) => await Bracket.findOne({ poolId: parent._id }),
   },
 
   Event: {

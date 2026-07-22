@@ -32,7 +32,10 @@ export function CreateTournamentButton() {
   const [isOnlineOnly, setIsOnlineOnly] = useState(false);
   const [address, setAddress] = useState("");
   const [twitchUrl, setTwitchUrl] = useState("");
-  const [format, setFormat] = useState("");
+  // First time `format` actually changes tournament behavior (previously
+  // display-only free text) — see the Pool play + top-cut Implementation
+  // Plan. "Standard Bracket" keeps today's exact existing behavior.
+  const [format, setFormat] = useState("Standard Bracket");
   const [capacity, setCapacity] = useState("");
   const [entryFee, setEntryFee] = useState("");
   const [prizePot, setPrizePot] = useState("");
@@ -443,15 +446,21 @@ export function CreateTournamentButton() {
                   </div>
                 )}
                 <div>
-                  <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Format (optional)</label>
-                  <input
-                    type="text"
+                  <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Format</label>
+                  <select
                     value={format}
                     onChange={e => setFormat(e.target.value)}
-                    placeholder="e.g. Double Elimination"
-                    className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
+                    className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] outline-none focus:border-[var(--blue)]"
                     style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
-                  />
+                  >
+                    <option value="Standard Bracket">Standard Bracket</option>
+                    <option value="Pools + Bracket">Pools + Bracket</option>
+                  </select>
+                  {format === "Pools + Bracket" && (
+                    <p className="text-[11px] text-[var(--text-secondary)] mt-1.5">
+                      Entrants play in pools first (each its own mini double-elim bracket) — the top 2 per pool advance to a main bracket once every pool finishes.
+                    </p>
+                  )}
                 </div>
               </div>
 

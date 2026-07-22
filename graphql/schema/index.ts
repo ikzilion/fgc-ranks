@@ -10,7 +10,7 @@ export const typeDefs = `#graphql
   enum UserRole         { PLAYER ADMIN SUPER_ADMIN }
   enum EventStatus      { PENDING APPROVED REJECTED }
   enum TORequestStatus  { PENDING APPROVED REJECTED }
-  enum SeedingMethod    { RANDOM RANDOM_WITHIN_TIERS MANUAL }
+  enum SeedingMethod    { RANDOM RANDOM_WITHIN_TIERS MANUAL AVOID_SAME_POOL }
   enum BracketSide      { WINNERS LOSERS GRAND_FINAL GRAND_FINAL_RESET }
   enum NotificationType {
     MATCH_REPORTED
@@ -123,6 +123,26 @@ export const typeDefs = `#graphql
     # streamBackgroundUrl/sponsorBannerUrl can never be set, and this
     # tournament is excluded from the ranking/points computation.
     isRestricted: Boolean!
+    # Pool play + top-cut bracket format (format === "Pools + Bracket") only.
+    # Empty for a standard tournament and before generatePools has run.
+    pools: [Pool!]!
+    # Set once generateMainBracket has run (after every pool is complete).
+    # Rendered/used exactly like a standard tournament's bracket field.
+    mainBracket: Bracket
+    # True once every Pool's own Grand Final has completed — gates the
+    # "Generate Main Bracket" action. Always false when there are no pools.
+    allPoolsComplete: Boolean!
+    # Auto-suggested pool count for generatePools, targeting ~6-8 entrants
+    # per pool — a pure function of entrantCount, purely a UI convenience
+    # (the TO can always override with a direct number).
+    suggestedPoolCount: Int!
+  }
+
+  type Pool {
+    id: ID!
+    poolNumber: Int!
+    entrants: [Entrant!]!
+    bracket: Bracket
   }
 
   type Event {
@@ -187,6 +207,10 @@ export const typeDefs = `#graphql
   type Bracket {
     id: ID!
     tournament: Tournament!
+    # Set only for a pool's own bracket (Pool play + top-cut format) — null
+    # for a standard tournament's bracket and for a pools tournament's main
+    # bracket.
+    poolId: ID
     seedingMethod: SeedingMethod!
     seedOrder: [Player!]!
     size: Int!
@@ -382,6 +406,15 @@ export const typeDefs = `#graphql
 
     generateBracket(tournamentId: ID!, seedingMethod: SeedingMethod!, manualSeedOrder: [ID!]): Bracket!
     deleteBracket(tournamentId: ID!): Boolean!
+    # Pool play + top-cut bracket format only (tournament.format === "Pools +
+    # Bracket"). Splits every current entrant evenly across poolCount pools
+    # (or the auto-suggested count if omitted) and generates each pool's own
+    # double-elimination Bracket via the same generator generateBracket uses.
+    generatePools(tournamentId: ID!, poolCount: Int): [Pool!]!
+    # Pool play + top-cut only. Requires every pool's Grand Final to have
+    # completed (Tournament.allPoolsComplete). Seeds the fresh main bracket
+    # from the 2 advancers per pool (winners-finalist + losers-finalist).
+    generateMainBracket(tournamentId: ID!, seedingMethod: SeedingMethod!): Bracket!
 
     deleteMatch(id: ID!): Boolean!
     deleteTournament(id: ID!): Boolean!

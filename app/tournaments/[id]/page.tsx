@@ -13,10 +13,32 @@ import { RemoveEntrantButton } from "@/components/RemoveEntrantButton";
 import { SetPlacementButton } from "@/components/SetPlacementButton";
 import { GenerateBracketButton } from "@/components/GenerateBracketButton";
 import { BracketView } from "@/components/BracketView";
+import { PoolsSection } from "@/components/PoolsSection";
 import { StreamAssetsButton } from "@/components/StreamAssetsButton";
 import { EditTournamentDetailsButton } from "@/components/EditTournamentDetailsButton";
 
 export const dynamic = "force-dynamic";
+
+// Shared Match field selection — reused for the standard bracket, every
+// pool's own bracket, and the pool-format main bracket, since BracketView
+// needs the exact same shape in all three cases. This codebase doesn't use
+// GraphQL fragments (no Apollo Client), so it's just a repeated string.
+const MATCH_FIELDS = `
+  id
+  round
+  status
+  bracketSide
+  bracketRound
+  bracketPosition
+  player1Score
+  player2Score
+  isForfeit
+  player1 { id tag }
+  player2 { id tag }
+  winner { id tag }
+  nextMatch { id }
+  nextLoserMatch { id }
+`;
 
 const GET_TOURNAMENT = `
   query GetTournament($id: ID!, $playerId: ID) {
@@ -76,22 +98,29 @@ const GET_TOURNAMENT = `
         id
         seedingMethod
         size
-        matches {
+        matches { ${MATCH_FIELDS} }
+      }
+      allPoolsComplete
+      suggestedPoolCount
+      pools {
+        id
+        poolNumber
+        entrants {
           id
-          round
-          status
-          bracketSide
-          bracketRound
-          bracketPosition
-          player1Score
-          player2Score
-          isForfeit
-          player1 { id tag }
-          player2 { id tag }
-          winner { id tag }
-          nextMatch { id }
-          nextLoserMatch { id }
+          player { id tag avatarUrl }
         }
+        bracket {
+          id
+          seedingMethod
+          size
+          matches { ${MATCH_FIELDS} }
+        }
+      }
+      mainBracket {
+        id
+        seedingMethod
+        size
+        matches { ${MATCH_FIELDS} }
       }
     }
     players(limit: 200) {
@@ -153,6 +182,12 @@ export default async function TournamentDetailPage({ params }: { params: Promise
 
   const canManage = tournament.isOrganizer || isAdminOrAbove(role);
   const myEntrant = tournament.entrants.find((e: any) => e.player.id === playerId);
+
+  // Pool play + top-cut bracket format — the standard-format branch below is
+  // completely untouched; this only adds a second, separate rendering path.
+  const isPoolsFormat = tournament.format === "Pools + Bracket";
+  const hasPoolsOrMainBracket = tournament.pools.length > 0 || !!tournament.mainBracket;
+  const showBracketSection = isPoolsFormat ? hasPoolsOrMainBracket || canManage : tournament.bracket || canManage;
 
   // Defined once, used in two spots below: as the left sidebar next to the
   // Bracket section when one is shown, or standalone (full width, not a
@@ -361,7 +396,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
           Organizers/admins additionally get generate/edit controls and can
           see the "no bracket yet" state; non-managers just see nothing until
           one exists, so spectators aren't shown an empty section. */}
-      {(tournament.bracket || canManage) ? (
+      {showBracketSection ? (
         <div className="max-w-[1800px] mx-auto mb-6">
           <div className="flex flex-col sm:flex-row gap-4 items-start">
             {/* Entrants — left sidebar next to the Bracket instead of down
@@ -386,35 +421,66 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                 sees a bounded container to scroll within and the whole page
                 overflows horizontally instead. */}
             <div className="flex-1 min-w-0 w-full">
-              {/* overflow: visible override — .fgc-card's overflow:hidden (for
-                  rounded-corner clipping elsewhere) becomes BracketView's sticky
-                  scrollbar's containing block otherwise, and since this card never
-                  scrolls internally (the whole page does), the sticky element would
-                  never actually track viewport scroll — a well-known overflow +
-                  position:sticky interaction, not a BracketView-side bug. */}
-              <div className="fgc-card p-6" style={{ overflow: "visible" }}>
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Bracket</p>
+              {isPoolsFormat ? (
+                <div className="flex flex-col gap-4">
+                  {tournament.mainBracket && (
+                    <div className="fgc-card p-6" style={{ overflow: "visible" }}>
+                      <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-4">Main Bracket</p>
+                      <BracketView
+                        bracket={tournament.mainBracket}
+                        canManage={canManage}
+                        lineColor={tournament.bracketLineColor}
+                        boxColor={tournament.bracketBoxColor}
+                        fontColor={tournament.bracketFontColor}
+                      />
+                    </div>
+                  )}
+                  {/* Pools stay viewable as history/reference once the main
+                      bracket exists, not just during the pool stage. */}
+                  <PoolsSection
+                    tournamentId={tournament.id}
+                    pools={tournament.pools}
+                    entrantCount={tournament.entrants.length}
+                    suggestedPoolCount={tournament.suggestedPoolCount}
+                    allPoolsComplete={tournament.allPoolsComplete}
+                    hasMainBracket={!!tournament.mainBracket}
+                    canManage={canManage}
+                    lineColor={tournament.bracketLineColor}
+                    boxColor={tournament.bracketBoxColor}
+                    fontColor={tournament.bracketFontColor}
+                  />
+                </div>
+              ) : (
+                // overflow: visible override — .fgc-card's overflow:hidden (for
+                // rounded-corner clipping elsewhere) becomes BracketView's sticky
+                // scrollbar's containing block otherwise, and since this card never
+                // scrolls internally (the whole page does), the sticky element would
+                // never actually track viewport scroll — a well-known overflow +
+                // position:sticky interaction, not a BracketView-side bug.
+                <div className="fgc-card p-6" style={{ overflow: "visible" }}>
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Bracket</p>
+                      {canManage && (
+                        <p className="text-[11px] text-[var(--text-muted)] mt-0.5">You can report results and manage this bracket.</p>
+                      )}
+                    </div>
                     {canManage && (
-                      <p className="text-[11px] text-[var(--text-muted)] mt-0.5">You can report results and manage this bracket.</p>
+                      <GenerateBracketButton
+                        tournamentId={tournament.id}
+                        entrants={tournament.entrants}
+                        canManage={canManage}
+                        hasBracket={!!tournament.bracket}
+                      />
                     )}
                   </div>
-                  {canManage && (
-                    <GenerateBracketButton
-                      tournamentId={tournament.id}
-                      entrants={tournament.entrants}
-                      canManage={canManage}
-                      hasBracket={!!tournament.bracket}
-                    />
+                  {tournament.bracket ? (
+                    <BracketView bracket={tournament.bracket} canManage={canManage} lineColor={tournament.bracketLineColor} boxColor={tournament.bracketBoxColor} fontColor={tournament.bracketFontColor} />
+                  ) : (
+                    <p className="text-[13px] text-[var(--text-secondary)]">No bracket generated yet.</p>
                   )}
                 </div>
-                {tournament.bracket ? (
-                  <BracketView bracket={tournament.bracket} canManage={canManage} lineColor={tournament.bracketLineColor} boxColor={tournament.bracketBoxColor} fontColor={tournament.bracketFontColor} />
-                ) : (
-                  <p className="text-[13px] text-[var(--text-secondary)]">No bracket generated yet.</p>
-                )}
-              </div>
+              )}
             </div>
           </div>
         </div>

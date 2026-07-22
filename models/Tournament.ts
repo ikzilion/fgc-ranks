@@ -87,6 +87,14 @@ const TournamentSchema = new Schema(
     // tournaments still linked to it (no block), and a dangling eventId
     // just resolves to nothing found, falling back automatically.
     eventId: { type: Schema.Types.ObjectId, ref: "Event" },
+    // Pool play + top-cut bracket format only ("Pools + Bracket" — see
+    // format below). Set once generateMainBracket runs, after every Pool's
+    // own Bracket has completed. null for a standard tournament, and null
+    // for a "Pools + Bracket" tournament until its pool stage is done. The
+    // existing single Bracket relationship (Tournament.bracket field
+    // resolver, Bracket.findOne({tournamentId})) is untouched and keeps
+    // working exactly as before for standard tournaments.
+    mainBracketId: { type: Schema.Types.ObjectId, ref: "Bracket", default: null },
     // Set once at creation time (never re-derived) based on whether the
     // creator had TO status (or was an admin) at that moment — see
     // createTournament. `false`/unset (every pre-existing tournament) means

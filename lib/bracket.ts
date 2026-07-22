@@ -34,6 +34,7 @@
 import { Types } from "mongoose";
 import { Match } from "@/models/Match";
 import { Entrant } from "@/models/Entrant";
+import { Bracket } from "@/models/Bracket";
 import { computeRankingPointsForPlayers } from "@/lib/ranking";
 
 // ─── Small utilities ─────────────────────────────────────────────────────
@@ -112,6 +113,34 @@ export async function resolveSeedOrder(
 
   // RANDOM
   return shuffle([...entrantPlayerIds]);
+}
+
+// ─── Pool play + top-cut: main-bracket seeding ──────────────────────────
+//
+// Once every pool's Grand Final has completed, exactly 2 entrants advance
+// per pool: the pool's own winners-finalist (Grand Final player1) and
+// losers-finalist (Grand Final player2 — see buildDoubleEliminationBracket's
+// Grand Final convention). This computes the seed order for the fresh main
+// bracket built from all those advancers.
+//
+// "RANDOM": every advancer shuffled together, no regard for which pool they
+// came from.
+// "AVOID_SAME_POOL": EVO-style — winners-finalists get the low seeds
+// (1..poolCount) and losers-finalists get the high seeds (poolCount+1..2x),
+// each group shuffled independently. seedSlotOrder already guarantees low
+// seeds only meet in later rounds, so pairing every pool's winners-finalist
+// against a DIFFERENT pool's losers-finalist this way naturally keeps
+// pool-mates apart until deep into the bracket, with no custom
+// constraint-satisfaction pass needed.
+export function computeMainBracketSeedOrder(
+  winnersFinalistIds: string[],
+  losersFinalistIds: string[],
+  method: "RANDOM" | "AVOID_SAME_POOL"
+): string[] {
+  if (method === "AVOID_SAME_POOL") {
+    return [...shuffle([...winnersFinalistIds]), ...shuffle([...losersFinalistIds])];
+  }
+  return shuffle([...winnersFinalistIds, ...losersFinalistIds]);
 }
 
 // ─── Bracket generation ──────────────────────────────────────────────────
@@ -356,7 +385,22 @@ export async function advanceBracketMatch(match: any, winnerId: any, loserId: an
   // The bracket is fully decided once the Grand Final (no reset needed) or
   // the Grand Final Reset (decider) reaches COMPLETED.
   if (match.bracketSide === "GRAND_FINAL" || match.bracketSide === "GRAND_FINAL_RESET") {
-    await computeAndApplyBracketPlacements(match.tournamentId, match.bracketId);
+    // Pool play + top-cut: a POOL's own Grand Final completing must NOT
+    // touch tournament-wide Entrant.placement — computeAndApplyBracketPlacements
+    // writes absolute placements (1st, 2nd, 3rd-4th, ...) that are only
+    // meaningful within a single bracket's own entrant set. A pool is just a
+    // subset of the tournament, so its internal standings aren't the
+    // tournament's real placements once multiple pools exist (e.g. "3rd in
+    // an 8-person pool" isn't "3rd overall" in a 40-entrant tournament).
+    // Only the top-level bracket — a standard tournament's only bracket, or
+    // a "Pools + Bracket" tournament's main/2nd-stage bracket — ever applies
+    // placements automatically; see the Pool play Implementation Plan for
+    // why entrants eliminated during pools don't get an automatic
+    // placement (setPlacement remains available as a manual override).
+    const bracket = await Bracket.findById(match.bracketId).select("poolId");
+    if (!bracket?.poolId) {
+      await computeAndApplyBracketPlacements(match.tournamentId, match.bracketId);
+    }
   }
 }
 
