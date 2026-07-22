@@ -120,6 +120,16 @@ export const typeDefs = `#graphql
     createdAt: Date!
   }
 
+  type Game {
+    id: ID!
+    name: String!
+    iconUrl: String
+    # Count of Tournament documents whose game string matches this Game's
+    # name exactly — cheap countDocuments, same pattern as
+    # Event.tournamentCount, not a stored/synced counter.
+    tournamentCount: Int!
+  }
+
   type Entrant {
     id: ID!
     player: Player!
@@ -203,6 +213,11 @@ export const typeDefs = `#graphql
     matches(tournamentId: ID!): [Match!]!
     match(id: ID!): Match
 
+    # Curated Games, sorted by name, PLUS a synthetic entry for any distinct
+    # Tournament.game value that doesn't match a curated name (drift-guard —
+    # see models/Game.ts) — public, no auth required, same as tournaments.
+    games: [Game!]!
+
     # eventId omitted = global homepage posts only (unchanged pre-Events
     # behavior). eventId set = that Event's own news section instead.
     newsPosts(limit: Int, offset: Int, eventId: ID): [NewsPost!]!
@@ -270,6 +285,17 @@ export const typeDefs = `#graphql
       # unlink. Validated against a real Event server-side either way.
       eventId: ID
     ): Tournament!
+
+    # ADMIN-only — curated Games management (nav "Games" tab + Tournament
+    # creation's game dropdown draw from this list). name must be unique;
+    # a duplicate throws a friendly error rather than a raw Mongo one.
+    createGame(name: String!, iconUrl: String): Game!
+    updateGame(id: ID!, name: String, iconUrl: String): Game!
+    # Allowed even with tournaments still referencing this Game's name by
+    # string — same precedent as deleteEvent. Those tournaments just fall
+    # back to surfacing as a synthetic/orphan Games-list entry afterward
+    # (see the games resolver), never disappearing from browsing.
+    deleteGame(id: ID!): Boolean!
 
     createEvent(name: String!, isOnlineOnly: Boolean, address: String, logoUrl: String, twitchUrl: String): Event!
     updateEvent(id: ID!, name: String, isOnlineOnly: Boolean, address: String, logoUrl: String, twitchUrl: String): Event!

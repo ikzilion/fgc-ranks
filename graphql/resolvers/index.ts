@@ -14,6 +14,7 @@ import { Bracket } from "@/models/Bracket";
 import { Notification } from "@/models/Notification";
 import { NewsPost } from "@/models/NewsPost";
 import { Event, EventStatus } from "@/models/Event";
+import { Game } from "@/models/Game";
 import {
   loginRateLimit,
   registerRateLimit,
@@ -287,6 +288,23 @@ export const resolvers = {
     match: async (_: unknown, { id }: { id: string }) => {
       await connectToDatabase();
       return await Match.findById(id);
+    },
+
+    // Games
+    // Curated Games (real documents) plus a synthetic entry for any distinct
+    // Tournament.game value that isn't curated yet — see models/Game.ts for
+    // why this drift-guard exists. Orphan entries are plain objects, not
+    // Mongoose docs, so `id` is set directly (no `_id` virtual to fall back
+    // on) using a prefix that can never collide with a real ObjectId hex string.
+    games: async () => {
+      await connectToDatabase();
+      const curated = await Game.find();
+      const curatedNames = new Set(curated.map((g: any) => g.name));
+      const distinctTournamentGames: string[] = await Tournament.distinct("game");
+      const orphans = distinctTournamentGames
+        .filter(name => name && !curatedNames.has(name))
+        .map(name => ({ id: `orphan-${Buffer.from(name).toString("base64url")}`, name, iconUrl: "" }));
+      return [...curated, ...orphans].sort((a: any, b: any) => a.name.localeCompare(b.name));
     },
 
     // News
@@ -1416,6 +1434,57 @@ export const resolvers = {
       return !!result;
     },
 
+    // Games — ADMIN-only curation. name is unique; a duplicate is caught
+    // (E11000) and re-thrown as a friendly message, same pattern as
+    // register's duplicateKeyField handling.
+    createGame: async (
+      _: unknown,
+      { name, iconUrl }: { name: string; iconUrl?: string },
+      { role }: { role?: string }
+    ) => {
+      if (!isAdminOrAbove(role)) throw new Error("Not authorized");
+      if (!name.trim()) throw new Error("Game name is required.");
+      await connectToDatabase();
+      try {
+        return await Game.create({ name: name.trim(), iconUrl });
+      } catch (err: any) {
+        if (err?.code === 11000) throw new Error("A game with that name already exists.");
+        throw err;
+      }
+    },
+
+    updateGame: async (
+      _: unknown,
+      { id, name, iconUrl }: { id: string; name?: string; iconUrl?: string },
+      { role }: { role?: string }
+    ) => {
+      if (!isAdminOrAbove(role)) throw new Error("Not authorized");
+      await connectToDatabase();
+
+      const update: any = {};
+      if (name !== undefined) {
+        if (!name.trim()) throw new Error("Game name is required.");
+        update.name = name.trim();
+      }
+      if (iconUrl !== undefined) update.iconUrl = iconUrl;
+
+      try {
+        const updated = await Game.findByIdAndUpdate(id, update, { new: true });
+        if (!updated) throw new Error("Game not found");
+        return updated;
+      } catch (err: any) {
+        if (err?.code === 11000) throw new Error("A game with that name already exists.");
+        throw err;
+      }
+    },
+
+    deleteGame: async (_: unknown, { id }: { id: string }, { role }: { role?: string }) => {
+      if (!isAdminOrAbove(role)) throw new Error("Not authorized");
+      await connectToDatabase();
+      const result = await Game.findByIdAndDelete(id);
+      return !!result;
+    },
+
     // Events
     createEvent: async (
       _: unknown,
@@ -1690,6 +1759,15 @@ export const resolvers = {
   Entrant: {
     player: async (parent: { playerId: string }) => await Player.findById(parent.playerId),
     tournament: async (parent: { tournamentId: string }) => await Tournament.findById(parent.tournamentId),
+  },
+
+  Game: {
+    // Works identically for a real Game doc or a synthetic orphan entry
+    // (see the `games` resolver) — both are just objects with a `name`.
+    tournamentCount: async (parent: { name: string }) => {
+      await connectToDatabase();
+      return await Tournament.countDocuments({ game: parent.name });
+    },
   },
 
   Match: {

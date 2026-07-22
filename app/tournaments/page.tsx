@@ -47,10 +47,11 @@ async function getTournaments(playerId?: string) {
   }
 }
 
-export default async function TournamentsPage() {
+export default async function TournamentsPage({ searchParams }: { searchParams: Promise<{ game?: string }> }) {
   const session = await auth();
   const playerId = (session?.user as any)?.playerId ?? undefined;
   const role = (session?.user as any)?.role;
+  const { game } = await searchParams;
   const tournaments = await getTournaments(playerId);
 
   const withCanManage = tournaments.map((t: any) => ({
@@ -68,7 +69,7 @@ export default async function TournamentsPage() {
         </div>
       </div>
 
-      <TournamentSearchFilter tournaments={withCanManage} />
+      <TournamentSearchFilter tournaments={withCanManage} initialQuery={game ?? ""} />
     </main>
   );
 }

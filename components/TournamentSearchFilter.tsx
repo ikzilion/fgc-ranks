@@ -41,8 +41,19 @@ function statusBadge(status: string) {
   return <span className="badge-ended text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded">Ended</span>;
 }
 
-export function TournamentSearchFilter({ tournaments }: { tournaments: Tournament[] }) {
-  const [query, setQuery] = useState("");
+export function TournamentSearchFilter({
+  tournaments,
+  // Pre-fills the search box — used by the Games list's "browse this game's
+  // tournaments" links (/tournaments?game=<name>). Reuses this component's
+  // own existing name/game/address search-match logic rather than adding a
+  // separate filtering mechanism, so it's exactly as (im)precise as typing
+  // the game name into the box yourself would be.
+  initialQuery = "",
+}: {
+  tournaments: Tournament[];
+  initialQuery?: string;
+}) {
+  const [query, setQuery] = useState(initialQuery);
   const [onlineOnly, setOnlineOnly] = useState(false);
 
   const filtered = useMemo(() => {

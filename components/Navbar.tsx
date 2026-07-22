@@ -9,6 +9,7 @@ import { isAdminOrAbove, isSuperAdmin } from "@/lib/roles";
 const links = [
   { href: "/", label: "News" },
   { href: "/tournaments", label: "Tournaments" },
+  { href: "/games", label: "Games" },
   { href: "/events", label: "Events" },
   { href: "/players", label: "Players" },
 ];
@@ -77,6 +78,27 @@ export function Navbar() {
               }}
             >
               Review queue
+            </Link>
+          )}
+          {isAdminOrAbove(role) && (
+            <Link
+              href="/admin/games"
+              style={{
+                fontSize: "13px",
+                fontWeight: 500,
+                padding: "6px 14px",
+                borderRadius: "6px",
+                textDecoration: "none",
+                border: "1px solid",
+                transition: "all 0.15s",
+                color: pathname.startsWith("/admin/games") ? "var(--gold)" : "var(--text-secondary)",
+                background: pathname.startsWith("/admin/games") ? "var(--gold-dim)" : "transparent",
+                borderColor: pathname.startsWith("/admin/games") ? "rgba(240,180,41,0.25)" : "transparent",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+              }}
+            >
+              Manage games
             </Link>
           )}
           {isSuperAdmin(role) && (

@@ -1,7 +1,7 @@
 // components/CreateTournamentButton.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { maxUploadBytes, formatMaxSizeLabel } from "@/lib/uploadLimits";
@@ -12,6 +12,10 @@ export function CreateTournamentButton() {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [game, setGame] = useState("");
+  // Curated Games list for the dropdown below — fetched once on mount
+  // rather than gated behind `open`, so the dropdown is ready the instant
+  // the modal opens instead of showing an empty flash first.
+  const [games, setGames] = useState<{ id: string; name: string }[]>([]);
   const [startDate, setStartDate] = useState("");
   // Metadata batch — all optional, display/informational only.
   const [logoUrl, setLogoUrl] = useState("");
@@ -34,6 +38,17 @@ export function CreateTournamentButton() {
   const [eventLookupError, setEventLookupError] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/graphql", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: `query GetGamesForDropdown { games { id name } }` }),
+    })
+      .then(res => res.json())
+      .then(json => setGames(json.data?.games ?? []))
+      .catch(() => {});
+  }, []);
 
   // Any signed-in player can create a tournament — they become its first
   // organizer automatically (see createTournament resolver).
@@ -223,14 +238,17 @@ export function CreateTournamentButton() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
                   <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Game</label>
-                  <input
-                    type="text"
+                  <select
                     value={game}
                     onChange={e => setGame(e.target.value)}
-                    placeholder="e.g. Street Fighter 6"
-                    className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
+                    className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] outline-none focus:border-[var(--blue)]"
                     style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
-                  />
+                  >
+                    <option value="">Select a game…</option>
+                    {games.map(g => (
+                      <option key={g.id} value={g.name}>{g.name}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Start date</label>

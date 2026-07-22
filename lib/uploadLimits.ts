@@ -8,6 +8,7 @@ export const MAX_UPLOAD_BYTES: Record<string, number> = {
   avatar: 5 * 1024 * 1024,
   "tournament-logo": 5 * 1024 * 1024,
   "event-logo": 5 * 1024 * 1024,
+  "game-icon": 5 * 1024 * 1024,
   "stream-bg": 8 * 1024 * 1024,
   "sponsor-banner": 8 * 1024 * 1024,
 };
