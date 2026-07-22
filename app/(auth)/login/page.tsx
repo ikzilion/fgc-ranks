@@ -43,7 +43,7 @@ export default function LoginPage() {
         );
       }
     } else {
-      router.push("/tournaments");
+      router.push("/");
       router.refresh();
     }
   }
