@@ -6,12 +6,20 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { maxUploadBytes, formatMaxSizeLabel } from "@/lib/uploadLimits";
 
+// Sentinel dropdown value that reveals the free-text "type your own" input
+// below the Game select — a custom-typed value is never auto-added as a
+// curated Game (see createTournament's game: String! argument, unchanged),
+// it just stays a plain Tournament.game string, same as the pre-existing
+// "orphan" entries the games resolver already merges into the Games list.
+const OTHER_GAME = "__other__";
+
 export function CreateTournamentButton() {
   const { data: session } = useSession();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [game, setGame] = useState("");
+  const [customGame, setCustomGame] = useState("");
   // Curated Games list for the dropdown below — fetched once on mount
   // rather than gated behind `open`, so the dropdown is ready the instant
   // the modal opens instead of showing an empty flash first.
@@ -57,6 +65,7 @@ export function CreateTournamentButton() {
   function resetForm() {
     setName("");
     setGame("");
+    setCustomGame("");
     setStartDate("");
     setLogoUrl("");
     setIsOnlineOnly(false);
@@ -139,7 +148,13 @@ export function CreateTournamentButton() {
   }
 
   async function handleSubmit() {
-    if (!name.trim() || !game.trim() || !startDate) {
+    // The dropdown's OTHER_GAME sentinel is never itself a valid game value
+    // — the actual value to persist is whatever was typed into the reveal
+    // input below it. Tournament.game stays a plain string either way; a
+    // custom-typed one is never turned into a curated Game document (see
+    // createTournament's game: String! argument, unchanged).
+    const effectiveGame = game === OTHER_GAME ? customGame.trim() : game;
+    if (!name.trim() || !effectiveGame || !startDate) {
       setError("Tournament name, game, and start date are required.");
       return;
     }
@@ -168,7 +183,7 @@ export function CreateTournamentButton() {
           `,
           variables: {
             name,
-            game,
+            game: effectiveGame,
             startDate,
             logoUrl: logoUrl || undefined,
             isOnlineOnly,
@@ -248,7 +263,24 @@ export function CreateTournamentButton() {
                     {games.map(g => (
                       <option key={g.id} value={g.name}>{g.name}</option>
                     ))}
+                    <option value={OTHER_GAME}>Other (type your own)</option>
                   </select>
+                  {/* Not added as a curated Game — stays a plain
+                      Tournament.game string, same as any pre-existing
+                      un-curated value (see the games resolver's "orphan"
+                      entries). An admin can still curate it later from
+                      /admin/games if they choose to. */}
+                  {game === OTHER_GAME && (
+                    <input
+                      type="text"
+                      value={customGame}
+                      onChange={e => setCustomGame(e.target.value)}
+                      placeholder="Type the game name"
+                      autoFocus
+                      className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)] mt-2"
+                      style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
+                    />
+                  )}
                 </div>
                 <div>
                   <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Start date</label>
