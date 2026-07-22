@@ -233,14 +233,28 @@ function BracketSideSection({
   }
   const centerById = new Map<string, number>();
   for (const r of roundNumbers) {
-    sortedByRound.get(r)!.forEach((m, idx) => {
+    sortedByRound.get(r)!.forEach(m => {
       const feeders = feedersByTarget.get(m.id) ?? [];
       if (feeders.length === 2) {
         centerById.set(m.id, (centerById.get(feeders[0])! + centerById.get(feeders[1])!) / 2);
       } else if (feeders.length === 1) {
         centerById.set(m.id, centerById.get(feeders[0])!);
       } else {
-        centerById.set(m.id, idx * ROUND0_SPACING + CARD_HEIGHT / 2);
+        // A round's real match count can be less than its full slot count
+        // when byes remove some pairings entirely (bye-vs-bye, or bye-vs-real
+        // which passes the real player straight through with no match
+        // created) — bracketPosition still reflects the match's true slot
+        // among the full set (see lib/bracket.ts's buildMatch/wireFeeder), so
+        // using it here (rather than this match's position within the
+        // filtered, gap-free `sortedByRound` array) correctly reserves the
+        // visual space a skipped bye-slot would have taken. Using the
+        // filtered array's own index instead previously squished every real
+        // match together with no gap, which could — and on a bye-heavy round
+        // like Community Showdown's Losers Round 1, did — produce the exact
+        // same baseline center for two different matches in different rounds
+        // whose squished indices happened to coincide, rendering one
+        // perfectly on top of the other.
+        centerById.set(m.id, m.bracketPosition * ROUND0_SPACING + CARD_HEIGHT / 2);
       }
     });
   }
