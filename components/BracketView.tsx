@@ -984,7 +984,26 @@ export function BracketView({
           there's a custom range-slider scrollbar right below, kept sticky to
           the bottom of the viewport for as long as any part of the bracket
           is on screen — see the sticky div after this one. */}
-      <div ref={containerRef} className="relative overflow-x-auto no-scrollbar pb-2" style={{ WebkitOverflowScrolling: "touch" }}>
+      {/* overflow-y-hidden is load-bearing, not decorative: setting only
+          overflow-x (auto) leaves overflow-y at its default "visible", but
+          per the CSS overflow spec a computed "visible" on one axis gets
+          silently forced to "auto" when the OTHER axis isn't visible — so
+          this container was ALSO a real vertical scroll container all
+          along (confirmed: getComputedStyle showed overflowY: "auto", and
+          scrollHeight was ~27px taller than clientHeight — a real, if
+          small, internal vertical scroll capacity). That's what captured
+          vertical wheel input here first, only chaining to the page scroll
+          once exhausted — a genuine nested-scroll bug, not a rendering
+          glitch (unrelated to the recent scroll-jank/ByeCard fixes).
+          Explicitly setting overflow-y to "visible" would NOT fix this —
+          the same spec rule re-forces it back to "auto". "hidden" isn't
+          "visible", so the forcing rule doesn't apply: overflow-x stays
+          auto (horizontal bracket panning keeps working) while overflow-y
+          is genuinely hidden, not a scroll container, so vertical wheel
+          input passes straight through to the page. The ~27px gap being
+          clipped is empty measurement slack, not real bracket content —
+          confirmed visually unaffected. */}
+      <div ref={containerRef} className="relative overflow-x-auto overflow-y-hidden no-scrollbar pb-2" style={{ WebkitOverflowScrolling: "touch" }}>
         <svg
           className="absolute top-0 left-0 pointer-events-none"
           width={overlay.width}
