@@ -64,19 +64,67 @@ export function SetPlacementButton({
     setLoading(false);
   }
 
+  async function handleClear() {
+    if (!confirm("Clear this entrant's placement? It goes back to fully unset.")) return;
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const res = await fetch("/api/graphql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: `
+            mutation ClearPlacement($entrantId: ID!) {
+              clearPlacement(entrantId: $entrantId) {
+                id
+              }
+            }
+          `,
+          variables: { entrantId },
+        }),
+      });
+
+      const json = await res.json();
+      if (json.errors) {
+        setError(json.errors[0]?.message ?? "Failed to clear placement");
+      } else {
+        setEditing(false);
+        router.refresh();
+      }
+    } catch {
+      setError("Something went wrong. Try again.");
+    }
+
+    setLoading(false);
+  }
+
   if (!editing) {
     return (
-      <button
-        onClick={() => {
-          setValue(placement ? String(placement) : "");
-          setError("");
-          setEditing(true);
-        }}
-        className="text-[11px] font-semibold px-2 py-1 rounded flex-shrink-0"
-        style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border)", cursor: "pointer" }}
-      >
-        {placement ? "Edit placement" : "Set placement"}
-      </button>
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <button
+          onClick={() => {
+            setValue(placement ? String(placement) : "");
+            setError("");
+            setEditing(true);
+          }}
+          className="text-[11px] font-semibold px-2 py-1 rounded"
+          style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border)", cursor: "pointer" }}
+        >
+          {placement ? "Edit placement" : "Set placement"}
+        </button>
+        {placement != null && (
+          <button
+            onClick={handleClear}
+            disabled={loading}
+            className="text-[11px] font-semibold px-2 py-1 rounded"
+            style={{ background: "var(--coral-dim)", color: "var(--coral)", border: "1px solid rgba(255,77,77,0.2)", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.6 : 1 }}
+          >
+            Clear
+          </button>
+        )}
+      </div>
     );
   }
 

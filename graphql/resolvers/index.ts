@@ -1364,6 +1364,32 @@ export const resolvers = {
       return Entrant.findByIdAndUpdate(entrantId, { placement, placementSetManually: true }, { new: true });
     },
 
+    clearPlacement: async (
+      _: unknown,
+      { entrantId }: { entrantId: string },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const entrant = await Entrant.findById(entrantId);
+      if (!entrant) throw new Error("Entrant not found");
+
+      const tournament = await Tournament.findById(entrant.tournamentId);
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+
+      // Resets placementSetManually along with the value, not just the
+      // value alone -- clearing is meant to undo the manual override
+      // entirely, returning this entrant to the same state as one that's
+      // never had a placement touched. Leaving placementSetManually true
+      // with placement null would permanently lock this entrant out of
+      // computeAndApplyBracketPlacements (lib/bracket.ts skips any entrant
+      // with that flag set, even on a re-run) -- on a bracket that's still
+      // live and could still recompute placements (e.g. an editMatchResult
+      // correction on the Grand Final), that would silently leave this one
+      // entrant stuck without a placement forever, instead of letting it be
+      // reclaimed automatically like every other entrant.
+      return Entrant.findByIdAndUpdate(entrantId, { placement: null, placementSetManually: false }, { new: true });
+    },
+
     // Brackets
     generateBracket: async (
       _: unknown,

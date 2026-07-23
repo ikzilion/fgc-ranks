@@ -400,6 +400,10 @@ export const typeDefs = `#graphql
 
     joinTournament(tournamentId: ID!, playerId: ID!): Entrant!
     setPlacement(entrantId: ID!, placement: Int!): Entrant!
+    # Resets placement back to fully unset AND clears placementSetManually —
+    # see clearPlacement's resolver comment for why the flag is reset too,
+    # not just the value.
+    clearPlacement(entrantId: ID!): Entrant!
 
     reportResult(matchId: ID!, player1Score: Int, player2Score: Int, isForfeit: Boolean, forfeitingPlayerId: ID): Match!
     editMatchResult(matchId: ID!, player1Score: Int, player2Score: Int, isForfeit: Boolean, forfeitingPlayerId: ID): Match!
