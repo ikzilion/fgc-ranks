@@ -1599,6 +1599,92 @@ export const resolvers = {
       return bracket;
     },
 
+    // Pool play + top-cut only. Reverts back to "entrants only, no pools",
+    // same mirror-of-deleteBracket cleanup (Match then Bracket documents),
+    // scoped to every Pool's own Bracket instead of the tournament's single
+    // non-pool one. Blocked while a main bracket already exists — it was
+    // seeded from these pools' Grand Final results, so deleting the pools
+    // out from under it would leave it referencing data that no longer
+    // makes sense; the TO must delete the main bracket first.
+    //
+    // No placement reset needed here (unlike deleteMainBracket below): a
+    // pool's own Grand Final completing never calls
+    // computeAndApplyBracketPlacements in the first place — advanceBracketMatch
+    // gates it out for any bracket with a poolId (lib/bracket.ts) — so pool
+    // play never wrote automatic placements for this to undo.
+    deletePools: async (
+      _: unknown,
+      { tournamentId }: { tournamentId: string },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const tournament = await Tournament.findById(tournamentId);
+      if (!tournament) throw new Error("Tournament not found");
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+      if (tournament.format !== "Pools + Bracket") {
+        throw new Error("This tournament isn't using the Pools + Bracket format");
+      }
+      if (tournament.mainBracketId) {
+        throw new Error("Delete the main bracket first — it was seeded from these pools' results");
+      }
+
+      const pools = await Pool.find({ tournamentId });
+      if (pools.length === 0) return false;
+
+      for (const pool of pools) {
+        const bracket = await Bracket.findOne({ poolId: pool._id });
+        if (bracket) {
+          await Match.deleteMany({ bracketId: bracket._id });
+          await Bracket.findByIdAndDelete(bracket._id);
+        }
+      }
+      await Pool.deleteMany({ tournamentId });
+
+      return true;
+    },
+
+    // Pool play + top-cut only. Reverts back to "pools complete, no main
+    // bracket yet" — mirrors deleteBracket's Match-then-Bracket cleanup,
+    // scoped to the tournament's mainBracketId instead of its single
+    // non-pool bracket, and additionally clears that pointer field. Pools
+    // themselves are left completely untouched.
+    deleteMainBracket: async (
+      _: unknown,
+      { tournamentId }: { tournamentId: string },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const tournament = await Tournament.findById(tournamentId);
+      if (!tournament) throw new Error("Tournament not found");
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+      if (tournament.format !== "Pools + Bracket") {
+        throw new Error("This tournament isn't using the Pools + Bracket format");
+      }
+      if (!tournament.mainBracketId) return false;
+
+      const bracket = await Bracket.findById(tournament.mainBracketId);
+      if (bracket) {
+        await Match.deleteMany({ bracketId: bracket._id });
+        // The main bracket is the ONE bracket in a Pools + Bracket
+        // tournament that ever calls computeAndApplyBracketPlacements
+        // (pool brackets are gated out, see deletePools' comment above),
+        // so it's the only one that could have written automatic
+        // placements — reset those back to unset. Scoped to exactly this
+        // bracket's own seeded entrants (bracket.seedOrder), never a
+        // tournament entrant unrelated to this bracket, and never a TO's
+        // own manual override (placementSetManually) — same respect for
+        // manual overrides computeAndApplyBracketPlacements itself has.
+        await Entrant.updateMany(
+          { tournamentId, playerId: { $in: bracket.seedOrder }, placementSetManually: { $ne: true } },
+          { placement: null }
+        );
+        await Bracket.findByIdAndDelete(bracket._id);
+      }
+      await Tournament.findByIdAndUpdate(tournamentId, { mainBracketId: null });
+
+      return true;
+    },
+
     reportResult: async (
       _: unknown,
       { matchId, player1Score, player2Score, isForfeit, forfeitingPlayerId }: { matchId: string; player1Score?: number | null; player2Score?: number | null; isForfeit?: boolean | null; forfeitingPlayerId?: string | null },

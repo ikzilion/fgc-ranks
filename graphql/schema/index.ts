@@ -419,6 +419,15 @@ export const typeDefs = `#graphql
     # completed (Tournament.allPoolsComplete). Seeds the fresh main bracket
     # from the 2 advancers per pool (winners-finalist + losers-finalist).
     generateMainBracket(tournamentId: ID!, seedingMethod: SeedingMethod!): Bracket!
+    # Pool play + top-cut only. Reverts back to "entrants only, no pools" —
+    # deletes every Pool and its own Bracket/Match documents. Blocked while
+    # a main bracket already exists (delete that first) since it was seeded
+    # from these pools' results.
+    deletePools(tournamentId: ID!): Boolean!
+    # Pool play + top-cut only. Reverts back to "pools complete, no main
+    # bracket yet" — deletes the main Bracket/Match documents and clears
+    # Tournament.mainBracketId, without touching the pools themselves.
+    deleteMainBracket(tournamentId: ID!): Boolean!
 
     deleteMatch(id: ID!): Boolean!
     deleteTournament(id: ID!): Boolean!

@@ -5,6 +5,8 @@ import { useState } from "react";
 import { BracketView } from "./BracketView";
 import { GeneratePoolsButton } from "./GeneratePoolsButton";
 import { GenerateMainBracketButton } from "./GenerateMainBracketButton";
+import { DeletePoolsButton } from "./DeletePoolsButton";
+import { DeleteMainBracketButton } from "./DeleteMainBracketButton";
 
 interface PoolBracketMatch {
   id: string;
@@ -198,9 +200,20 @@ export function PoolsSection({
             </p>
           )}
         </div>
-        {!hasMainBracket && (
-          <GenerateMainBracketButton tournamentId={tournamentId} allPoolsComplete={allPoolsComplete} canManage={canManage} />
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          {hasMainBracket ? (
+            <DeleteMainBracketButton tournamentId={tournamentId} canManage={canManage} />
+          ) : (
+            <>
+              <GenerateMainBracketButton tournamentId={tournamentId} allPoolsComplete={allPoolsComplete} canManage={canManage} />
+              {/* Full reset is allowed mid-play, not just before any results —
+                  deletePools itself is what actually blocks this once a main
+                  bracket exists (delete that first), so this button doesn't
+                  need its own extra gating beyond hasMainBracket above. */}
+              <DeletePoolsButton tournamentId={tournamentId} canManage={canManage} />
+            </>
+          )}
+        </div>
       </div>
 
       {activeTab === "main" && mainBracket && (
