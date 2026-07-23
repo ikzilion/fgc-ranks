@@ -202,11 +202,18 @@ export default async function TournamentDetailPage({ params }: { params: Promise
           [...tournament.entrants]
             .sort((a: any, b: any) => (a.seed ?? 999) - (b.seed ?? 999))
             .map((entrant: any) => (
+              // Two-line layout when canManage — photo+name alone on one
+              // line (full width to breathe, same as the public/non-managing
+              // row below) with the action buttons (Set placement, Remove)
+              // on their own row underneath, instead of squeezing all of it
+              // onto one line where a long player tag got cut off. A public/
+              // non-managing viewer never sees the action row at all, so
+              // their row stays exactly the single-line layout it always was.
               <div
                 key={entrant.id}
-                className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--border)] last:border-0 hover:bg-[var(--navy-3)] transition-colors"
+                className="flex flex-col gap-2 px-4 py-2.5 border-b border-[var(--border)] last:border-0 hover:bg-[var(--navy-3)] transition-colors"
               >
-                <Link href={`/players/${entrant.player.id}`} className="flex items-center gap-3 flex-1 min-w-0">
+                <Link href={`/players/${entrant.player.id}`} className="flex items-center gap-3 min-w-0">
                   <span className="text-[11px] text-[var(--text-muted)] w-5 flex-shrink-0">{entrant.seed ?? "—"}</span>
                   <div
                     className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 font-rajdhani text-[10px] font-bold overflow-hidden"
@@ -227,8 +234,12 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                     )}
                   </div>
                 </Link>
-                <SetPlacementButton entrantId={entrant.id} placement={entrant.placement} canManage={canManage} />
-                <RemoveEntrantButton entrantId={entrant.id} playerTag={entrant.player.tag} canManage={canManage} status={tournament.status} />
+                {canManage && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <SetPlacementButton entrantId={entrant.id} placement={entrant.placement} canManage={canManage} />
+                    <RemoveEntrantButton entrantId={entrant.id} playerTag={entrant.player.tag} canManage={canManage} status={tournament.status} />
+                  </div>
+                )}
               </div>
             ))
         )}
