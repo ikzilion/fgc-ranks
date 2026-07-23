@@ -48,7 +48,7 @@ const TOURNAMENT_NAME = "Manual Pools Test";
 const GAME = "Street Fighter 6";
 
 async function main() {
-  await connectToDatabase();
+  const mongooseInstance = await connectToDatabase();
 
   // ── 1. Organizer — reuse the same dedicated sim-organizer account the
   //      other Pools test tournament uses (idempotent, safe to reuse). ────
@@ -96,6 +96,7 @@ async function main() {
   console.log(`Tournament: ${tournament._id}`);
   console.log(`Detail page: https://www.fgc-ranks.com/tournaments/${tournament._id}`);
 
+  await mongooseInstance.disconnect();
   process.exit(0);
 }
 

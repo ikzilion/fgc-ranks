@@ -120,7 +120,7 @@ async function playBracketToCompletion(organizerCtx, bracketId) {
 }
 
 async function main() {
-  await connectToDatabase();
+  const mongooseInstance = await connectToDatabase();
 
   const createdTournamentIds = [];
 
@@ -409,6 +409,7 @@ async function main() {
     console.log("Cleanup done.");
   }
 
+  await mongooseInstance.disconnect();
   process.exit(failures === 0 ? 0 : 1);
 }
 

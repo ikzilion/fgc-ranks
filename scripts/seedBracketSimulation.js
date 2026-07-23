@@ -188,10 +188,12 @@ async function main() {
   console.log(`Detail page: https://fgc-ranks.vercel.app/tournaments/${tournament._id}`);
   console.log(`Stream view: https://fgc-ranks.vercel.app/tournaments/${tournament._id}/stream`);
 
+  await mongoose.disconnect();
   process.exit(0);
 }
 
-main().catch(err => {
+main().catch(async err => {
   console.error(err);
+  await mongoose.disconnect().catch(() => {});
   process.exit(1);
 });

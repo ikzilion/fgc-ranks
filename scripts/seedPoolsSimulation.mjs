@@ -111,7 +111,7 @@ async function playBracketToCompletion(organizerCtx, bracketId) {
 }
 
 async function main() {
-  await connectToDatabase();
+  const mongooseInstance = await connectToDatabase();
 
   // ── 1. Organizer — "Jmorales" (used by prior sim tournaments) has since
   //      been soft-deleted (account-deletion feature), so create a fresh
@@ -228,6 +228,7 @@ async function main() {
   console.log(`Tournament: ${tournament._id}`);
   console.log(`Detail page: https://www.fgc-ranks.com/tournaments/${tournament._id}`);
 
+  await mongooseInstance.disconnect();
   process.exit(0);
 }
 
