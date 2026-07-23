@@ -3,6 +3,7 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
+import { Pagination } from "@/components/Pagination";
 
 interface Player {
   id: string;
@@ -35,6 +36,8 @@ function rankBadge(rank: number) {
 
 export function PlayerSearchFilter({ players }: { players: Player[] }) {
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   // Ranks are computed from the FULL original list, so filtering never changes a player's rank number
   const ranked = useMemo(
@@ -53,13 +56,27 @@ export function PlayerSearchFilter({ players }: { players: Player[] }) {
     );
   }, [ranked, query]);
 
+  // Clamped as a derived value (not synced via an effect) so the current
+  // page can never strand the user on now-empty results — e.g. narrowing a
+  // search from 4 pages down to 1 while sitting on page 4.
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+
+  const paged = useMemo(
+    () => filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filtered, currentPage, pageSize]
+  );
+
   return (
     <>
       <div className="relative mb-4">
         <input
           type="text"
           value={query}
-          onChange={e => setQuery(e.target.value)}
+          onChange={e => {
+            setQuery(e.target.value);
+            setPage(1);
+          }}
           placeholder="Search by tag, character, or region…"
           className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
           style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
@@ -72,7 +89,7 @@ export function PlayerSearchFilter({ players }: { players: Player[] }) {
             {query ? `No players match "${query}".` : "No players yet. Register to join the leaderboard!"}
           </p>
         )}
-        {filtered.map(player => (
+        {paged.map(player => (
           <Link
             key={player.id}
             href={`/players/${player.id}`}
@@ -113,6 +130,17 @@ export function PlayerSearchFilter({ players }: { players: Player[] }) {
           </Link>
         ))}
       </div>
+
+      <Pagination
+        page={currentPage}
+        pageSize={pageSize}
+        totalItems={filtered.length}
+        onPageChange={setPage}
+        onPageSizeChange={size => {
+          setPageSize(size);
+          setPage(1);
+        }}
+      />
     </>
   );
 }

@@ -5,6 +5,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { DeleteTournamentButton } from "@/components/DeleteTournamentButton";
 import { CancelTournamentButton } from "@/components/CancelTournamentButton";
+import { Pagination } from "@/components/Pagination";
 
 interface Tournament {
   id: string;
@@ -55,6 +56,8 @@ export function TournamentSearchFilter({
 }) {
   const [query, setQuery] = useState(initialQuery);
   const [onlineOnly, setOnlineOnly] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   const filtered = useMemo(() => {
     let result = tournaments;
@@ -73,20 +76,37 @@ export function TournamentSearchFilter({
     return result;
   }, [tournaments, query, onlineOnly]);
 
+  // Clamped as a derived value (not synced via an effect) so the current
+  // page can never strand the user on now-empty results — e.g. narrowing a
+  // search from 4 pages down to 1 while sitting on page 4.
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+
+  const paged = useMemo(
+    () => filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filtered, currentPage, pageSize]
+  );
+
   return (
     <>
       <div className="flex flex-col sm:flex-row gap-2 mb-4">
         <input
           type="text"
           value={query}
-          onChange={e => setQuery(e.target.value)}
+          onChange={e => {
+            setQuery(e.target.value);
+            setPage(1);
+          }}
           placeholder="Search by name, game, or location…"
           className="flex-1 px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
           style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
         />
         <button
           type="button"
-          onClick={() => setOnlineOnly(v => !v)}
+          onClick={() => {
+            setOnlineOnly(v => !v);
+            setPage(1);
+          }}
           className="text-[13px] font-semibold px-4 py-2.5 rounded-md whitespace-nowrap"
           style={{
             background: onlineOnly ? "var(--blue)" : "var(--navy-3)",
@@ -105,7 +125,7 @@ export function TournamentSearchFilter({
             {query || onlineOnly ? "No tournaments match your filters." : "No tournaments yet."}
           </p>
         )}
-        {filtered.map(tournament => (
+        {paged.map(tournament => (
           <div
             key={tournament.id}
             className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 px-5 py-3 border-b border-[var(--border)] last:border-0 hover:bg-[var(--navy-3)] transition-colors"
@@ -135,6 +155,17 @@ export function TournamentSearchFilter({
           </div>
         ))}
       </div>
+
+      <Pagination
+        page={currentPage}
+        pageSize={pageSize}
+        totalItems={filtered.length}
+        onPageChange={setPage}
+        onPageSizeChange={size => {
+          setPageSize(size);
+          setPage(1);
+        }}
+      />
     </>
   );
 }

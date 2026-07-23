@@ -8,9 +8,13 @@ import { TournamentSearchFilter } from "@/components/TournamentSearchFilter";
 
 export const dynamic = "force-dynamic";
 
+// Pagination (components/Pagination.tsx) slices this client-side, same as
+// the existing search/filter — production is currently ~8 tournaments, so a
+// single-page fetch is still cheap. limit: 1000 covers real near-term
+// growth; revisit with server-side limit/offset if this stops being true.
 const GET_TOURNAMENTS = `
   query GetTournaments($playerId: ID) {
-    tournaments(limit: 50) {
+    tournaments(limit: 1000) {
       id
       name
       game

@@ -5,9 +5,13 @@ import { PlayerSearchFilter } from "@/components/PlayerSearchFilter";
 
 export const dynamic = "force-dynamic";
 
+// Pagination (components/Pagination.tsx) slices this client-side, same as
+// the existing search/filter — production is currently ~135 players, so a
+// single-page fetch is still cheap. limit: 1000 covers real near-term
+// growth; revisit with server-side limit/offset if this stops being true.
 const GET_PLAYERS = `
   query {
-    players(limit: 50) {
+    players(limit: 1000) {
       id
       tag
       region
