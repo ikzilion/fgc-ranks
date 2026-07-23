@@ -28,7 +28,7 @@ import {
 } from "@/lib/rateLimit";
 import { sendPasswordResetEmail, sendVerificationEmail, sendAccountDeletionEmail } from "@/lib/email";
 import { verifyTurnstileToken } from "@/lib/turnstile";
-import { buildDoubleEliminationBracket, resolveSeedOrder, advanceBracketMatch, nextPowerOfTwo, computeMainBracketSeedOrder, shuffle, SeedingMethod } from "@/lib/bracket";
+import { buildDoubleEliminationBracket, resolveSeedOrder, advanceBracketMatch, nextPowerOfTwo, computeMainBracketSeedOrder, shuffle, SeedingMethod, deleteMatchWithCascade } from "@/lib/bracket";
 import { getNextSequence } from "@/lib/counter";
 import { computeRankingPoints, computeRankingPointsForPlayers } from "@/lib/ranking";
 import { formatPlayerNumber } from "@/lib/playerId";
@@ -1796,6 +1796,14 @@ export const resolvers = {
       return updated;
     },
 
+    // Deletes any single match -- including a bracket-linked one -- and
+    // cascades every consequence of that (undoing its own result, resetting
+    // whatever it had already fed downstream however deep that goes,
+    // cleaning up a Grand Final Reset it may have spawned, un-applying any
+    // automatic placement without touching a manual override). See
+    // lib/bracket.ts's deleteMatchWithCascade for the full reasoning; this
+    // used to hard-block any bracket match and point at deleteBracket
+    // instead, which is now only needed to wipe the whole bracket at once.
     deleteMatch: async (_: unknown, { id }: { id: string }, { playerId, role }: { playerId?: string; role?: string }) => {
       await connectToDatabase();
       const match = await Match.findById(id);
@@ -1804,19 +1812,7 @@ export const resolvers = {
       const tournament = await Tournament.findById(match.tournamentId);
       if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
 
-      if (match.bracketId) {
-        throw new Error("Bracket matches can't be deleted individually — delete the whole bracket instead.");
-      }
-
-      // Undo the win/loss effects reportResult applied, so deleting a
-      // completed match doesn't leave stale stats behind.
-      if (match.status === MatchStatus.COMPLETED && match.winnerId) {
-        const loserId = match.winnerId.toString() === match.player1Id.toString() ? match.player2Id : match.player1Id;
-        await Player.findByIdAndUpdate(match.winnerId, { $inc: { wins: -1 } });
-        await Player.findByIdAndUpdate(loserId, { $inc: { losses: -1 } });
-      }
-
-      await Match.findByIdAndDelete(id);
+      await deleteMatchWithCascade(match);
       return true;
     },
 

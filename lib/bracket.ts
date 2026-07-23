@@ -35,6 +35,7 @@ import { Types } from "mongoose";
 import { Match } from "@/models/Match";
 import { Entrant } from "@/models/Entrant";
 import { Bracket } from "@/models/Bracket";
+import { Player } from "@/models/Player";
 import { computeRankingPointsForPlayers } from "@/lib/ranking";
 
 // ─── Small utilities ─────────────────────────────────────────────────────
@@ -468,4 +469,130 @@ export async function computeAndApplyBracketPlacements(tournamentId: any, bracke
       { placement }
     );
   }
+}
+
+// ─── Individual bracket match deletion, with cascade-reset ──────────────
+//
+// Deleting a single bracket match (rather than the whole bracket, via
+// deleteBracket/deleteMainBracket/deletePools) has to undo everything that
+// match's result caused, transitively: whichever downstream match(es) it
+// fed (nextMatchId for the winner, nextLoserMatchId for the loser) may
+// themselves have already been played using that now-invalid player, whose
+// own downstream may have been played too — however many rounds deep that
+// goes — and if any of that chain reached a Grand Final/Grand Final Reset,
+// it may have triggered computeAndApplyBracketPlacements above. All of that
+// has to unwind, without ever touching a manually-set placement
+// (Entrant.placementSetManually) — same scoping (bracket.seedOrder,
+// non-pool brackets only) and the same respect for manual overrides as
+// deleteMainBracket's own placement-reset precedent.
+//
+// A deleted match's own position is simply left empty afterward — the
+// renderer already has to handle a round position with no Match document
+// (a bye never gets one either; see BracketView.tsx's getRoundPositionCounts),
+// so this doesn't need any new rendering support.
+
+// Reverses one COMPLETED match's win/loss stat effects and, if it was a
+// Grand Final or Grand Final Reset, un-applies whatever automatic placement
+// it triggered. No-ops for a match that was never actually decided (and, by
+// extension, for a freeform pre-bracket-era match with no bracketSide at
+// all — the placement branch below just never matches).
+async function undoMatchEffects(match: any) {
+  if (match.status !== "COMPLETED" || !match.winnerId) return;
+
+  const loserId = match.winnerId.toString() === match.player1Id.toString() ? match.player2Id : match.player1Id;
+  await Player.findByIdAndUpdate(match.winnerId, { $inc: { wins: -1 } });
+  await Player.findByIdAndUpdate(loserId, { $inc: { losses: -1 } });
+
+  if (match.bracketSide === "GRAND_FINAL" || match.bracketSide === "GRAND_FINAL_RESET") {
+    const bracket = await Bracket.findById(match.bracketId).select("poolId seedOrder");
+    // Same gate advanceBracketMatch itself uses -- a pool's own bracket
+    // never applies placements automatically, so there's never anything to
+    // undo here for one.
+    if (bracket && !bracket.poolId) {
+      await Entrant.updateMany(
+        { tournamentId: match.tournamentId, playerId: { $in: bracket.seedOrder }, placementSetManually: { $ne: true } },
+        { placement: null }
+      );
+    }
+  }
+}
+
+// A completed Grand Final can spawn a Grand Final Reset (see
+// advanceBracketMatch above) -- that match is never wired into any other
+// match's nextMatchId chain, so it has to be cleaned up as a special case
+// whenever the Grand Final it depends on is deleted or cascade-invalidated.
+// Reverses its own effects first if it had already been played.
+async function removeGrandFinalReset(bracketId: any) {
+  const reset = await Match.findOne({ bracketId, bracketSide: "GRAND_FINAL_RESET" });
+  if (!reset) return;
+  await undoMatchEffects(reset);
+  await Match.findByIdAndDelete(reset._id);
+}
+
+// Recursively invalidates one player slot on a downstream match reached via
+// an upstream deletion/reset. If that match had already been played using
+// the now-invalid player, its own result is undone (stats, placement) and
+// the exact same treatment cascades into whatever ITS winner/loser had
+// already advanced to. If it hadn't been played yet, clearing the slot is
+// all there is to do -- the recursion simply stops.
+async function cascadeResetSlot(matchId: any, slotField: "player1Id" | "player2Id") {
+  const match = await Match.findById(matchId);
+  if (!match) return; // a dangling pointer here isn't fatal, just nothing to do
+
+  const wasDecided = match.status === "COMPLETED" && !!match.winnerId;
+
+  if (wasDecided) {
+    await undoMatchEffects(match);
+
+    if (match.nextMatchId) {
+      const field = match.nextMatchSlot === 1 ? "player1Id" : "player2Id";
+      await cascadeResetSlot(match.nextMatchId, field);
+    }
+    if (match.nextLoserMatchId) {
+      const field = match.nextLoserMatchSlot === 1 ? "player1Id" : "player2Id";
+      await cascadeResetSlot(match.nextLoserMatchId, field);
+    }
+    if (match.bracketSide === "GRAND_FINAL") {
+      await removeGrandFinalReset(match.bracketId);
+    }
+  }
+
+  await Match.findByIdAndUpdate(matchId, {
+    [slotField]: null,
+    winnerId: null,
+    isForfeit: false,
+    player1Score: 0,
+    player2Score: 0,
+    status: "PENDING",
+  });
+}
+
+// Deletes one match and cascades every consequence of that: undoes its own
+// result (if it had one), invalidates whatever it had already fed
+// downstream (however deep that chain goes), cleans up a Grand Final Reset
+// it may have spawned, and clears any OTHER match's now-dangling pointer at
+// this one -- so the bracket is left structurally valid, just with this
+// match's own position left empty. Works unchanged for a freeform (no
+// bracketId) match too -- every branch below is naturally a no-op when the
+// relevant field is unset, so it just falls through to a plain delete.
+export async function deleteMatchWithCascade(match: any) {
+  await undoMatchEffects(match);
+
+  if (match.nextMatchId) {
+    const field = match.nextMatchSlot === 1 ? "player1Id" : "player2Id";
+    await cascadeResetSlot(match.nextMatchId, field);
+  }
+  if (match.nextLoserMatchId) {
+    const field = match.nextLoserMatchSlot === 1 ? "player1Id" : "player2Id";
+    await cascadeResetSlot(match.nextLoserMatchId, field);
+  }
+  if (match.bracketSide === "GRAND_FINAL") {
+    await removeGrandFinalReset(match.bracketId);
+  }
+
+  // No other match should end up pointing at an ID that no longer exists.
+  await Match.updateMany({ nextMatchId: match._id }, { nextMatchId: null, nextMatchSlot: null });
+  await Match.updateMany({ nextLoserMatchId: match._id }, { nextLoserMatchId: null, nextLoserMatchSlot: null });
+
+  await Match.findByIdAndDelete(match._id);
 }
