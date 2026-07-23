@@ -245,25 +245,27 @@ function MatchCard({
       className="fgc-card p-3 w-56 flex-shrink-0"
       style={{ ...(boxColor ? { background: boxColor } : undefined), ...(marginTop ? { marginTop } : undefined) }}
     >
-      <div className="flex items-center justify-between mb-2">
-        {/* Same fontColor prop/fallback pattern as PlayerRow's tag text below
-            — was left out when bracketFontColor was originally scoped, per
-            user follow-up now brought into scope alongside it. TBD text and
-            win/loss score styling remain deliberately untouched.
-            min-w-0 + truncate: a long round label (e.g. "Grand Finals
-            (Reset)") combined with ReportMatchButton's two pills otherwise
-            has nowhere to go but wrap onto a second line — flex children
-            don't shrink below their content's natural width by default,
-            and truncate alone is a no-op without min-w-0 letting this
-            specific child shrink past that. Every other card on the exact
-            same round-column relies on this row staying single-line: the
-            pyramid positioning measures one rendered card's height and
-            applies it to every sibling, so a card that silently wraps
-            taller than the rest throws off its neighbors' spacing instead
-            of just clipping its own label. */}
-        <p className="text-[10px] uppercase tracking-widest truncate min-w-0" style={{ color: fontColor || "var(--text-muted)" }}>{match.round}</p>
-        {ready && <div className="flex-shrink-0"><ReportMatchButton match={match as any} canManage={canManage} /></div>}
-      </div>
+      {/* Round label on its own full-width row, action buttons (canManage
+          only) on a second row below — was previously squeezed onto one
+          line together (label truncate/min-w-0 + button flex-shrink-0),
+          which held up fine for a short label but a longer one (e.g.
+          "Winners Round 1"/"Winners Round 2") combined with Edit result +
+          Delete's two pills left almost no room, truncating to "WINNE…"/
+          "WIN…" — reproducible even on a standard tournament's bracket, not
+          specific to the Pool play tabs work. Same fix shape as the entrant
+          list's two-line row: give the cramped content its own row instead
+          of squeezing everything onto one line. Only rendered for
+          canManage — a public/non-managing viewer never sees these buttons
+          (ReportMatchButton returns null for !canManage) and its card
+          height must stay exactly as before, so the wrapper itself is
+          gated on canManage, not just ready, to avoid adding empty
+          vertical space there. */}
+      <p className="text-[10px] uppercase tracking-widest truncate w-full mb-1" style={{ color: fontColor || "var(--text-muted)" }}>{match.round}</p>
+      {canManage && ready && (
+        <div className="mb-2">
+          <ReportMatchButton match={match as any} canManage={canManage} />
+        </div>
+      )}
 
       <PlayerRow player={match.player1} score={match.player1Score} status={match.status} isForfeit={match.isForfeit} isWinner={!!match.winner && match.winner.id === match.player1?.id} fontColor={fontColor} />
       <PlayerRow player={match.player2} score={match.player2Score} status={match.status} isForfeit={match.isForfeit} isWinner={!!match.winner && match.winner.id === match.player2?.id} fontColor={fontColor} />
@@ -462,17 +464,43 @@ function BracketSideSection({
   //    center, unchanged. Match count didn't shrink this round, so there's
   //    no narrowing, matching how a real double-elim bracket actually looks.
   //  - 0 feeders — round 0 of this side (no same-side round precedes it),
-  //    OR a rarer later-round case where BOTH of a match's occupants
-  //    arrived directly from the other bracket (e.g. two Winners-bracket
-  //    losers dropping straight in via nextLoserMatch, because the
-  //    Losers-bracket round that would normally host one of them was
-  //    itself entirely bye-skipped by an earlier bye). Both cases use the
-  //    same bracketPosition-based baseline — bracketPosition reflects a
-  //    match's true slot among the FULL set (see lib/bracket.ts's
-  //    buildMatch/wireFeeder), reserving exactly the gap a skipped bye-slot
-  //    should occupy. Crucially, for every drop-in round chained forward
-  //    from this baseline (1:1 position mapping — see buildDropInRound),
-  //    a real feeder's exact center ALWAYS equals that same round's own
+  //    OR a later round where BOTH of a match's occupants arrived without a
+  //    real same-side match feeding it — either both slots were byes (e.g.
+  //    two Winners Round 1 byes landing adjacent to each other and both
+  //    feeding the same Winners Round 2 match — confirmed to actually
+  //    happen on a small, bye-heavy bracket: the Pool play feature's main
+  //    bracket, 10 real entrants padded to 16, hits this exact case), or a
+  //    Winners-bracket loser dropped straight into a Losers round that was
+  //    itself entirely bye-skipped earlier.
+  //
+  //    BUG FIXED HERE (found on that same bye-heavy bracket): this branch
+  //    used to multiply bracketPosition directly by roundSpacing regardless
+  //    of round — correct ONLY for a side's own first round, where
+  //    bracketPosition already sits on the finest per-slot grid. Any LATER
+  //    round that has already halved (every Winners round past the first;
+  //    a Losers consolidation round past its first) has a COARSER
+  //    bracketPosition numbering — position 1 in Winners Round 2 does NOT
+  //    sit at 1 * roundSpacing, it spans what were positions 2-3 in Round
+  //    1. Using the raw multiply put two DIFFERENT Round 2 matches at the
+  //    exact same computed center (confirmed via the real match/feeder data:
+  //    Round 2 position 0's single real feeder sat at Round-1 position 1,
+  //    center 201.75; Round 2 position 1 had zero real feeders and fell
+  //    back to 1 * roundSpacing, ALSO 201.75) — two cards rendered
+  //    perfectly on top of each other.
+  //
+  //    Fix: rescale bracketPosition by how many round-0 slots one position
+  //    in THIS round actually spans (`scale`), derived from the real
+  //    getRoundPositionCounts ratio rather than assumed — works for
+  //    Winners' every-round halving AND Losers' alternating
+  //    consolidation/drop-in pattern uniformly, and reduces to the exact
+  //    original formula (scale === 1) for a side's own first round, so nothing
+  //    about that already-correct baseline case changes. GRAND_FINAL/
+  //    GRAND_FINAL_RESET have no expectedCounts (single match, never byed) —
+  //    scale stays 1 there too, same as always.
+  //
+  //    Crucially, for every drop-in round chained forward from this
+  //    baseline (1:1 position mapping — see buildDropInRound), a real
+  //    feeder's exact center ALWAYS equals that same round's own rescaled
   //    bracketPosition formula by construction, so this never collides with
   //    (or duplicates) a real feeder-derived center — no separate collision
   //    pass is needed, and none should be added back.
@@ -493,7 +521,8 @@ function BracketSideSection({
       } else if (feeders.length === 1) {
         centerById.set(m.id, centerById.get(feeders[0])!);
       } else {
-        centerById.set(m.id, m.bracketPosition * roundSpacing + cardHeight / 2);
+        const scale = expectedCounts.length > 0 ? expectedCounts[0] / expectedCounts[r - 1] : 1;
+        centerById.set(m.id, (m.bracketPosition * scale + (scale - 1) / 2) * roundSpacing + cardHeight / 2);
       }
     });
   }
