@@ -25,6 +25,11 @@ const SEEDING_LABELS: Record<string, string> = {
   RANDOM: "Fully random",
   RANDOM_WITHIN_TIERS: "Random within tiers",
   MANUAL: "Manual",
+  // Pool play + top-cut main-bracket seeding only (see lib/bracket.ts's
+  // computeMainBracketSeedOrder) — was missing here, so a pools-format
+  // main bracket seeded this way fell through to the `?? bracket.seedingMethod`
+  // fallback below and showed the raw enum value instead of a friendly label.
+  AVOID_SAME_POOL: "Avoid same-pool matchups",
 };
 
 const SIDE_LABELS: Record<string, string> = {
