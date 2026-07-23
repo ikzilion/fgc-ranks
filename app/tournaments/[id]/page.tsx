@@ -422,34 +422,23 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                 overflows horizontally instead. */}
             <div className="flex-1 min-w-0 w-full">
               {isPoolsFormat ? (
-                <div className="flex flex-col gap-4">
-                  {tournament.mainBracket && (
-                    <div className="fgc-card p-6" style={{ overflow: "visible" }}>
-                      <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-4">Main Bracket</p>
-                      <BracketView
-                        bracket={tournament.mainBracket}
-                        canManage={canManage}
-                        lineColor={tournament.bracketLineColor}
-                        boxColor={tournament.bracketBoxColor}
-                        fontColor={tournament.bracketFontColor}
-                      />
-                    </div>
-                  )}
-                  {/* Pools stay viewable as history/reference once the main
-                      bracket exists, not just during the pool stage. */}
-                  <PoolsSection
-                    tournamentId={tournament.id}
-                    pools={tournament.pools}
-                    entrantCount={tournament.entrants.length}
-                    suggestedPoolCount={tournament.suggestedPoolCount}
-                    allPoolsComplete={tournament.allPoolsComplete}
-                    hasMainBracket={!!tournament.mainBracket}
-                    canManage={canManage}
-                    lineColor={tournament.bracketLineColor}
-                    boxColor={tournament.bracketBoxColor}
-                    fontColor={tournament.bracketFontColor}
-                  />
-                </div>
+                // Tabbed — one bracket visible at a time (Main Bracket, once
+                // generated, plus one tab per pool) instead of every pool
+                // stacked vertically on one long page. Pools stay viewable
+                // via their own tab as history/reference once the main
+                // bracket exists, not just during the pool stage.
+                <PoolsSection
+                  tournamentId={tournament.id}
+                  pools={tournament.pools}
+                  mainBracket={tournament.mainBracket}
+                  entrantCount={tournament.entrants.length}
+                  suggestedPoolCount={tournament.suggestedPoolCount}
+                  allPoolsComplete={tournament.allPoolsComplete}
+                  canManage={canManage}
+                  lineColor={tournament.bracketLineColor}
+                  boxColor={tournament.bracketBoxColor}
+                  fontColor={tournament.bracketFontColor}
+                />
               ) : (
                 // overflow: visible override — .fgc-card's overflow:hidden (for
                 // rounded-corner clipping elsewhere) becomes BracketView's sticky

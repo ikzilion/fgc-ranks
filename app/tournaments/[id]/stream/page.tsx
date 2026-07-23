@@ -8,6 +8,27 @@ import { StreamBracket } from "@/components/StreamBracket";
 
 export const dynamic = "force-dynamic";
 
+// Shared Match field selection — reused for the standard bracket, every
+// pool's own bracket, and the pools-format main bracket, same convention as
+// app/tournaments/[id]/page.tsx's MATCH_FIELDS (no GraphQL fragments in this
+// codebase — no Apollo Client — so it's just a repeated string).
+const MATCH_FIELDS = `
+  id
+  round
+  status
+  bracketSide
+  bracketRound
+  bracketPosition
+  player1Score
+  player2Score
+  isForfeit
+  player1 { id tag }
+  player2 { id tag }
+  winner { id tag }
+  nextMatch { id }
+  nextLoserMatch { id }
+`;
+
 const GET_STREAM_TOURNAMENT = `
   query GetStreamTournament($id: ID!) {
     tournament(id: $id) {
@@ -15,6 +36,7 @@ const GET_STREAM_TOURNAMENT = `
       name
       game
       status
+      format
       streamBackgroundUrl
       sponsorBannerUrl
       bracketLineColor
@@ -24,22 +46,23 @@ const GET_STREAM_TOURNAMENT = `
         id
         seedingMethod
         size
-        matches {
+        matches { ${MATCH_FIELDS} }
+      }
+      pools {
+        id
+        poolNumber
+        bracket {
           id
-          round
-          status
-          bracketSide
-          bracketRound
-          bracketPosition
-          player1Score
-          player2Score
-          isForfeit
-          player1 { id tag }
-          player2 { id tag }
-          winner { id tag }
-          nextMatch { id }
-          nextLoserMatch { id }
+          seedingMethod
+          size
+          matches { ${MATCH_FIELDS} }
         }
+      }
+      mainBracket {
+        id
+        seedingMethod
+        size
+        matches { ${MATCH_FIELDS} }
       }
     }
   }

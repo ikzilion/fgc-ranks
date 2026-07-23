@@ -6,6 +6,26 @@ import { BracketView } from "./BracketView";
 
 const POLL_INTERVAL_MS = 12000;
 
+// Shared Match field selection — same convention as the tournament detail
+// page's MATCH_FIELDS (no GraphQL fragments in this codebase — no Apollo
+// Client — so it's just a repeated string).
+const MATCH_FIELDS = `
+  id
+  round
+  status
+  bracketSide
+  bracketRound
+  bracketPosition
+  player1Score
+  player2Score
+  isForfeit
+  player1 { id tag }
+  player2 { id tag }
+  winner { id tag }
+  nextMatch { id }
+  nextLoserMatch { id }
+`;
+
 const GET_STREAM_TOURNAMENT = `
   query GetStreamTournament($id: ID!) {
     tournament(id: $id) {
@@ -13,6 +33,7 @@ const GET_STREAM_TOURNAMENT = `
       name
       game
       status
+      format
       streamBackgroundUrl
       sponsorBannerUrl
       bracketLineColor
@@ -22,38 +43,48 @@ const GET_STREAM_TOURNAMENT = `
         id
         seedingMethod
         size
-        matches {
+        matches { ${MATCH_FIELDS} }
+      }
+      pools {
+        id
+        poolNumber
+        bracket {
           id
-          round
-          status
-          bracketSide
-          bracketRound
-          bracketPosition
-          player1Score
-          player2Score
-          isForfeit
-          player1 { id tag }
-          player2 { id tag }
-          winner { id tag }
-          nextMatch { id }
-          nextLoserMatch { id }
+          seedingMethod
+          size
+          matches { ${MATCH_FIELDS} }
         }
+      }
+      mainBracket {
+        id
+        seedingMethod
+        size
+        matches { ${MATCH_FIELDS} }
       }
     }
   }
 `;
+
+interface StreamPool {
+  id: string;
+  poolNumber: number;
+  bracket: any;
+}
 
 interface StreamTournament {
   id: string;
   name: string;
   game: string;
   status: string;
+  format?: string | null;
   streamBackgroundUrl?: string | null;
   sponsorBannerUrl?: string | null;
   bracketLineColor?: string | null;
   bracketBoxColor?: string | null;
   bracketFontColor?: string | null;
   bracket: any;
+  pools: StreamPool[];
+  mainBracket: any;
 }
 
 export function StreamBracket({ tournamentId, initialTournament }: { tournamentId: string; initialTournament: StreamTournament }) {
@@ -95,6 +126,27 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
   }, [tournamentId]);
 
   const hasBackground = !!tournament.streamBackgroundUrl;
+
+  // Pool play + top-cut format only — a TO needs to put an individual
+  // pool's bracket on stream during the pool stage, before the main bracket
+  // even exists, not just the main/standard bracket. Selection is local
+  // component state (not synced to a URL param) — a TO picks it once in the
+  // browser source before/while going live; polling below only refreshes
+  // match data, never resets which view is selected.
+  const isPoolsFormat = tournament.format === "Pools + Bracket";
+  const views = isPoolsFormat
+    ? [
+        ...(tournament.mainBracket ? [{ key: "main", label: "Main Bracket" }] : []),
+        ...tournament.pools.map(p => ({ key: `pool-${p.id}`, label: `Pool ${p.poolNumber}` })),
+      ]
+    : [];
+  const [selectedView, setSelectedView] = useState(views[0]?.key);
+  const selectedPool = tournament.pools.find(p => `pool-${p.id}` === selectedView);
+  const displayedBracket = isPoolsFormat
+    ? selectedView === "main"
+      ? tournament.mainBracket
+      : (selectedPool?.bracket ?? null)
+    : tournament.bracket;
 
   return (
     <div className="min-h-screen w-full isolate">
@@ -141,9 +193,31 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
           {tournament.game}
         </p>
 
-        {tournament.bracket ? (
+        {isPoolsFormat && views.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-6">
+            {views.map(view => {
+              const active = view.key === selectedView;
+              return (
+                <button
+                  key={view.key}
+                  onClick={() => setSelectedView(view.key)}
+                  className="font-rajdhani text-[13px] font-bold tracking-wide px-3 py-1.5 rounded"
+                  style={
+                    active
+                      ? { background: "var(--blue)", color: "white", border: "none", cursor: "pointer" }
+                      : { background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.15)", cursor: "pointer" }
+                  }
+                >
+                  {view.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {displayedBracket ? (
           <BracketView
-            bracket={tournament.bracket}
+            bracket={displayedBracket}
             canManage={false}
             lineColor={tournament.bracketLineColor ?? undefined}
             boxColor={tournament.bracketBoxColor ?? undefined}
@@ -151,7 +225,7 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
           />
         ) : (
           <p className="text-[14px]" style={{ color: "rgba(255,255,255,0.7)" }}>
-            Bracket not yet generated.
+            {isPoolsFormat && views.length === 0 ? "Pools haven't been generated yet." : "Bracket not yet generated."}
           </p>
         )}
       </div>
