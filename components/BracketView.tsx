@@ -1,7 +1,7 @@
 // components/BracketView.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ReportMatchButton } from "./ReportMatchButton";
 
 interface BracketMatch {
@@ -348,7 +348,24 @@ function ByeCard({
   );
 }
 
-function BracketSideSection({
+// Wrapped in memo — BracketView's own scrollLeft state (updated on every
+// scroll tick, including incidental horizontal jitter during an otherwise-
+// vertical scroll gesture — see BracketView's onScroll) re-renders the whole
+// component tree purely to keep the sticky range-slider's value in sync, but
+// nothing about a side section's OWN props actually changes from that. Without
+// memo, every one of those re-renders re-ran the full pyramid-centering
+// computation and rebuilt JSX for every card in this section, real,
+// measurable cost confirmed via profiling (~34ms per tick on a real bracket,
+// via a Chrome CDP trace during a scroll session with realistic diagonal
+// jitter) that's proportional to bracket size — not unique to Pools + Bracket
+// tournaments, but the kind of large multi-round bracket the Pool play
+// feature's main brackets and bigger entrant counts make more likely to
+// actually trip. See BracketView's own bySide/byeSlots-per-side useMemo and
+// registerRef/registerByeRef useCallback below — this only actually skips
+// re-rendering because those props are now referentially stable across a
+// scrollLeft-only re-render too; memo alone doesn't help if its own props
+// are still freshly recreated every time.
+const BracketSideSection = memo(function BracketSideSection({
   side,
   matches,
   bracketSize,
@@ -609,7 +626,7 @@ function BracketSideSection({
       </div>
     </div>
   );
-}
+});
 
 export function BracketView({
   bracket,
@@ -658,15 +675,20 @@ export function BracketView({
   const resolvedBoxColor = boxColor && boxColor.trim() ? boxColor : undefined;
   const resolvedFontColor = fontColor && fontColor.trim() ? fontColor : undefined;
 
-  function registerRef(id: string, el: HTMLDivElement | null) {
+  // useCallback (stable empty deps — these only ever write into refs, never
+  // close over changing state) so BracketSideSection's memo actually holds
+  // across a scrollLeft-only re-render; a plain function declaration here
+  // would be a new reference every render, defeating the memo below despite
+  // nothing about what these callbacks DO ever changing.
+  const registerRef = useCallback((id: string, el: HTMLDivElement | null) => {
     if (el) cardEls.current.set(id, el);
     else cardEls.current.delete(id);
-  }
+  }, []);
 
-  function registerByeRef(id: string, el: HTMLDivElement | null) {
+  const registerByeRef = useCallback((id: string, el: HTMLDivElement | null) => {
     if (el) byeEls.current.set(id, el);
     else byeEls.current.delete(id);
-  }
+  }, []);
 
   // Memoized on bracket.matches/bracket.size so it's stable across renders
   // that don't actually change the bracket — lets the effect below list it
@@ -906,10 +928,22 @@ export function BracketView({
     };
   }, [bracket.matches, byeSlots]);
 
-  const bySide: Record<string, BracketMatch[]> = { WINNERS: [], LOSERS: [], GRAND_FINAL: [], GRAND_FINAL_RESET: [] };
-  for (const m of bracket.matches) {
-    if (bySide[m.bracketSide]) bySide[m.bracketSide].push(m);
-  }
+  // Memoized against bracket.matches specifically (not recomputed on every
+  // scrollLeft-only re-render) so the arrays passed to each memoized
+  // BracketSideSection below stay referentially stable — a fresh array from
+  // a plain per-render loop would look "changed" to memo's shallow prop
+  // comparison even though the actual contents never did.
+  const bySide = useMemo(() => {
+    const grouped: Record<string, BracketMatch[]> = { WINNERS: [], LOSERS: [], GRAND_FINAL: [], GRAND_FINAL_RESET: [] };
+    for (const m of bracket.matches) {
+      if (grouped[m.bracketSide]) grouped[m.bracketSide].push(m);
+    }
+    return grouped;
+  }, [bracket.matches]);
+  // Same reasoning as bySide above — byeSlots.filter(...) inline in JSX
+  // would also produce a fresh array every render.
+  const winnersByeSlots = useMemo(() => byeSlots.filter(b => b.side === "WINNERS"), [byeSlots]);
+  const losersByeSlots = useMemo(() => byeSlots.filter(b => b.side === "LOSERS"), [byeSlots]);
 
   return (
     <div>
@@ -948,8 +982,8 @@ export function BracketView({
           {/* Winners Bracket stacked above Losers Bracket, both reading
               left-to-right by round. */}
           <div className="flex flex-col">
-            {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} bracketSize={bracket.size} byeSlots={byeSlots.filter(b => b.side === "WINNERS")} registerByeRef={registerByeRef} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
-            {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} bracketSize={bracket.size} byeSlots={byeSlots.filter(b => b.side === "LOSERS")} registerByeRef={registerByeRef} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized dividerAbove={bySide.WINNERS.length > 0} accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
+            {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} bracketSize={bracket.size} byeSlots={winnersByeSlots} registerByeRef={registerByeRef} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
+            {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} bracketSize={bracket.size} byeSlots={losersByeSlots} registerByeRef={registerByeRef} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized dividerAbove={bySide.WINNERS.length > 0} accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
           </div>
           {/* Grand Finals is its own final column to the right of both
               brackets — not interleaved — vertically centered between them,
