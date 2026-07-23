@@ -324,6 +324,24 @@ function ByeCard({
       className="fgc-card w-56 flex-shrink-0 flex flex-col items-center justify-center gap-1 px-3"
       style={{
         height: cardHeight,
+        // Smooths the one real, unavoidable transition every bracket goes
+        // through: measuredCardHeight starts at DEFAULT_CARD_HEIGHT (a
+        // guess, before any card has actually been measured) and corrects
+        // to the true value shortly after mount. Every OTHER card
+        // (MatchCard) sizes itself from its own intrinsic content, so that
+        // correction is invisible there — but ByeCard pins its height AND
+        // vertically centers its content, so the centered "Bye player
+        // skipping round" label/name visibly pops to a new position the
+        // instant cardHeight corrects (confirmed via frame-by-frame
+        // measurement: the label's offset from its own card's top jumped
+        // 34.5px -> 49px in a single frame, in perfect lockstep with
+        // cardHeight jumping 110 -> 139, while the card's own on-screen
+        // position never moved) — reads exactly like "the label shifts
+        // independently while the rest of the card stays in place." A
+        // transition on height alone is enough: the browser recomputes the
+        // flex-centered position every intermediate frame automatically, so
+        // the label eases into its corrected spot instead of jumping.
+        transition: "height 150ms ease",
         ...(boxColor ? { background: boxColor } : undefined),
         ...(marginTop ? { marginTop } : undefined),
       }}
