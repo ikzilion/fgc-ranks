@@ -195,7 +195,7 @@ export function PoolsSection({
           <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Pools</p>
           <TabBar tabs={tabs} activeKey={activeTab ?? tabs[0].key} onSelect={setActiveTab} />
           {!allPoolsComplete && (
-            <p className="text-[11px] text-[var(--text-muted)] mt-2">
+            <p className="text-[11px] font-bold text-[var(--text-secondary)] mt-2">
               Top 2 finishers of each pool (winners-finalist + losers-finalist) advance to the main bracket once every pool finishes.
             </p>
           )}
