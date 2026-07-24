@@ -500,6 +500,162 @@ export function buildRepooledBracket(params: {
   return { matches: drafts };
 }
 
+// ─── Pool format Model B: round-to-round re-pooling orchestration (Phase 2) ─
+//
+// Takes one round's completed pools (each already reduced to its own
+// survivors, in Phase 1's two categories) and produces the next round's
+// pools -- deciding how many new pools to form, which survivors group into
+// which one, and what winnersEntrySize each needs, then actually calling
+// buildRepooledBracket per group. This is the FINAL validated algorithm from
+// the Notion "Pool format Model B" writeup, stress-tested there across
+// ~15,000 entrant counts with zero broken cases:
+//   1. While pool_count > 8: merge 4:1 -- every 4 source pools' survivors
+//      combine into 1 new pool, 3 advancers per source pool, unconditionally
+//      (1 Winners-side champion + 2 Losers-side survivors).
+//   2. Once pool_count <= 8: consolidate ALL remaining pools into exactly 1
+//      pool, targeting a fixed ~24-entrant size (capped at this round's
+//      actual entrant count if smaller) -- split as evenly as possible
+//      across however many pools remain, which can mean MORE than 3
+//      advancers per pool (e.g. 6/pool when only 4 pools remain -- confirmed
+//      against a 2nd real EVO dataset, see the Notion writeup).
+//   3. The Finals split is dynamic: this only reports whether the resulting
+//      ~24-entrant pool should later split into a separate Top-8 Finals
+//      stage (entrantCount >= 16) or stand as the tournament's own real
+//      final as-is (< 16) -- see the FINALS SPLIT note below for why
+//      actually generating that Finals bracket is a later phase's job.
+//
+// Deliberately NOT solved here (out of Phase 2's scope):
+//   - How a completed pool's raw match results get reduced down to its
+//     PoolSurvivors entry (winnersChampionId + a ranked losersSurvivorIds
+//     list). That's real placement extraction against real Match documents
+//     -- a later, DB-touching phase's job. This function trusts whatever
+//     ranked candidate list each pool provides and trims it to however many
+//     are actually needed for the current regrouping decision.
+//   - FINALS SPLIT mechanics: the real EVO data shows the Finals split isn't
+//     another buildRepooledBracket call at all -- the ~24-entrant pool's own
+//     Winners/Losers sides are truncated part-way (e.g. "Winners
+//     Quarter-Final: 8 in, 4 out, straight to Finals" instead of continuing
+//     to that pool's own Winners Finals), and their qualifiers feed a
+//     completely standard fresh Top-8 bracket. That's a genuinely different
+//     bracket-generation primitive (an early-cutoff bracket) that neither
+//     buildRepooledBracket nor buildDoubleEliminationBracket support yet, so
+//     this function only reports the splitsIntoFinals decision -- the part
+//     Phase 2's scope actually asks for -- and leaves generating that
+//     truncated bracket to a later phase.
+export const REPOOL_FINAL_TARGET_SIZE = 24;
+export const REPOOL_FINALS_SPLIT_THRESHOLD = 16;
+
+export interface PoolSurvivors {
+  entrantCount: number; // total entrants who competed in this pool this round -- only consulted once pool_count <= 8, for the ~24 cap
+  winnersChampionId: string; // this pool's undefeated Grand-Final winner -- enters the new pool's Winners bracket partway up
+  losersSurvivorIds: string[]; // ranked candidate list of this pool's other advancers (Winners-Final loser first, then Losers-bracket champion, then further placements if a later round needs more than 2) -- enters the new pool's Losers Round 1
+}
+
+export interface RepooledNewPool {
+  bracketId: Types.ObjectId;
+  matches: BracketMatchDraft[];
+  winnersEntrySize: number;
+  entrantCount: number;
+  sourcePoolCount: number;
+}
+
+export type RepoolStage = "MERGE" | "FINAL_CONSOLIDATION";
+
+export interface RepoolRoundResult {
+  stage: RepoolStage;
+  newPools: RepooledNewPool[];
+  // Only present once stage === "FINAL_CONSOLIDATION" -- see the FINALS
+  // SPLIT note above for why generating that stage is deferred.
+  splitsIntoFinals?: boolean;
+}
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+  return chunks;
+}
+
+// Splits `total` as evenly as possible across `buckets` buckets -- any
+// remainder goes one-at-a-time to the first few buckets, so the returned
+// counts always sum to exactly `total`.
+function distributeEvenly(total: number, buckets: number): number[] {
+  const base = Math.floor(total / buckets);
+  const remainder = total - base * buckets;
+  return Array.from({ length: buckets }, (_, i) => base + (i < remainder ? 1 : 0));
+}
+
+function takeExactly(ids: string[], count: number, context: string): string[] {
+  if (ids.length < count) {
+    throw new Error(`Not enough losers-survivor candidates for ${context} -- need ${count}, got ${ids.length}`);
+  }
+  return ids.slice(0, count);
+}
+
+function buildNewPoolFromGroup(tournamentId: any, group: PoolSurvivors[]): RepooledNewPool {
+  const winnersSurvivorIds = group.map(p => p.winnersChampionId);
+  const losersSurvivorIds = group.flatMap(p => p.losersSurvivorIds);
+  const winnersEntrySize = Math.max(2, nextPowerOfTwo(winnersSurvivorIds.length));
+  const bracketId = new Types.ObjectId();
+
+  const { matches } = buildRepooledBracket({
+    tournamentId,
+    bracketId,
+    winnersSurvivorIds,
+    winnersEntrySize,
+    losersSurvivorIds,
+  });
+
+  return {
+    bracketId,
+    matches,
+    winnersEntrySize,
+    entrantCount: winnersSurvivorIds.length + losersSurvivorIds.length,
+    sourcePoolCount: group.length,
+  };
+}
+
+export function computeNextRepooledRound(params: {
+  tournamentId: any;
+  pools: PoolSurvivors[]; // this round's completed pools
+}): RepoolRoundResult {
+  const { tournamentId, pools } = params;
+  const poolCount = pools.length;
+  if (poolCount < 2) {
+    throw new Error("computeNextRepooledRound requires at least 2 completed pools to regroup");
+  }
+
+  if (poolCount > 8) {
+    // Stage 1: merge 4:1, always exactly 2 losers-survivors per pool.
+    const groups = chunkArray(pools, 4).map(group =>
+      group.map(p => ({ ...p, losersSurvivorIds: takeExactly(p.losersSurvivorIds, 2, "the merge-4:1 stage's fixed 2 losers-survivors per pool") }))
+    );
+    const newPools = groups.map(group => buildNewPoolFromGroup(tournamentId, group));
+    return { stage: "MERGE", newPools };
+  }
+
+  // Stage 2: consolidate ALL remaining pools into exactly 1 pool, targeting
+  // ~24 entrants (capped at this round's actual entrant count if smaller),
+  // split as evenly as possible across however many pools remain.
+  const totalEntrantsThisRound = pools.reduce((sum, p) => sum + p.entrantCount, 0);
+  const target = Math.min(REPOOL_FINAL_TARGET_SIZE, totalEntrantsThisRound);
+  const advancersPerPool = distributeEvenly(target, poolCount);
+
+  const trimmedGroup = pools.map((p, i) => {
+    const losersCount = advancersPerPool[i] - 1; // 1 slot always reserved for the winners-champion
+    if (losersCount < 1) {
+      throw new Error(`Pool ${i} would only get ${advancersPerPool[i]} advancer(s) at the final consolidation stage -- need at least 1 winners-survivor + 1 losers-survivor`);
+    }
+    return { ...p, losersSurvivorIds: takeExactly(p.losersSurvivorIds, losersCount, `the final consolidation stage's computed ${losersCount} losers-survivors for pool ${i}`) };
+  });
+
+  const newPool = buildNewPoolFromGroup(tournamentId, trimmedGroup);
+  return {
+    stage: "FINAL_CONSOLIDATION",
+    newPools: [newPool],
+    splitsIntoFinals: newPool.entrantCount >= REPOOL_FINALS_SPLIT_THRESHOLD,
+  };
+}
+
 // ─── Progression on match report ─────────────────────────────────────────
 
 // Called after reportResult/editMatchResult resolves a bracket match's

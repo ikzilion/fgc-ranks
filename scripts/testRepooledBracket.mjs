@@ -1,11 +1,11 @@
 // scripts/testRepooledBracket.mjs
 //
-// Functional verification for Pool format Model B, Phase 1:
-// buildRepooledBracket in lib/bracket.ts. This is pure/sync logic with no DB
-// access (same as buildDoubleEliminationBracket), so unlike
-// scripts/testPoolsFeature.mjs and friends, this test needs no MongoDB
-// connection at all -- it just calls the real function and inspects the
-// plain draft objects it returns.
+// Functional verification for Pool format Model B, Phases 1 and 2:
+// buildRepooledBracket and computeNextRepooledRound in lib/bracket.ts. Both
+// are pure/sync logic with no DB access (same as
+// buildDoubleEliminationBracket), so unlike scripts/testPoolsFeature.mjs and
+// friends, this test needs no MongoDB connection at all -- it just calls the
+// real functions and inspects the plain objects they return.
 //
 // Primary case (TEST 1) is the real confirmed EVO Round 1->2 shape from the
 // FGC Ranks Notion context page: 4 pools' Winners-champions (undefeated)
@@ -17,12 +17,22 @@
 // power-of-two entry size), confirming buildRepooledBracket genuinely reuses
 // buildMatch's existing bye pass-through rather than reimplementing it.
 //
-// TEST 3 checks the input-validation guards.
+// TEST 3 checks buildRepooledBracket's input-validation guards.
+//
+// TEST 4 (Phase 2) replays the full real EVO Japan 2026 SF6 reference table
+// (7,683 entrants: 512->128->32->8 pools, then final consolidation to a
+// single 24-entrant Semifinals pool that DOES split into Finals) through
+// computeNextRepooledRound, round by round, asserting pool counts and the
+// final entrant/split-decision numbers match exactly.
+//
+// TEST 5 is a smaller synthetic case that lands below the 16-entrant
+// Finals-split threshold, confirming the dynamic split decision correctly
+// does NOT force a second stage.
 //
 // Run: npx tsx scripts/testRepooledBracket.mjs
 
 import { Types } from "mongoose";
-const { buildRepooledBracket } = await import("../lib/bracket");
+const { buildRepooledBracket, computeNextRepooledRound } = await import("../lib/bracket");
 
 let failures = 0;
 function assert(cond, label) {
@@ -187,6 +197,94 @@ function main() {
   assert(
     throws(() => buildRepooledBracket({ tournamentId, bracketId, winnersSurvivorIds: idList("x", 4), winnersEntrySize: 4, losersSurvivorIds: idList("y", 2) })),
     "Rejects losersSurvivorIds too small to reach the Winners bracket's first loser wave (2 survivors, Round 1 consolidation alone drops it to 1, below the wave's 2)"
+  );
+
+  // ═══════════════════════════════════════════════════════════════════
+  // TEST 4 (Phase 2): full real EVO Japan 2026 SF6 reference simulation --
+  // 7,683 entrants: 512 -> 128 -> 32 -> 8 pools (each a merge-4:1 step),
+  // then final consolidation of those 8 pools into a single 24-entrant
+  // Semifinals pool, which (>=16) DOES split into a further Finals stage.
+  // ═══════════════════════════════════════════════════════════════════
+  console.log("\n=== TEST 4: full EVO SF6 reference simulation (512->128->32->8->Semifinals) ===");
+
+  function makeSourcePool(entrantCount, losersSurplus = 2) {
+    return {
+      entrantCount,
+      winnersChampionId: new Types.ObjectId().toString(),
+      losersSurvivorIds: idList("sf6", losersSurplus),
+    };
+  }
+
+  // Round 1's own entrantCount is never consulted (merge-stage grouping
+  // only cares about pool_count, not entrantCount) -- 15 just documents the
+  // real ~7,683/512 average.
+  let round = Array.from({ length: 512 }, () => makeSourcePool(15));
+  const poolCountsPerStep = [];
+  const stagesPerStep = [];
+  let finalResult = null;
+
+  for (let step = 0; step < 10; step++) {
+    const result = computeNextRepooledRound({ tournamentId, pools: round });
+    poolCountsPerStep.push(result.newPools.length);
+    stagesPerStep.push(result.stage);
+    if (result.stage === "FINAL_CONSOLIDATION") {
+      finalResult = result;
+      break;
+    }
+    // Simulate this round's pools each completing with the flat 3/pool
+    // rule (1 winners-champion + 2 losers) to feed the next iteration.
+    round = result.newPools.map(np => ({
+      entrantCount: np.entrantCount,
+      winnersChampionId: new Types.ObjectId().toString(),
+      losersSurvivorIds: idList("sf6b", 2),
+    }));
+  }
+
+  assert(
+    JSON.stringify(poolCountsPerStep) === JSON.stringify([128, 32, 8, 1]),
+    `Pool counts per round match real SF6 data (Round2=128, Round3=32, Round4=8, Semifinals=1) -- got ${JSON.stringify(poolCountsPerStep)}`
+  );
+  assert(
+    JSON.stringify(stagesPerStep) === JSON.stringify(["MERGE", "MERGE", "MERGE", "FINAL_CONSOLIDATION"]),
+    `Stage sequence is 3 merges then final consolidation -- got ${JSON.stringify(stagesPerStep)}`
+  );
+  assert(!!finalResult, "Simulation reached FINAL_CONSOLIDATION within 10 steps");
+  assert(finalResult.newPools.length === 1, "Final consolidation produces exactly 1 new pool");
+  assert(finalResult.newPools[0].entrantCount === 24, `Consolidated Semifinals pool has 24 entrants (real SF6 data) -- got ${finalResult.newPools[0].entrantCount}`);
+  assert(finalResult.newPools[0].winnersEntrySize === 8, `Semifinals pool's Winners bracket enters at size 8 (1 champion x 8 source pools) -- got ${finalResult.newPools[0].winnersEntrySize}`);
+  assert(finalResult.splitsIntoFinals === true, "24-entrant Semifinals pool (>=16) reports splitsIntoFinals = true, matching real EVO data's further Finals stage");
+
+  // ═══════════════════════════════════════════════════════════════════
+  // TEST 5 (Phase 2): a small synthetic case landing below the 16-entrant
+  // Finals-split threshold -- confirms the dynamic split decision does NOT
+  // force an artificial second stage when the field is too small for one.
+  // ═══════════════════════════════════════════════════════════════════
+  console.log("\n=== TEST 5: below the 16-entrant Finals-split threshold ===");
+
+  const smallPools = [1, 2, 3].map(() => ({
+    entrantCount: 4,
+    winnersChampionId: new Types.ObjectId().toString(),
+    losersSurvivorIds: idList("small", 10), // generous surplus -- computeNextRepooledRound trims to whatever it actually needs
+  }));
+
+  const smallResult = computeNextRepooledRound({ tournamentId, pools: smallPools });
+  assert(smallResult.stage === "FINAL_CONSOLIDATION", "3 pools (<=8) goes straight to final consolidation, no merge-4:1 step");
+  assert(smallResult.newPools.length === 1, "Final consolidation produces exactly 1 new pool");
+  assert(smallResult.newPools[0].entrantCount === 12, `Target capped at this round's actual entrant total (3 pools x 4 = 12, below the 24 target) -- got ${smallResult.newPools[0].entrantCount}`);
+  assert(smallResult.newPools[0].winnersEntrySize === 4, `Consolidated pool's Winners bracket enters at size 4 (1 champion x 3 source pools, padded up) -- got ${smallResult.newPools[0].winnersEntrySize}`);
+  assert(smallResult.splitsIntoFinals === false, "12-entrant consolidated pool (<16) reports splitsIntoFinals = false -- no artificial second stage forced");
+
+  const throwsRepool = (fn) => {
+    try {
+      fn();
+      return false;
+    } catch {
+      return true;
+    }
+  };
+  assert(
+    throwsRepool(() => computeNextRepooledRound({ tournamentId, pools: [smallPools[0]] })),
+    "computeNextRepooledRound rejects fewer than 2 completed pools"
   );
 
   console.log(`\n${failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURE(S)`}`);
