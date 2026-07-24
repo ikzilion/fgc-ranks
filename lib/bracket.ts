@@ -337,6 +337,169 @@ export function buildDoubleEliminationBracket(params: {
   return { matches: drafts };
 }
 
+// ─── Pool format Model B: repooled bracket generator (Phase 1) ──────────
+//
+// Model B (massive-scale continuous double-elimination pools, reverse-
+// engineered from real EVO Japan 2026 bracket data) regenerates a fresh,
+// small double-elimination bracket every round from that round's survivors.
+// Unlike buildDoubleEliminationBracket (ONE flat seed list, always starting
+// at Winners Round 1), a repooled round has TWO separate input lists that
+// enter at two different points:
+//   - "Winners-survivors": the previous round's undefeated players. They
+//     enter partway UP the Winners bracket (e.g. straight into the Winners
+//     Semi-Final), skipping the rounds their pool already played out.
+//   - "Losers-survivors": the previous round's Winners-Final losers AND
+//     Losers-bracket champions, pooled together. They always enter at a
+//     fresh Losers Round 1.
+//
+// This is NOT new bracket topology -- it reuses the exact same primitives
+// (buildMatch/buildConsolidationRound/buildDropInRound, the same
+// bracketSide/bracketRound/bracketPosition + nextMatchId/nextLoserMatchId
+// graph) as buildDoubleEliminationBracket above. The only new idea is WHERE
+// each input list is grafted in:
+//   - Winners-survivors seed a Winners bracket sized to winnersEntrySize
+//     (a power of two) instead of the full field -- so it's a short bracket
+//     with round labels counted backward from Winners Finals (Semi-Final,
+//     Quarter-Final, ...) rather than forward from Round 1.
+//   - Losers-survivors seed a fresh Losers Round 1 consolidation round, same
+//     as any Losers Round 1. But since the Winners-survivors bracket is
+//     short, its first-round loser count is usually smaller than the
+//     losers-survivors list -- so before the normal WB-loser-drop-in
+//     alternation can start, the losers-survivors side consolidates itself
+//     down (same consolidation primitive, just repeated) until its size
+//     matches that first incoming WB-loser wave.
+//
+// Re-pooling/grouping logic between rounds, per-pool UI, and scale-testing
+// are separate later phases -- this function only builds ONE round's fresh
+// bracket from its two already-decided input lists.
+export function buildRepooledBracket(params: {
+  tournamentId: any;
+  bracketId: Types.ObjectId;
+  winnersSurvivorIds: string[]; // seed 1..W in order -- enter partway up the Winners bracket
+  winnersEntrySize: number; // power-of-two slot count of the Winners round they enter (e.g. 4 = Winners Semi-Final); must be >= winnersSurvivorIds.length
+  losersSurvivorIds: string[]; // seed 1..L in order -- enter at a fresh Losers Round 1
+}): { matches: BracketMatchDraft[] } {
+  const { tournamentId, bracketId, winnersSurvivorIds, winnersEntrySize, losersSurvivorIds } = params;
+
+  if (winnersEntrySize < 2 || nextPowerOfTwo(winnersEntrySize) !== winnersEntrySize) {
+    throw new Error("winnersEntrySize must be a power of two >= 2");
+  }
+  if (winnersSurvivorIds.length > winnersEntrySize) {
+    throw new Error("winnersSurvivorIds does not fit within winnersEntrySize");
+  }
+  if (losersSurvivorIds.length < 1) {
+    throw new Error("losersSurvivorIds must have at least 1 entrant");
+  }
+
+  const drafts: BracketMatchDraft[] = [];
+  const wN = winnersSurvivorIds.length;
+  const mW = Math.log2(winnersEntrySize); // number of Winners rounds in this fresh bracket
+
+  // ── Winners bracket (starts partway up, not Round 1) ────────────────
+  const seedToWinnersSlot = (seed: number): Slot =>
+    seed <= wN ? { kind: "PLAYER", playerId: new Types.ObjectId(winnersSurvivorIds[seed - 1]) } : { kind: "BYE" };
+
+  // Round labels count backward from Winners Finals, since this bracket
+  // starts partway up a notional full Winners bracket rather than at Round 1.
+  const winnersRoundLabel = (roundNum: number): string => {
+    const roundsFromFinal = mW - roundNum;
+    if (roundsFromFinal === 0) return "Winners Finals";
+    if (roundsFromFinal === 1) return "Winners Semi-Final";
+    if (roundsFromFinal === 2) return "Winners Quarter-Final";
+    return `Winners Round ${roundNum}`;
+  };
+
+  let wbCurrent: Slot[] = seedSlotOrder(winnersEntrySize).map(seedToWinnersSlot);
+  const wbLoserOutputsByRound: Slot[][] = [];
+  for (let r = 1; r <= mW; r++) {
+    const label = winnersRoundLabel(r);
+    const roundWinners: Slot[] = [];
+    const roundLosers: Slot[] = [];
+    for (let i = 0; i < wbCurrent.length; i += 2) {
+      const { winner, loser } = buildMatch(
+        wbCurrent[i],
+        wbCurrent[i + 1],
+        { tournamentId, bracketId, side: "WINNERS", round: r, position: i / 2, label },
+        drafts
+      );
+      roundWinners.push(winner);
+      roundLosers.push(loser);
+    }
+    wbLoserOutputsByRound.push(roundLosers);
+    wbCurrent = roundWinners;
+  }
+  const wbChampionSlot = wbCurrent[0];
+
+  // ── Losers bracket (starts fresh at Losers Round 1) ─────────────────
+  const lN = losersSurvivorIds.length;
+  const lSize = nextPowerOfTwo(lN);
+  const seedToLosersSlot = (seed: number): Slot =>
+    seed <= lN ? { kind: "PLAYER", playerId: new Types.ObjectId(losersSurvivorIds[seed - 1]) } : { kind: "BYE" };
+
+  let lbCurrent: Slot[] = seedSlotOrder(lSize).map(seedToLosersSlot);
+  let roundNum = 1;
+  lbCurrent = buildConsolidationRound(
+    lbCurrent,
+    { tournamentId, bracketId, side: "LOSERS", round: roundNum, label: "Losers Round 1" },
+    drafts
+  );
+  roundNum++;
+
+  // The losers-survivors pool is usually much bigger than the Winners
+  // bracket's first-round loser count (it entered partway up, so its first
+  // round produces relatively few losers). Keep consolidating the
+  // losers-survivors side on its own -- same primitive as Losers Round 1
+  // above, just repeated -- until its size catches down to match that first
+  // incoming wave, so the normal drop-in alternation below can pair 1:1.
+  while (lbCurrent.length > wbLoserOutputsByRound[0].length) {
+    lbCurrent = buildConsolidationRound(
+      lbCurrent,
+      { tournamentId, bracketId, side: "LOSERS", round: roundNum, label: `Losers Round ${roundNum}` },
+      drafts
+    );
+    roundNum++;
+  }
+  if (lbCurrent.length !== wbLoserOutputsByRound[0].length) {
+    throw new Error(
+      "losersSurvivorIds cannot be consolidated down to exactly match the Winners bracket's first loser wave"
+    );
+  }
+
+  // Standard alternating drop-in/consolidation merge, identical in shape to
+  // buildDoubleEliminationBracket's own Losers-bracket loop.
+  for (let j = 0; j <= mW - 1; j++) {
+    const isLastDropIn = j === mW - 1;
+    lbCurrent = buildDropInRound(
+      lbCurrent,
+      wbLoserOutputsByRound[j],
+      { tournamentId, bracketId, side: "LOSERS", round: roundNum, label: isLastDropIn ? "Losers Finals" : `Losers Round ${roundNum}` },
+      drafts
+    );
+    roundNum++;
+    if (!isLastDropIn) {
+      lbCurrent = buildConsolidationRound(
+        lbCurrent,
+        { tournamentId, bracketId, side: "LOSERS", round: roundNum, label: `Losers Round ${roundNum}` },
+        drafts
+      );
+      roundNum++;
+    }
+  }
+  const lbChampionSlot = lbCurrent[0];
+
+  // ── Grand Final ───────────────────────────────────────────────────
+  // Same convention as buildDoubleEliminationBracket: player1 = winners-side
+  // finalist, player2 = losers-side finalist.
+  buildMatch(
+    wbChampionSlot,
+    lbChampionSlot,
+    { tournamentId, bracketId, side: "GRAND_FINAL", round: 1, position: 0, label: "Grand Finals" },
+    drafts
+  );
+
+  return { matches: drafts };
+}
+
 // ─── Progression on match report ─────────────────────────────────────────
 
 // Called after reportResult/editMatchResult resolves a bracket match's
