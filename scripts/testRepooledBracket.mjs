@@ -1,11 +1,12 @@
 // scripts/testRepooledBracket.mjs
 //
-// Functional verification for Pool format Model B, Phases 1 and 2:
-// buildRepooledBracket and computeNextRepooledRound in lib/bracket.ts. Both
-// are pure/sync logic with no DB access (same as
-// buildDoubleEliminationBracket), so unlike scripts/testPoolsFeature.mjs and
-// friends, this test needs no MongoDB connection at all -- it just calls the
-// real functions and inspects the plain objects they return.
+// Functional verification for Pool format Model B, Phases 1, 2, and 2.5:
+// buildRepooledBracket, computeNextRepooledRound, and
+// buildFinalsCutoffBracket in lib/bracket.ts. All are pure/sync logic with
+// no DB access (same as buildDoubleEliminationBracket), so unlike
+// scripts/testPoolsFeature.mjs and friends, this test needs no MongoDB
+// connection at all -- it just calls the real functions and inspects the
+// plain objects they return.
 //
 // Primary case (TEST 1) is the real confirmed EVO Round 1->2 shape from the
 // FGC Ranks Notion context page: 4 pools' Winners-champions (undefeated)
@@ -29,10 +30,26 @@
 // Finals-split threshold, confirming the dynamic split decision correctly
 // does NOT force a second stage.
 //
+// TEST 6 (Phase 2.5) is the real confirmed 24-entrant Semifinals-phase
+// shape: winnersEntrySize 8 (8 winners-survivors) + 16 losers-survivors,
+// through buildFinalsCutoffBracket, asserting the early-cutoff structure
+// matches exactly -- 1 Winners round ("Winners Quarter-Final", 4 winners),
+// 3 Losers rounds (4 winners), 8 total finalist slots, no Grand Final.
+//
+// TEST 7 generalizes to winnersEntrySize 16 (a size Phase 2 doesn't
+// currently produce, but the function should still handle correctly since
+// it's derived from entrant count, not hardcoded to 24) -- checked against
+// hand-derived exact numbers (deterministic math, not real-world data) plus
+// the invariant that it always produces exactly 8 finalists.
+//
+// TEST 8 confirms the flagged extrapolation gap (winnersEntrySize < 4)
+// throws a clear, documented error instead of guessing, plus
+// buildFinalsCutoffBracket's other input-validation guards.
+//
 // Run: npx tsx scripts/testRepooledBracket.mjs
 
 import { Types } from "mongoose";
-const { buildRepooledBracket, computeNextRepooledRound } = await import("../lib/bracket");
+const { buildRepooledBracket, computeNextRepooledRound, buildFinalsCutoffBracket } = await import("../lib/bracket");
 
 let failures = 0;
 function assert(cond, label) {
@@ -285,6 +302,133 @@ function main() {
   assert(
     throwsRepool(() => computeNextRepooledRound({ tournamentId, pools: [smallPools[0]] })),
     "computeNextRepooledRound rejects fewer than 2 completed pools"
+  );
+
+  // ═══════════════════════════════════════════════════════════════════
+  // TEST 6 (Phase 2.5): the one confirmed real shape -- a 24-entrant
+  // Semifinals-phase pool (winnersEntrySize 8, 16 losers-survivors) cuts
+  // off after exactly 1 Winners round ("Winners Quarter-Final") and 3
+  // Losers rounds, producing 4 + 4 = 8 finalist slots. No Grand Final.
+  // ═══════════════════════════════════════════════════════════════════
+  console.log("\n=== TEST 6: 24-entrant Semifinals-phase early cutoff (real EVO shape) ===");
+
+  const W8 = idList("W8", 8); // seed1..seed8
+  const L16 = idList("L16", 16); // seed1..seed16
+
+  const cutoff = buildFinalsCutoffBracket({
+    tournamentId,
+    bracketId,
+    winnersSurvivorIds: W8,
+    winnersEntrySize: 8,
+    losersSurvivorIds: L16,
+  });
+
+  assert(cutoff.matches.length === 20, `20 total matches (4 WQF + 8+4+4 LB) -- got ${cutoff.matches.length}`);
+  assert(cutoff.winnersRoundsPlayed === 1, `winnersRoundsPlayed === 1 -- got ${cutoff.winnersRoundsPlayed}`);
+  assert(cutoff.losersRoundsPlayed === 3, `losersRoundsPlayed === 3 -- got ${cutoff.losersRoundsPlayed}`);
+  assert(!findMatch(cutoff.matches, "GRAND_FINAL", 1, 0), "No Grand Final is played within this pool -- its qualifiers go to a separate Finals bracket");
+
+  // ── Winners side: 1 round, "Winners Quarter-Final", 4 matches ──────
+  const wqf = [0, 1, 2, 3].map(pos => findMatch(cutoff.matches, "WINNERS", 1, pos));
+  assert(wqf.every(m => !!m), "Winners Round 1 has 4 matches (positions 0-3)");
+  assert(wqf.every(m => m.round === "Winners Quarter-Final"), "Winners Round 1 is labeled 'Winners Quarter-Final' -- matches the real EVO label exactly");
+  assert(!findMatch(cutoff.matches, "WINNERS", 2, 0), "No Winners Round 2 is played -- the cutoff stops after Quarter-Final");
+  // seedSlotOrder(8) = [1,8,4,5,2,7,3,6]
+  assert(wqf[0].player1Id.toString() === W8[0] && wqf[0].player2Id.toString() === W8[7], "Winners Quarter-Final pos 0 pairs seed 1 vs seed 8");
+  assert(wqf[1].player1Id.toString() === W8[3] && wqf[1].player2Id.toString() === W8[4], "Winners Quarter-Final pos 1 pairs seed 4 vs seed 5");
+  assert(wqf[2].player1Id.toString() === W8[1] && wqf[2].player2Id.toString() === W8[6], "Winners Quarter-Final pos 2 pairs seed 2 vs seed 7");
+  assert(wqf[3].player1Id.toString() === W8[2] && wqf[3].player2Id.toString() === W8[5], "Winners Quarter-Final pos 3 pairs seed 3 vs seed 6");
+
+  // ── Losers side: 3 rounds ────────────────────────────────────────
+  const lr1b = [0, 1, 2, 3, 4, 5, 6, 7].map(pos => findMatch(cutoff.matches, "LOSERS", 1, pos));
+  assert(lr1b.every(m => !!m), "Losers Round 1 has 8 matches (positions 0-7)");
+  assert(lr1b.every(m => m.round === "Losers Round 1"), "Losers Round 1 matches are labeled 'Losers Round 1'");
+
+  const lr2b = [0, 1, 2, 3].map(pos => findMatch(cutoff.matches, "LOSERS", 2, pos));
+  assert(lr2b.every(m => !!m), "Losers Round 2 has 4 matches (positions 0-3)");
+  assert(lr2b.every(m => m.round === "Losers Round 2"), "Losers Round 2 matches are labeled 'Losers Round 2'");
+  assert(lr2b.every(m => m.player1Id === null && m.player2Id === null), "Losers Round 2 slots are TBD (fed by Losers Round 1 winners)");
+  for (let i = 0; i < 4; i++) {
+    assert(lr1b[2 * i].nextMatchId?.toString() === lr2b[i]._id.toString() && lr1b[2 * i].nextMatchSlot === 1, `Losers Round 1 pos ${2 * i}'s winner feeds Losers Round 2 pos ${i} slot 1`);
+    assert(lr1b[2 * i + 1].nextMatchId?.toString() === lr2b[i]._id.toString() && lr1b[2 * i + 1].nextMatchSlot === 2, `Losers Round 1 pos ${2 * i + 1}'s winner feeds Losers Round 2 pos ${i} slot 2`);
+  }
+
+  const lr3b = [0, 1, 2, 3].map(pos => findMatch(cutoff.matches, "LOSERS", 3, pos));
+  assert(lr3b.every(m => !!m), "Losers Round 3 has 4 matches (positions 0-3)");
+  assert(lr3b.every(m => m.round === "Losers Round 3"), "Losers Round 3 matches are labeled 'Losers Round 3' (not 'Losers Finals' -- this pool never reaches its own Losers Finals)");
+  assert(!findMatch(cutoff.matches, "LOSERS", 4, 0), "No Losers Round 4 is played -- the cutoff stops after Round 3");
+  for (let i = 0; i < 4; i++) {
+    assert(lr2b[i].nextMatchId?.toString() === lr3b[i]._id.toString() && lr2b[i].nextMatchSlot === 1, `Losers Round 2 pos ${i}'s winner feeds Losers Round 3 pos ${i} slot 1`);
+    assert(wqf[i].nextLoserMatchId?.toString() === lr3b[i]._id.toString() && wqf[i].nextLoserMatchSlot === 2, `Winners Quarter-Final pos ${i}'s loser drops into Losers Round 3 pos ${i} slot 2`);
+  }
+
+  // ── Finalist slots: 4 Winners-side qualifiers then 4 Losers-side ───
+  assert(cutoff.finalistSlots.length === 8, `finalistSlots has exactly 8 entries -- got ${cutoff.finalistSlots.length}`);
+  assert(cutoff.finalistSlots.every(s => s.kind === "PENDING" && s.which === "winner"), "Every finalist slot is a PENDING reference to a played match's winner (no byes in this all-real-players case)");
+  assert(
+    cutoff.finalistSlots.slice(0, 4).every((s, i) => s.draft._id.toString() === wqf[i]._id.toString()),
+    "First 4 finalist slots are the Winners Quarter-Final matches' winners, in position order"
+  );
+  assert(
+    cutoff.finalistSlots.slice(4, 8).every((s, i) => s.draft._id.toString() === lr3b[i]._id.toString()),
+    "Last 4 finalist slots are the Losers Round 3 matches' winners, in position order"
+  );
+
+  // ═══════════════════════════════════════════════════════════════════
+  // TEST 7 (Phase 2.5): generalization to winnersEntrySize 16 -- a size
+  // Phase 2 doesn't currently produce, but the function should still get
+  // right since it derives round counts from entrant count. Checked
+  // against hand-derived exact numbers (deterministic math), not real-world
+  // data this size doesn't have.
+  // ═══════════════════════════════════════════════════════════════════
+  console.log("\n=== TEST 7: generalization to winnersEntrySize 16 ===");
+
+  const cutoff16 = buildFinalsCutoffBracket({
+    tournamentId,
+    bracketId,
+    winnersSurvivorIds: idList("W16", 16),
+    winnersEntrySize: 16,
+    losersSurvivorIds: idList("L32", 32),
+  });
+
+  assert(cutoff16.winnersRoundsPlayed === 2, `winnersRoundsPlayed === 2 (log2(16/4)) -- got ${cutoff16.winnersRoundsPlayed}`);
+  assert(cutoff16.losersRoundsPlayed === 5, `losersRoundsPlayed === 5 (2 pre-consolidation + 2x2 waves - 1) -- got ${cutoff16.losersRoundsPlayed}`);
+  assert(cutoff16.matches.length === 52, `52 total matches (8+4 WB, 16+8+8+4+4 LB) -- got ${cutoff16.matches.length}`);
+  assert(cutoff16.finalistSlots.length === 8, `finalistSlots is always exactly 8 regardless of winnersEntrySize -- got ${cutoff16.finalistSlots.length}`);
+  assert(!!findMatch(cutoff16.matches, "WINNERS", 1, 0) && findMatch(cutoff16.matches, "WINNERS", 1, 0).round === "Winners Round 1", "Winners Round 1 (3 rounds before this bracket's own never-played Finals) uses the generic label");
+  assert(!!findMatch(cutoff16.matches, "WINNERS", 2, 0) && findMatch(cutoff16.matches, "WINNERS", 2, 0).round === "Winners Quarter-Final", "Winners Round 2 (2 rounds before Finals) is labeled 'Winners Quarter-Final'");
+  assert(!findMatch(cutoff16.matches, "WINNERS", 3, 0), "No Winners Round 3 is played -- cutoff stops after Round 2");
+  assert(!findMatch(cutoff16.matches, "LOSERS", 6, 0), "No Losers Round 6 is played -- cutoff stops after Round 5");
+
+  // ═══════════════════════════════════════════════════════════════════
+  // TEST 8 (Phase 2.5): the flagged extrapolation gap + other guards.
+  // ═══════════════════════════════════════════════════════════════════
+  console.log("\n=== TEST 8: buildFinalsCutoffBracket input validation ===");
+
+  const throwsCutoff = (fn) => {
+    try {
+      fn();
+      return false;
+    } catch {
+      return true;
+    }
+  };
+
+  assert(
+    throwsCutoff(() => buildFinalsCutoffBracket({ tournamentId, bracketId, winnersSurvivorIds: idList("g", 2), winnersEntrySize: 2, losersSurvivorIds: idList("h", 6) })),
+    "Rejects winnersEntrySize below FINALS_HALF (2 < 4) -- the flagged, undocumented extrapolation gap"
+  );
+  assert(
+    throwsCutoff(() => buildFinalsCutoffBracket({ tournamentId, bracketId, winnersSurvivorIds: idList("g", 3), winnersEntrySize: 3, losersSurvivorIds: idList("h", 4) })),
+    "Rejects a non-power-of-two winnersEntrySize"
+  );
+  assert(
+    throwsCutoff(() => buildFinalsCutoffBracket({ tournamentId, bracketId, winnersSurvivorIds: idList("g", 5), winnersEntrySize: 4, losersSurvivorIds: idList("h", 4) })),
+    "Rejects winnersSurvivorIds longer than winnersEntrySize"
+  );
+  assert(
+    throwsCutoff(() => buildFinalsCutoffBracket({ tournamentId, bracketId, winnersSurvivorIds: idList("g", 4), winnersEntrySize: 4, losersSurvivorIds: [] })),
+    "Rejects an empty losersSurvivorIds list"
   );
 
   console.log(`\n${failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURE(S)`}`);

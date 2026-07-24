@@ -165,7 +165,7 @@ export interface BracketMatchDraft {
   nextLoserMatchSlot?: 1 | 2;
 }
 
-type Slot =
+export type Slot =
   | { kind: "BYE" }
   | { kind: "PLAYER"; playerId: Types.ObjectId }
   | { kind: "PENDING"; draft: BracketMatchDraft; which: "winner" | "loser" };
@@ -653,6 +653,229 @@ export function computeNextRepooledRound(params: {
     stage: "FINAL_CONSOLIDATION",
     newPools: [newPool],
     splitsIntoFinals: newPool.entrantCount >= REPOOL_FINALS_SPLIT_THRESHOLD,
+  };
+}
+
+// ─── Pool format Model B: Finals-cutoff bracket (Phase 2.5) ─────────────
+//
+// Fills the gap Phase 2 explicitly left open: when computeNextRepooledRound
+// reports splitsIntoFinals === true, the final ~24-entrant consolidated pool
+// doesn't play out to its own Grand Final -- per the one confirmed real EVO
+// data point (a 24-entrant Semifinals-phase pool), its Winners side plays
+// exactly ONE round ("Winners Quarter-Final": 8 entrants in, 4 winners out)
+// and then STOPS, and its Losers side plays exactly THREE rounds (R1->R2->R3)
+// and also stops -- both sides' final-round winners (4 + 4 = 8) go straight
+// to a completely separate, standard Top-8 bracket instead of continuing to
+// this pool's own Winners/Losers Finals. That separate bracket is itself
+// nothing new -- existing buildDoubleEliminationBracket already handles a
+// flat 8-entrant double-elim fine, once fed real playerIds (Phase 3's job,
+// once these cutoff rounds have real results). This function only builds
+// the TRUNCATED early rounds and produces the 8 finalist slots to feed it.
+//
+// ── Deriving the general rule from the one confirmed data point ──────────
+// FINALS_SIZE is fixed at 8 (the settled design's Top-8 cutoff). Call
+// FINALS_HALF = FINALS_SIZE / 2 = 4 -- how many qualifiers EACH side
+// contributes in the confirmed case (4 Winners + 4 Losers = 8).
+//
+// Winners side: winnersEntrySize entrants, halving every round played.
+// Reaching exactly FINALS_HALF survivors takes
+//   winnersRounds = log2(winnersEntrySize / FINALS_HALF)
+// rounds (both are powers of two whenever winnersEntrySize >= FINALS_HALF,
+// so this is always a clean non-negative integer). For the confirmed case,
+// winnersEntrySize = 8 -> winnersRounds = log2(8/4) = 1, landing on the
+// label "Winners Quarter-Final" -- which falls out for free by reusing
+// buildRepooledBracket's OWN round-counted-backward-from-Finals labeling
+// (computed from the bracket's full notional round count
+// mW = log2(winnersEntrySize), not from winnersRounds): round 1 of an
+// 8-entrant bracket is 2 rounds before its own (never-played) Finals, i.e.
+// "Winners Quarter-Final" -- exactly matching the real label, not a guess.
+//
+// Losers side: the SAME pre-consolidation + alternating drop-in/
+// consolidation shape buildRepooledBracket already uses, just stopped after
+// merging exactly `winnersRounds` waves of Winners-bracket losers (one wave
+// per Winners round actually played) instead of continuing to a real Losers
+// Finals. Reusing that same machinery and stopping at the right wave count
+// is provably self-consistent: each wave's size is winnersEntrySize / 2^k,
+// so the LAST wave (k = winnersRounds - 1) has exactly
+// winnersEntrySize / 2^winnersRounds = FINALS_HALF entrants -- and since a
+// drop-in round's output length always equals its input length, the Losers
+// side lands on exactly FINALS_HALF survivors too, automatically, with no
+// separate uneven-trim step needed. For the confirmed case this works out
+// to pre-consolidating losersSurvivorIds (16) down to the first wave's size
+// (4, taking 2 rounds: 16->8->4) plus 1 drop-in round merging that wave =
+// 3 total Losers rounds -- exactly matching the real "R1->R2->R3" data.
+//
+// ── Where this is a confirmed-generalization vs. a genuine extrapolation ──
+// The above is a clean, principled generalization for any winnersEntrySize
+// >= FINALS_HALF (4) -- it reduces to the exact confirmed shape at
+// winnersEntrySize = 8, and the same halving logic holds for any other
+// power-of-two winnersEntrySize >= 4 (verified in this file's test script
+// with winnersEntrySize = 16, a size Phase 2 doesn't currently produce but
+// which this function should still handle correctly since it's a function
+// of entrant count, not hardcoded to 24).
+//
+// FLAGGED EXTRAPOLATION GAP: when winnersEntrySize < FINALS_HALF (only
+// possible in practice when Phase 2's final consolidation merges just 2
+// source pools, giving winnersEntrySize = 2), FINALS_SIZE's fixed 8 can't
+// be split evenly through pure power-of-two halving on both sides (the
+// Losers side would need to land on a non-power-of-two 6 survivors, which
+// this bracket-halving approach can never produce). There's no real data
+// point covering this case, and inventing an uneven-trim rule with zero
+// grounding felt worse than being explicit about the gap -- so this
+// function throws a clear, documented error there instead of guessing.
+export const FINALS_SIZE = 8;
+const FINALS_HALF = FINALS_SIZE / 2;
+
+export interface FinalsCutoffResult {
+  matches: BracketMatchDraft[]; // the played early-cutoff rounds only -- no Grand Final, no Losers Finals; this pool's story ends here
+  winnersRoundsPlayed: number;
+  losersRoundsPlayed: number;
+  // Exactly FINALS_SIZE (8) entries, Winners-side qualifiers first then
+  // Losers-side, in seed order. Each is either an already-known PLAYER (a
+  // bye advanced them with no match) or a PENDING reference to one of
+  // `matches`' winners -- feed these (as real playerIds, once each match's
+  // result is known) into buildDoubleEliminationBracket for the actual
+  // Finals bracket. Wiring that up is left to a later phase.
+  finalistSlots: Slot[];
+}
+
+export function buildFinalsCutoffBracket(params: {
+  tournamentId: any;
+  bracketId: Types.ObjectId;
+  winnersSurvivorIds: string[];
+  winnersEntrySize: number;
+  losersSurvivorIds: string[];
+}): FinalsCutoffResult {
+  const { tournamentId, bracketId, winnersSurvivorIds, winnersEntrySize, losersSurvivorIds } = params;
+
+  if (winnersEntrySize < 2 || nextPowerOfTwo(winnersEntrySize) !== winnersEntrySize) {
+    throw new Error("winnersEntrySize must be a power of two >= 2");
+  }
+  if (winnersSurvivorIds.length > winnersEntrySize) {
+    throw new Error("winnersSurvivorIds does not fit within winnersEntrySize");
+  }
+  if (losersSurvivorIds.length < 1) {
+    throw new Error("losersSurvivorIds must have at least 1 entrant");
+  }
+  if (winnersEntrySize < FINALS_HALF) {
+    throw new Error(
+      `buildFinalsCutoffBracket doesn't support winnersEntrySize (${winnersEntrySize}) below ${FINALS_HALF} -- ` +
+        `this is a genuine extrapolation gap beyond the one confirmed real EVO data point (see the comment above ` +
+        `this function). Splitting FINALS_SIZE (${FINALS_SIZE}) unevenly between the two sides can't be reached ` +
+        `through pure power-of-two bracket halving, and there's no real data to derive a principled uneven-trim ` +
+        `rule from. Only reachable in practice when Model B's final consolidation merges just 2 source pools.`
+    );
+  }
+
+  const drafts: BracketMatchDraft[] = [];
+  const winnersRounds = Math.log2(winnersEntrySize / FINALS_HALF);
+  const mW = Math.log2(winnersEntrySize); // this bracket's full notional round count, purely for label continuity with buildRepooledBracket -- Winners Finals (round mW) is never actually played here
+
+  // ── Winners side: play exactly `winnersRounds` rounds, then stop ────
+  const seedToWinnersSlot = (seed: number): Slot =>
+    seed <= winnersSurvivorIds.length ? { kind: "PLAYER", playerId: new Types.ObjectId(winnersSurvivorIds[seed - 1]) } : { kind: "BYE" };
+
+  const fullWinnersRoundLabel = (roundNum: number): string => {
+    const roundsFromFinal = mW - roundNum;
+    if (roundsFromFinal === 0) return "Winners Finals"; // never actually reached when winnersRounds < mW
+    if (roundsFromFinal === 1) return "Winners Semi-Final";
+    if (roundsFromFinal === 2) return "Winners Quarter-Final";
+    return `Winners Round ${roundNum}`;
+  };
+
+  let wbCurrent: Slot[] = seedSlotOrder(winnersEntrySize).map(seedToWinnersSlot);
+  const wbLoserOutputsByRound: Slot[][] = [];
+  for (let r = 1; r <= winnersRounds; r++) {
+    const label = fullWinnersRoundLabel(r);
+    const roundWinners: Slot[] = [];
+    const roundLosers: Slot[] = [];
+    for (let i = 0; i < wbCurrent.length; i += 2) {
+      const { winner, loser } = buildMatch(
+        wbCurrent[i],
+        wbCurrent[i + 1],
+        { tournamentId, bracketId, side: "WINNERS", round: r, position: i / 2, label },
+        drafts
+      );
+      roundWinners.push(winner);
+      roundLosers.push(loser);
+    }
+    wbLoserOutputsByRound.push(roundLosers);
+    wbCurrent = roundWinners;
+  }
+  const winnersFinalistSlots = wbCurrent; // length === FINALS_HALF by construction -- these go straight to Finals, no internal Winners Finals here
+
+  // ── Losers side: pre-consolidate, then merge exactly `winnersRounds`
+  // waves, stopping right after the last one instead of continuing ────
+  const lN = losersSurvivorIds.length;
+  const lSize = nextPowerOfTwo(lN);
+  const seedToLosersSlot = (seed: number): Slot =>
+    seed <= lN ? { kind: "PLAYER", playerId: new Types.ObjectId(losersSurvivorIds[seed - 1]) } : { kind: "BYE" };
+
+  let lbCurrent: Slot[] = seedSlotOrder(lSize).map(seedToLosersSlot);
+  let roundNum = 1;
+  let losersFinalistSlots: Slot[];
+
+  if (winnersRounds === 0) {
+    // winnersEntrySize already == FINALS_HALF -- no Winners rounds played,
+    // so there's no Winners-loser wave to merge in. Pure self-consolidation
+    // down to the remaining Finals slots.
+    const losersQualifierCount = FINALS_SIZE - FINALS_HALF; // == FINALS_HALF
+    while (lbCurrent.length > losersQualifierCount) {
+      lbCurrent = buildConsolidationRound(
+        lbCurrent,
+        { tournamentId, bracketId, side: "LOSERS", round: roundNum, label: `Losers Round ${roundNum}` },
+        drafts
+      );
+      roundNum++;
+    }
+    if (lbCurrent.length !== losersQualifierCount) {
+      throw new Error(`losersSurvivorIds cannot be consolidated down to exactly the ${losersQualifierCount} Finals slots this pool needs`);
+    }
+    losersFinalistSlots = lbCurrent;
+  } else {
+    while (lbCurrent.length > wbLoserOutputsByRound[0].length) {
+      lbCurrent = buildConsolidationRound(
+        lbCurrent,
+        { tournamentId, bracketId, side: "LOSERS", round: roundNum, label: `Losers Round ${roundNum}` },
+        drafts
+      );
+      roundNum++;
+    }
+    if (lbCurrent.length !== wbLoserOutputsByRound[0].length) {
+      throw new Error("losersSurvivorIds cannot be consolidated down to exactly match the Winners bracket's first loser wave");
+    }
+
+    for (let j = 0; j < winnersRounds; j++) {
+      const isLastWave = j === winnersRounds - 1;
+      lbCurrent = buildDropInRound(
+        lbCurrent,
+        wbLoserOutputsByRound[j],
+        { tournamentId, bracketId, side: "LOSERS", round: roundNum, label: `Losers Round ${roundNum}` },
+        drafts
+      );
+      roundNum++;
+      if (!isLastWave) {
+        lbCurrent = buildConsolidationRound(
+          lbCurrent,
+          { tournamentId, bracketId, side: "LOSERS", round: roundNum, label: `Losers Round ${roundNum}` },
+          drafts
+        );
+        roundNum++;
+      }
+    }
+    losersFinalistSlots = lbCurrent;
+  }
+
+  const finalistSlots = [...winnersFinalistSlots, ...losersFinalistSlots];
+  if (finalistSlots.length !== FINALS_SIZE) {
+    throw new Error(`Internal error: produced ${finalistSlots.length} finalist slots, expected exactly ${FINALS_SIZE}`);
+  }
+
+  return {
+    matches: drafts,
+    winnersRoundsPlayed: winnersRounds,
+    losersRoundsPlayed: roundNum - 1,
+    finalistSlots,
   };
 }
 
