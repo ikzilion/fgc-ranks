@@ -29,6 +29,7 @@ import {
 import { sendPasswordResetEmail, sendVerificationEmail, sendAccountDeletionEmail } from "@/lib/email";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { buildDoubleEliminationBracket, resolveSeedOrder, advanceBracketMatch, nextPowerOfTwo, computeMainBracketSeedOrder, shuffle, SeedingMethod, deleteMatchWithCascade } from "@/lib/bracket";
+import { buildRoundRobinMatches, computeRoundRobinStandings } from "@/lib/roundRobin";
 import { getNextSequence } from "@/lib/counter";
 import { computeRankingPoints, computeRankingPointsForPlayers } from "@/lib/ranking";
 import { formatPlayerNumber } from "@/lib/playerId";
@@ -126,19 +127,45 @@ async function isBracketDecided(bracketId: any): Promise<boolean> {
   return grandFinal?.status === "COMPLETED";
 }
 
-// Pool play + top-cut: true only once every Pool for this tournament has a
-// Bracket whose Grand Final (or Reset) has completed. False (not an error)
-// when there are no pools yet, so it's safe to use directly as a boolean
-// field/gate.
+// A pool is "complete" differently depending on which pool model generated
+// it: a Model B/C pool has its own Bracket document, "complete" once its
+// Grand Final (or Reset) has been decided (see isBracketDecided). A Model A
+// (round-robin) pool has no Bracket at all — its matches are found by
+// poolId instead — so "complete" there just means every one of its matches
+// has actually been reported. Branching on whether a Bracket exists (rather
+// than looking at Tournament.poolModel) keeps this self-contained: it needs
+// nothing but the Pool doc itself to know which check applies.
+async function isPoolComplete(pool: { _id: any }): Promise<boolean> {
+  const bracket = await Bracket.findOne({ poolId: pool._id });
+  if (bracket) return await isBracketDecided(bracket._id);
+
+  const total = await Match.countDocuments({ poolId: pool._id });
+  if (total === 0) return false; // pool generation failed/hasn't populated matches yet
+  const incomplete = await Match.countDocuments({ poolId: pool._id, status: { $ne: "COMPLETED" } });
+  return incomplete === 0;
+}
+
+// Pool play + top-cut: true only once every Pool for this tournament is
+// complete (see isPoolComplete above, for whichever model generated it).
+// False (not an error) when there are no pools yet, so it's safe to use
+// directly as a boolean field/gate.
 async function arePoolsComplete(tournamentId: string): Promise<boolean> {
   const pools = await Pool.find({ tournamentId });
   if (pools.length === 0) return false;
   for (const pool of pools) {
-    const bracket = await Bracket.findOne({ poolId: pool._id });
-    if (!bracket) return false;
-    if (!(await isBracketDecided(bracket._id))) return false;
+    if (!(await isPoolComplete(pool))) return false;
   }
   return true;
+}
+
+// Model A (round-robin) only — the top 2 finishers of a completed pool by
+// the standings tiebreak order (see lib/roundRobin.ts), as player IDs.
+async function roundRobinAdvancers(pool: { _id: any; entrantIds?: any[] }): Promise<{ first: string; second: string }> {
+  const entrants = await Entrant.find({ _id: { $in: pool.entrantIds ?? [] } });
+  const playerIds = entrants.map((e: any) => e.playerId.toString());
+  const standings = await computeRoundRobinStandings(pool._id, playerIds);
+  if (standings.length < 2) throw new Error(`Pool needs at least 2 entrants to determine advancers`);
+  return { first: standings[0].playerId, second: standings[1].playerId };
 }
 
 // Same pattern as isOrganizer, for Events — managerIds is the single
@@ -902,6 +929,7 @@ export const resolvers = {
         entryFee,
         prizePot,
         eventId,
+        poolModel,
       }: {
         name: string;
         game: string;
@@ -915,10 +943,16 @@ export const resolvers = {
         entryFee?: string;
         prizePot?: string;
         eventId?: string;
+        poolModel?: string;
       },
       { playerId, role }: { playerId?: string; role?: string }
     ) => {
       if (!playerId) throw new Error("Not authorized");
+
+      // Model B isn't buildable yet (see models/Tournament.ts's PoolModel
+      // enum) — the picker never offers it as selectable, but reject it
+      // server-side too rather than trusting the client not to send it.
+      if (poolModel === "B") throw new Error("This pool model isn't available yet.");
 
       // Keyed by playerId (authenticated action), not IP.
       const { success } = await createTournamentRateLimit.limit(playerId);
@@ -972,6 +1006,7 @@ export const resolvers = {
         entryFee,
         prizePot,
         eventId: eventId || undefined,
+        poolModel: poolModel || undefined,
         isRestricted,
         // Overrides the schema's PUBLIC default — omitted (letting the
         // default apply) for a full tournament, unchanged from before this
@@ -1497,6 +1532,11 @@ export const resolvers = {
       const poolEntrantGroups: (typeof entrants)[] = Array.from({ length: count }, () => []);
       shuffledEntrants.forEach((entrant, i) => poolEntrantGroups[i % count].push(entrant));
 
+      // Model A (round-robin) coalesces the same way isRestricted/poolModel
+      // itself does elsewhere — a tournament created before this field
+      // existed has it genuinely absent, not "C".
+      const isModelA = (tournament.poolModel ?? "C") === "A";
+
       const createdPools = [];
       for (let i = 0; i < count; i++) {
         const group = poolEntrantGroups[i];
@@ -1509,6 +1549,17 @@ export const resolvers = {
         });
 
         const orderedPlayerIds = group.map((e: any) => e.playerId.toString());
+
+        if (isModelA) {
+          // Model A: true round-robin, no elimination bracket — every
+          // match is independent (Match.poolId, no bracketId), so there's
+          // no Bracket document for this pool at all.
+          const { matches } = buildRoundRobinMatches({ tournamentId, poolId: pool._id, playerIds: orderedPlayerIds });
+          if (matches.length > 0) await Match.insertMany(matches);
+          createdPools.push(pool);
+          continue;
+        }
+
         const bracketId = new Types.ObjectId();
         const { matches } = buildDoubleEliminationBracket({ tournamentId, bracketId, orderedPlayerIds });
 
@@ -1528,11 +1579,15 @@ export const resolvers = {
       return createdPools;
     },
 
-    // Pool play + top-cut only. Requires every pool's Grand Final to have
-    // completed. Seeds a fresh main bracket from the 2 advancers per pool
-    // (that pool's Grand Final player1/player2 — the winners-finalist and
-    // losers-finalist, by the same convention lib/bracket.ts's Grand Final
-    // build always uses, regardless of who actually won that Grand Final).
+    // Pool play + top-cut only. Requires every pool to be complete (see
+    // isPoolComplete). Seeds a fresh main bracket from the 2 advancers per
+    // pool — for a Model B/C pool that's its Grand Final player1/player2
+    // (the winners-finalist and losers-finalist, by the same convention
+    // lib/bracket.ts's Grand Final build always uses, regardless of who
+    // actually won that Grand Final); for a Model A (round-robin) pool it's
+    // the top 2 finishers by standings (see roundRobinAdvancers). Either
+    // way the "first"/"second" advancer plays the same role in
+    // computeMainBracketSeedOrder's AVOID_SAME_POOL low-seed/high-seed split.
     generateMainBracket: async (
       _: unknown,
       { tournamentId, seedingMethod }: { tournamentId: string; seedingMethod: "RANDOM" | "AVOID_SAME_POOL" },
@@ -1555,21 +1610,27 @@ export const resolvers = {
       const pools = await Pool.find({ tournamentId }).sort({ poolNumber: 1 });
       if (pools.length === 0) throw new Error("No pools have been generated yet");
       if (!(await arePoolsComplete(tournamentId))) {
-        throw new Error("Every pool must finish (reach its Grand Final result) before generating the main bracket");
+        throw new Error("Every pool must finish before generating the main bracket");
       }
 
       const winnersFinalistIds: string[] = [];
       const losersFinalistIds: string[] = [];
       for (const pool of pools) {
         const poolBracket = await Bracket.findOne({ poolId: pool._id });
-        const grandFinal = poolBracket
-          ? await Match.findOne({ bracketId: poolBracket._id, bracketSide: "GRAND_FINAL" })
-          : null;
-        if (!grandFinal?.player1Id || !grandFinal?.player2Id) {
-          throw new Error(`Pool ${pool.poolNumber} doesn't have a complete Grand Final yet`);
+        if (poolBracket) {
+          const grandFinal = await Match.findOne({ bracketId: poolBracket._id, bracketSide: "GRAND_FINAL" });
+          if (!grandFinal?.player1Id || !grandFinal?.player2Id) {
+            throw new Error(`Pool ${pool.poolNumber} doesn't have a complete Grand Final yet`);
+          }
+          winnersFinalistIds.push(grandFinal.player1Id.toString());
+          losersFinalistIds.push(grandFinal.player2Id.toString());
+        } else {
+          // Model A (round-robin) pool — no Bracket, advancers come from
+          // standings instead.
+          const { first, second } = await roundRobinAdvancers(pool);
+          winnersFinalistIds.push(first);
+          losersFinalistIds.push(second);
         }
-        winnersFinalistIds.push(grandFinal.player1Id.toString());
-        losersFinalistIds.push(grandFinal.player2Id.toString());
       }
 
       const orderedPlayerIds = computeMainBracketSeedOrder(winnersFinalistIds, losersFinalistIds, seedingMethod);
@@ -1636,6 +1697,10 @@ export const resolvers = {
         if (bracket) {
           await Match.deleteMany({ bracketId: bracket._id });
           await Bracket.findByIdAndDelete(bracket._id);
+        } else {
+          // Model A (round-robin) pool — no Bracket document; its matches
+          // are found by poolId instead.
+          await Match.deleteMany({ poolId: pool._id });
         }
       }
       await Pool.deleteMany({ tournamentId });
@@ -2259,6 +2324,9 @@ export const resolvers = {
       parent.mainBracketId ? await Bracket.findById(parent.mainBracketId) : null,
     allPoolsComplete: async (parent: { _id: string }) => await arePoolsComplete(parent._id),
     suggestedPoolCount: (parent: { entrantCount?: number }) => suggestPoolCount(parent.entrantCount ?? 0),
+    // Same "schema default doesn't retroactively apply to old documents"
+    // coalescing as isRestricted above.
+    poolModel: (parent: { poolModel?: string }) => parent.poolModel ?? "C",
     event: async (parent: { eventId?: string }) => (parent.eventId ? await Event.findById(parent.eventId) : null),
     // Live-link overrides: when eventId is set, these three resolve from
     // the LINKED EVENT's current data instead of this tournament's own
@@ -2294,6 +2362,23 @@ export const resolvers = {
     entrants: async (parent: { entrantIds?: string[] }) =>
       parent.entrantIds ? await Entrant.find({ _id: { $in: parent.entrantIds } }) : [],
     bracket: async (parent: { _id: string }) => await Bracket.findOne({ poolId: parent._id }),
+    // Model A (round-robin) only — empty for a Model B/C pool (its matches
+    // live under bracket.matches instead).
+    matches: async (parent: { _id: string }) => await Match.find({ poolId: parent._id }).sort({ createdAt: 1 }),
+    // Model A (round-robin) only — null for a Model B/C pool, which has no
+    // round-robin matches to compute standings from.
+    standings: async (parent: { _id: string; entrantIds?: string[] }) => {
+      const hasRoundRobinMatches = await Match.exists({ poolId: parent._id });
+      if (!hasRoundRobinMatches) return null;
+
+      const entrants = await Entrant.find({ _id: { $in: parent.entrantIds ?? [] } });
+      const entrantByPlayerId = new Map(entrants.map((e: any) => [e.playerId.toString(), e]));
+      const rows = await computeRoundRobinStandings(
+        parent._id,
+        entrants.map((e: any) => e.playerId.toString())
+      );
+      return rows.map(row => ({ ...row, entrant: entrantByPlayerId.get(row.playerId) }));
+    },
   },
 
   Event: {

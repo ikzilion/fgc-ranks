@@ -36,6 +36,10 @@ export function CreateTournamentButton() {
   // display-only free text) — see the Pool play + top-cut Implementation
   // Plan. "Standard Bracket" keeps today's exact existing behavior.
   const [format, setFormat] = useState("Standard Bracket");
+  // Pool format Model A/B/C — only meaningful when format is "Pools +
+  // Bracket" (see the picker below). "C" is the existing/default model, so
+  // this defaulting to it keeps every other format's behavior unchanged.
+  const [poolModel, setPoolModel] = useState<"A" | "B" | "C">("C");
   const [capacity, setCapacity] = useState("");
   const [entryFee, setEntryFee] = useState("");
   const [prizePot, setPrizePot] = useState("");
@@ -76,6 +80,7 @@ export function CreateTournamentButton() {
     setAddress("");
     setTwitchUrl("");
     setFormat("");
+    setPoolModel("C");
     setCapacity("");
     setEntryFee("");
     setPrizePot("");
@@ -175,13 +180,15 @@ export function CreateTournamentButton() {
               $name: String!, $game: String!, $startDate: Date!,
               $logoUrl: String, $isOnlineOnly: Boolean, $address: String,
               $twitchUrl: String, $format: String, $capacity: Int,
-              $entryFee: String, $prizePot: String, $eventId: ID
+              $entryFee: String, $prizePot: String, $eventId: ID,
+              $poolModel: PoolModel
             ) {
               createTournament(
                 name: $name, game: $game, startDate: $startDate,
                 logoUrl: $logoUrl, isOnlineOnly: $isOnlineOnly, address: $address,
                 twitchUrl: $twitchUrl, format: $format, capacity: $capacity,
-                entryFee: $entryFee, prizePot: $prizePot, eventId: $eventId
+                entryFee: $entryFee, prizePot: $prizePot, eventId: $eventId,
+                poolModel: $poolModel
               ) { id }
             }
           `,
@@ -198,6 +205,7 @@ export function CreateTournamentButton() {
             entryFee: entryFee || undefined,
             prizePot: prizePot || undefined,
             eventId: linkedEvent?.id || undefined,
+            poolModel: format === "Pools + Bracket" ? poolModel : undefined,
           },
         }),
       });
@@ -458,11 +466,68 @@ export function CreateTournamentButton() {
                   </select>
                   {format === "Pools + Bracket" && (
                     <p className="text-[11px] text-[var(--text-secondary)] mt-1.5">
-                      Entrants play in pools first (each its own mini double-elim bracket) — the top 2 per pool advance to a main bracket once every pool finishes.
+                      Entrants play in pools first — the top 2 per pool advance to a main bracket once every pool finishes. Pick how the pool stage itself works below.
                     </p>
                   )}
                 </div>
               </div>
+
+              {/* Pool format Model A/B/C — only shown once "Pools + Bracket"
+                  is picked above. Each option gets its own plain-language
+                  explanation since the three models have real gameplay
+                  tradeoffs a TO can't tell from the name alone. Model B is
+                  disabled ("Coming soon") — not buildable yet, see
+                  models/Tournament.ts's PoolModel enum. */}
+              {format === "Pools + Bracket" && (
+                <div className="mb-4">
+                  <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Pool stage model</label>
+                  <div className="flex flex-col gap-2">
+                    {(
+                      [
+                        {
+                          value: "A" as const,
+                          label: "Model A — Round-robin pools",
+                          description: "Every entrant plays every other pool member once. Fair and simple, but a pool loss carries no consequence into the main bracket — everyone gets a clean restart. Best for smaller or faster-moving events.",
+                        },
+                        {
+                          value: "C" as const,
+                          label: "Model C — Double-elim pools (default)",
+                          description: "Each pool is its own mini double-elimination bracket, so pools have real stakes — a 2nd loss eliminates you from the pool. Still a clean slate once you reach the main bracket.",
+                        },
+                        {
+                          value: "B" as const,
+                          label: "Model B — Continuous carry-over",
+                          description: "Coming soon. EVO's system: pool results carry over into the main bracket instead of resetting.",
+                          disabled: true,
+                        },
+                      ]
+                    ).map(option => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        disabled={option.disabled}
+                        onClick={() => !option.disabled && setPoolModel(option.value)}
+                        className="text-left px-3 py-2.5 rounded-md"
+                        style={{
+                          background: option.disabled ? "var(--navy-3)" : poolModel === option.value ? "var(--blue-dim)" : "var(--navy-3)",
+                          border: option.disabled
+                            ? "1px solid var(--border)"
+                            : poolModel === option.value
+                              ? "1px solid var(--blue)"
+                              : "1px solid var(--border-strong)",
+                          cursor: option.disabled ? "not-allowed" : "pointer",
+                          opacity: option.disabled ? 0.55 : 1,
+                        }}
+                      >
+                        <p className="font-rajdhani text-[14px] font-bold" style={{ color: option.disabled ? "var(--text-muted)" : "var(--text-primary)" }}>
+                          {option.label}
+                        </p>
+                        <p className="text-[11px] mt-0.5" style={{ color: "var(--text-secondary)" }}>{option.description}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-2">
                 <div>

@@ -50,6 +50,14 @@ const MatchSchema = new Schema(
     nextMatchSlot: { type: Number }, // 1 or 2 — which player slot on nextMatch
     nextLoserMatchId: { type: Schema.Types.ObjectId, ref: "Match" },
     nextLoserMatchSlot: { type: Number },
+    // Pool format Model A only — round-robin pool matches have no bracket
+    // structure to wire into (no bracketId/bracketSide/next*MatchId; every
+    // match is independent, nothing "advances" anywhere), so this is the
+    // only way to trace a match back to its Pool. Lets Pool.matches/
+    // Pool.standings query directly by poolId instead of needing a Bracket
+    // document, which a round-robin pool never has. null for every
+    // bracket match (those use bracketId instead).
+    poolId: { type: Schema.Types.ObjectId, ref: "Pool" },
   },
   { timestamps: true }
 );

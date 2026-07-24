@@ -102,6 +102,7 @@ const GET_TOURNAMENT = `
       }
       allPoolsComplete
       suggestedPoolCount
+      poolModel
       pools {
         id
         poolNumber
@@ -114,6 +115,18 @@ const GET_TOURNAMENT = `
           seedingMethod
           size
           matches { ${MATCH_FIELDS} }
+        }
+        matches { ${MATCH_FIELDS} }
+        standings {
+          rank
+          matchWins
+          matchLosses
+          gamesWon
+          gamesLost
+          entrant {
+            id
+            player { id tag avatarUrl }
+          }
         }
       }
       mainBracket {

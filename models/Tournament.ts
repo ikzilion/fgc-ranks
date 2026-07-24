@@ -12,6 +12,21 @@ export enum TournamentVisibility {
   PRIVATE = "PRIVATE",
 }
 
+// Pool format Model A/B/C — which pool-stage model a "Pools + Bracket"
+// tournament uses, chosen once at creation (see createTournament) and never
+// re-derived; changing it after pools exist would invalidate their
+// structure, so there's no update mutation for it. Irrelevant/unused for
+// "Standard Bracket". B only exists here so the picker can list it as a
+// disabled "Coming soon" option using the same enum as A/C — it isn't
+// buildable yet (needs bracket-side status to carry across phase
+// boundaries, a fundamentally different data model) and createTournament
+// rejects it server-side.
+export enum PoolModel {
+  A = "A", // round-robin pools, fresh bracket restart
+  B = "B", // EVO-style continuous carry-over — not buildable yet
+  C = "C", // double-elim pools, fresh bracket restart (existing/default)
+}
+
 const TournamentSchema = new Schema(
   {
     name: { type: String, required: true },
@@ -105,6 +120,11 @@ const TournamentSchema = new Schema(
     // (updateTournamentStreamAssets refuses both), and excluded entirely
     // from the ranking/points computation (lib/ranking.ts).
     isRestricted: { type: Boolean, default: false },
+    // See the PoolModel enum above. Every tournament created before this
+    // field existed has it genuinely absent (not "C") in its stored
+    // document — same situation as isRestricted above, so the Tournament.poolModel
+    // field resolver coalesces the same way isRestricted's does.
+    poolModel: { type: String, enum: Object.values(PoolModel), default: PoolModel.C },
   },
   { timestamps: true }
 );

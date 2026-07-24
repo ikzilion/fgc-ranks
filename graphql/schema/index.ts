@@ -11,6 +11,12 @@ export const typeDefs = `#graphql
   enum EventStatus      { PENDING APPROVED REJECTED }
   enum TORequestStatus  { PENDING APPROVED REJECTED }
   enum SeedingMethod    { RANDOM RANDOM_WITHIN_TIERS MANUAL AVOID_SAME_POOL }
+  # Pool play + top-cut only — which pool-stage model a "Pools + Bracket"
+  # tournament uses. A = round-robin pools, fresh bracket restart. B =
+  # EVO-style continuous carry-over (not buildable yet — always rejected by
+  # createTournament, shown "Coming soon"/disabled in the picker). C =
+  # double-elim pools, fresh bracket restart (the existing/default model).
+  enum PoolModel        { A B C }
   enum BracketSide      { WINNERS LOSERS GRAND_FINAL GRAND_FINAL_RESET }
   enum NotificationType {
     MATCH_REPORTED
@@ -136,13 +142,39 @@ export const typeDefs = `#graphql
     # per pool — a pure function of entrantCount, purely a UI convenience
     # (the TO can always override with a direct number).
     suggestedPoolCount: Int!
+    # Pool play + top-cut only — which pool-stage model this tournament
+    # uses (see the PoolModel enum). Set once at creation; unused/ignored
+    # for a "Standard Bracket" tournament.
+    poolModel: PoolModel!
   }
 
   type Pool {
     id: ID!
     poolNumber: Int!
     entrants: [Entrant!]!
+    # Set only for a double-elim pool (Models B/C) — null for a round-robin
+    # (Model A) pool, which has no elimination bracket to render.
     bracket: Bracket
+    # Model A (round-robin) only — every match this pool's entrants played
+    # against each other. Empty for a Model B/C pool (its matches live on
+    # its bracket instead, via bracket.matches).
+    matches: [Match!]!
+    # Model A (round-robin) only — this pool's entrants ranked by the
+    # sets-won / games-won / head-to-head / random tiebreak order. Null for
+    # a Model B/C pool (advancement there is read off the pool's own
+    # Grand Final instead).
+    standings: [PoolStanding!]
+  }
+
+  # One row of a round-robin pool's standings table (Pool format Model A
+  # only) — see Pool.standings.
+  type PoolStanding {
+    entrant: Entrant!
+    matchWins: Int!
+    matchLosses: Int!
+    gamesWon: Int!
+    gamesLost: Int!
+    rank: Int!
   }
 
   type Event {
@@ -350,6 +382,10 @@ export const typeDefs = `#graphql
       entryFee: String
       prizePot: String
       eventId: ID
+      # Pool play + top-cut only — ignored/irrelevant for any other format.
+      # Omitted = Model C (the existing default). Model B is rejected
+      # server-side (not buildable yet).
+      poolModel: PoolModel
     ): Tournament!
     updateTournamentDetails(
       id: ID!
