@@ -39,6 +39,7 @@ const GET_STREAM_TOURNAMENT = `
       bracketLineColor
       bracketBoxColor
       bracketFontColor
+      poolModel
       bracket {
         id
         seedingMethod
@@ -48,6 +49,8 @@ const GET_STREAM_TOURNAMENT = `
       pools {
         id
         poolNumber
+        roundNumber
+        isFinalsCutoff
         bracket {
           id
           seedingMethod
@@ -69,6 +72,9 @@ interface StreamPool {
   id: string;
   poolNumber: number;
   bracket: any;
+  // Pool format Model B only — always 1 / false for Model A/C.
+  roundNumber: number;
+  isFinalsCutoff: boolean;
 }
 
 interface StreamTournament {
@@ -82,9 +88,49 @@ interface StreamTournament {
   bracketLineColor?: string | null;
   bracketBoxColor?: string | null;
   bracketFontColor?: string | null;
+  poolModel?: string | null;
   bracket: any;
   pools: StreamPool[];
   mainBracket: any;
+}
+
+// Small pill-button tab row — dark-broadcast-theme equivalent of
+// PoolsSection.tsx's TabBar (admin/TO page), same active/inactive visual
+// language this file already used inline for its pool/main-bracket
+// selector, just extracted so both the round tier and pool tier (Model B)
+// can share it instead of duplicating the button JSX.
+function ViewTabs({
+  tabs,
+  activeKey,
+  onSelect,
+  className,
+}: {
+  tabs: { key: string; label: string }[];
+  activeKey: string;
+  onSelect: (key: string) => void;
+  className?: string;
+}) {
+  return (
+    <div className={`flex flex-wrap gap-2 ${className ?? ""}`}>
+      {tabs.map(tab => {
+        const active = tab.key === activeKey;
+        return (
+          <button
+            key={tab.key}
+            onClick={() => onSelect(tab.key)}
+            className="font-rajdhani text-[13px] font-bold tracking-wide px-3 py-1.5 rounded"
+            style={
+              active
+                ? { background: "var(--blue)", color: "white", border: "none", cursor: "pointer" }
+                : { background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.15)", cursor: "pointer" }
+            }
+          >
+            {tab.label}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 export function StreamBracket({ tournamentId, initialTournament }: { tournamentId: string; initialTournament: StreamTournament }) {
@@ -134,19 +180,76 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
   // browser source before/while going live; polling below only refreshes
   // match data, never resets which view is selected.
   const isPoolsFormat = tournament.format === "Pools + Bracket";
-  const views = isPoolsFormat
+  const isModelB = isPoolsFormat && tournament.poolModel === "B";
+  const hasMainBracket = !!tournament.mainBracket;
+
+  // Model B only — same round dimension PoolsSection.tsx's Phase 6 round
+  // selector added for the TO-facing page, re-themed here. Every round that
+  // has at least one pool so far, in order.
+  const roundNumbers = isModelB
+    ? Array.from(new Set(tournament.pools.map(p => p.roundNumber ?? 1))).sort((a, b) => a - b)
+    : [];
+  const latestRound = roundNumbers.length ? roundNumbers[roundNumbers.length - 1] : 1;
+  const roundKeyFor = (r: number) => `round-${r}`;
+
+  // A round is the Semifinal-cutoff round if its one pool says so (a
+  // Finals-cutoff round is always exactly one pool — see advanceModelBRound).
+  function roundLabel(r: number) {
+    const roundPools = tournament.pools.filter(p => (p.roundNumber ?? 1) === r);
+    return roundPools.length === 1 && roundPools[0].isFinalsCutoff ? "Semifinal Cutoff" : `Round ${r}`;
+  }
+
+  // Model B's round-selector tier — one tab per pool round generated so far,
+  // plus a "Finals" tab once the real Finals bracket exists (same
+  // Tournament.mainBracket slot Model A/C's "Main Bracket" tab already uses,
+  // just elevated to this tier instead of sitting alongside pool tabs).
+  const roundTabs = isModelB
     ? [
-        ...(tournament.mainBracket ? [{ key: "main", label: "Main Bracket" }] : []),
-        ...tournament.pools.map(p => ({ key: `pool-${p.id}`, label: `Pool ${p.poolNumber}` })),
+        ...roundNumbers.map(r => ({ key: roundKeyFor(r), label: roundLabel(r) })),
+        ...(hasMainBracket ? [{ key: "main", label: "Finals" }] : []),
       ]
     : [];
-  const [selectedView, setSelectedView] = useState(views[0]?.key);
+
+  function firstPoolTabForRound(roundKey: string): string | undefined {
+    if (roundKey === "main") return undefined;
+    const roundPools = tournament.pools.filter(p => roundKeyFor(p.roundNumber ?? 1) === roundKey);
+    return roundPools[0] ? `pool-${roundPools[0].id}` : undefined;
+  }
+
+  const defaultRoundKey = hasMainBracket ? "main" : roundKeyFor(latestRound);
+  const [selectedRound, setSelectedRound] = useState<string | undefined>(isModelB ? defaultRoundKey : undefined);
+
+  // Model A/C: unchanged shape — "Main Bracket" merged directly into this one
+  // tab row alongside every pool. Model B: this tab row is scoped to
+  // whichever round is currently selected above; Finals lives in roundTabs
+  // instead, so it's empty while "Finals" is selected.
+  const views = isModelB
+    ? selectedRound === "main"
+      ? []
+      : tournament.pools.filter(p => roundKeyFor(p.roundNumber ?? 1) === selectedRound).map(p => ({ key: `pool-${p.id}`, label: `Pool ${p.poolNumber}` }))
+    : isPoolsFormat
+      ? [
+          ...(hasMainBracket ? [{ key: "main", label: "Main Bracket" }] : []),
+          ...tournament.pools.map(p => ({ key: `pool-${p.id}`, label: `Pool ${p.poolNumber}` })),
+        ]
+      : [];
+  const [selectedView, setSelectedView] = useState<string | undefined>(
+    isModelB ? firstPoolTabForRound(defaultRoundKey) : views[0]?.key
+  );
+
+  function handleSelectRound(key: string) {
+    setSelectedRound(key);
+    setSelectedView(firstPoolTabForRound(key));
+  }
+
   const selectedPool = tournament.pools.find(p => `pool-${p.id}` === selectedView);
+  const showingMainBracket = isModelB ? selectedRound === "main" : selectedView === "main";
   const displayedBracket = isPoolsFormat
-    ? selectedView === "main"
+    ? showingMainBracket
       ? tournament.mainBracket
       : (selectedPool?.bracket ?? null)
     : tournament.bracket;
+  const noPoolsYet = isModelB ? roundTabs.length === 0 : views.length === 0;
 
   return (
     <div className="min-h-screen w-full isolate">
@@ -193,26 +296,12 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
           {tournament.game}
         </p>
 
-        {isPoolsFormat && views.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-6">
-            {views.map(view => {
-              const active = view.key === selectedView;
-              return (
-                <button
-                  key={view.key}
-                  onClick={() => setSelectedView(view.key)}
-                  className="font-rajdhani text-[13px] font-bold tracking-wide px-3 py-1.5 rounded"
-                  style={
-                    active
-                      ? { background: "var(--blue)", color: "white", border: "none", cursor: "pointer" }
-                      : { background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.15)", cursor: "pointer" }
-                  }
-                >
-                  {view.label}
-                </button>
-              );
-            })}
-          </div>
+        {isModelB && roundTabs.length > 0 && (
+          <ViewTabs tabs={roundTabs} activeKey={selectedRound ?? roundTabs[0].key} onSelect={handleSelectRound} className="mb-3" />
+        )}
+
+        {isPoolsFormat && (!isModelB || selectedRound !== "main") && views.length > 0 && (
+          <ViewTabs tabs={views} activeKey={selectedView ?? views[0].key} onSelect={setSelectedView} className="mb-6" />
         )}
 
         {displayedBracket ? (
@@ -225,7 +314,7 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
           />
         ) : (
           <p className="text-[14px]" style={{ color: "rgba(255,255,255,0.7)" }}>
-            {isPoolsFormat && views.length === 0 ? "Pools haven't been generated yet." : "Bracket not yet generated."}
+            {isPoolsFormat && noPoolsYet ? "Pools haven't been generated yet." : "Bracket not yet generated."}
           </p>
         )}
       </div>

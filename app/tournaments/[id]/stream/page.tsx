@@ -42,6 +42,7 @@ const GET_STREAM_TOURNAMENT = `
       bracketLineColor
       bracketBoxColor
       bracketFontColor
+      poolModel
       bracket {
         id
         seedingMethod
@@ -51,6 +52,8 @@ const GET_STREAM_TOURNAMENT = `
       pools {
         id
         poolNumber
+        roundNumber
+        isFinalsCutoff
         bracket {
           id
           seedingMethod
