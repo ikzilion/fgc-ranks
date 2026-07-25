@@ -79,6 +79,7 @@ const { Entrant } = await import("../models/Entrant");
 const { Match } = await import("../models/Match");
 const { Bracket } = await import("../models/Bracket");
 const { Pool } = await import("../models/Pool");
+const { extractPoolSurvivors } = await import("../lib/bracket");
 const { resolvers } = await import("../graphql/resolvers/index");
 
 let failures = 0;
@@ -450,6 +451,157 @@ async function main() {
       "Rejects advancing when only SOME of the round's pools have finished"
     );
 
+    // ═══════════════════════════════════════════════════════════════════
+    // TEST 3: deliberately forces the Winners-Final loser to ALSO win their
+    // own pool's Losers Finals -- becoming BOTH the Winners-Final loser AND
+    // the Losers-bracket champion. TEST 1's "player1 always wins" rule
+    // structurally never produces this specific shape: the Losers Finals
+    // match always wires the established Losers-bracket survivor as player1
+    // and the dropping-in Winners-Final loser as player2 (buildDropInRound's
+    // own a[i]=player1/b[i]=player2 convention), so under a blanket
+    // player1-always-wins rule the Winners-Final loser always LOSES that
+    // match instead -- exercising only the OTHER symmetric dedup shape
+    // (Winners-Final loser collides with the top-ranked further Losers
+    // loser, not with the Losers-bracket champion itself). This test forces
+    // the specific shape TEST 1 never hit, by overriding just that one
+    // match's result.
+    // ═══════════════════════════════════════════════════════════════════
+    console.log("\n=== TEST 3: forced Winners-Final-loser-wins-Losers-Finals collision ===");
+
+    const organizer3 = await makeTestPlayer("ModelBDedupTO");
+    const organizerCtx3 = { playerId: organizer3._id.toString(), role: "USER" };
+
+    const tournament3 = await Tournament.create({
+      name: "Model B Dedup Collision Test",
+      game: "Test Game",
+      format: "Pools + Bracket",
+      poolModel: "B",
+      organizers: [organizer3._id],
+      startDate: new Date(),
+      entrantCount: 128,
+    });
+    createdTournamentIds.push(tournament3._id);
+    await Entrant.insertMany(synthesizeEntrants(tournament3._id, 128));
+
+    const round1Pools3 = await resolvers.Mutation.generateModelBPools(null, { tournamentId: tournament3._id.toString() }, organizerCtx3);
+    assert(round1Pools3.length === 16, `TEST 3 setup: 16 Round-1 pools -- got ${round1Pools3.length}`);
+    const sortedRound1_3 = [...round1Pools3].sort((a, b) => a.poolNumber - b.poolNumber);
+
+    let riggedSurvivors = null;
+    let riggedGrandFinal = null;
+    let riggedWbFinalsLoserId = null;
+
+    for (let i = 0; i < sortedRound1_3.length; i++) {
+      const pool = sortedRound1_3[i];
+      const bracket = await Bracket.findOne({ poolId: pool._id });
+
+      if (i === 0) {
+        // Rig pool 0 only: player1-always-wins everywhere EXCEPT the Losers
+        // Finals match, where player2 (the dropping-in Winners-Final loser)
+        // is forced to win instead.
+        for (let round = 1; round <= 12; round++) {
+          const wbPlayed = await playRound(organizerCtx3, bracket._id, "WINNERS", round);
+          const readyLosers = await Match.find({
+            bracketId: bracket._id,
+            bracketSide: "LOSERS",
+            bracketRound: round,
+            status: "PENDING",
+            player1Id: { $ne: null },
+            player2Id: { $ne: null },
+          });
+          for (const m of readyLosers) {
+            if (m.round === "Losers Finals") {
+              await resolvers.Mutation.reportResult(null, { matchId: m._id.toString(), player1Score: 0, player2Score: 2 }, organizerCtx3);
+            } else {
+              await resolvers.Mutation.reportResult(null, { matchId: m._id.toString(), player1Score: 2, player2Score: 0 }, organizerCtx3);
+            }
+          }
+          if (wbPlayed === 0 && readyLosers.length === 0) break;
+        }
+        const gf = await Match.findOne({ bracketId: bracket._id, bracketSide: "GRAND_FINAL" });
+        if (gf && gf.status === "PENDING" && gf.player1Id && gf.player2Id) {
+          await resolvers.Mutation.reportResult(null, { matchId: gf._id.toString(), player1Score: 2, player2Score: 0 }, organizerCtx3);
+        }
+
+        // Independently confirm the rig actually worked before trusting
+        // anything downstream: the real Winners Finals match's real loser
+        // really is the real Grand Final's real player2 (Losers-bracket
+        // champion) -- the exact collision this test exists to force.
+        riggedGrandFinal = await Match.findOne({ bracketId: bracket._id, bracketSide: "GRAND_FINAL" });
+        const wbFinalsMatch = await Match.findOne({ bracketId: bracket._id, bracketSide: "WINNERS", nextMatchId: riggedGrandFinal._id });
+        riggedWbFinalsLoserId = (
+          wbFinalsMatch.winnerId.toString() === wbFinalsMatch.player1Id.toString() ? wbFinalsMatch.player2Id : wbFinalsMatch.player1Id
+        ).toString();
+        assert(
+          riggedWbFinalsLoserId === riggedGrandFinal.player2Id.toString(),
+          "TEST 3 rig confirmed: the real Winners-Final loser really is the real Grand Final's losers-side finalist (the forced collision actually happened)"
+        );
+
+        // Now call the REAL extractPoolSurvivors directly and confirm it
+        // dedupes correctly rather than producing a duplicate identity.
+        riggedSurvivors = await extractPoolSurvivors(bracket);
+        assert(
+          riggedSurvivors.winnersChampionId === riggedGrandFinal.player1Id.toString(),
+          "TEST 3: extractPoolSurvivors' winnersChampionId matches the real Grand Final winners-side finalist"
+        );
+        assert(
+          riggedSurvivors.losersSurvivorIds[0] === riggedWbFinalsLoserId,
+          "TEST 3: extractPoolSurvivors' losersSurvivorIds[0] is the real (collided) Winners-Final loser / Losers-bracket champion"
+        );
+        assert(
+          new Set(riggedSurvivors.losersSurvivorIds).size === riggedSurvivors.losersSurvivorIds.length,
+          "TEST 3: extractPoolSurvivors' losersSurvivorIds has NO duplicate identities despite the forced collision"
+        );
+        assert(
+          riggedSurvivors.losersSurvivorIds.length >= 2,
+          `TEST 3: extractPoolSurvivors still returns at least 2 real losers-survivors -- a genuinely different 3rd real person backfilled the collided slot (got ${riggedSurvivors.losersSurvivorIds.length})`
+        );
+        assert(
+          riggedSurvivors.losersSurvivorIds[1] !== riggedWbFinalsLoserId,
+          "TEST 3: the backfilled 2nd losers-survivor is a genuinely DIFFERENT real person, not a repeat of the Winners-Final loser"
+        );
+      } else {
+        await playBracketToCompletion(organizerCtx3, bracket._id);
+      }
+    }
+
+    assert(
+      (await resolvers.Tournament.modelBCurrentRoundComplete({ _id: tournament3._id, poolModel: "B", mainBracketId: null })) === true,
+      "TEST 3: modelBCurrentRoundComplete is true once every Round-1 pool (including the rigged one) finishes"
+    );
+
+    // ── Advance for real, and confirm the rigged pool's contribution to the
+    // real, persisted Round-2 pool has no duplicate identity and includes
+    // the correctly backfilled 3 distinct real advancers. ──
+    const round2Pools3 = await resolvers.Mutation.advanceModelBRound(null, { tournamentId: tournament3._id.toString() }, organizerCtx3);
+    assert(round2Pools3.length === 4, `TEST 3: Advance #1 still creates 4 Round-2 pools despite the forced collision in pool 1 -- got ${round2Pools3.length}`);
+
+    const sortedRound2_3 = [...round2Pools3].sort((a, b) => a.poolNumber - b.poolNumber);
+    // chunkArray(4) groups source pools in array order -- pool 1 (index 0)
+    // lands in the FIRST merge group, i.e. Round 2's first (lowest
+    // poolNumber) pool, same grouping TEST 1 already confirmed exactly.
+    const riggedGroupPool = sortedRound2_3[0];
+    assert(
+      riggedGroupPool.entrantIds.length === 12,
+      `TEST 3: the merge group containing the rigged pool still has exactly 12 entrants -- no count regression from the collision (got ${riggedGroupPool.entrantIds.length})`
+    );
+
+    const riggedGroupEntrants = await Entrant.find({ _id: { $in: riggedGroupPool.entrantIds } });
+    const riggedGroupPlayerIds = riggedGroupEntrants.map(e => e.playerId.toString());
+    assert(
+      new Set(riggedGroupPlayerIds).size === 12,
+      "TEST 3: the merge group containing the rigged pool has 12 DISTINCT real entrants -- no duplicate identity leaked into the persisted Round-2 pool"
+    );
+    assert(riggedGroupPlayerIds.includes(riggedSurvivors.winnersChampionId), "TEST 3: Round 2 includes the rigged pool's real champion");
+    assert(
+      riggedGroupPlayerIds.includes(riggedWbFinalsLoserId),
+      "TEST 3: Round 2 includes the rigged pool's real (collided) Winners-Final-loser/Losers-champion"
+    );
+    assert(
+      riggedGroupPlayerIds.includes(riggedSurvivors.losersSurvivorIds[1]),
+      "TEST 3: Round 2 includes the rigged pool's genuinely different backfilled 3rd real advancer"
+    );
+
     console.log(`\n${failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURE(S)`}`);
   } finally {
     console.log("\nCleaning up test data...");
@@ -465,7 +617,7 @@ async function main() {
       await Entrant.deleteMany({ tournamentId });
       await Tournament.findByIdAndDelete(tournamentId);
     }
-    const orgTags = ["ModelBAdvanceTO", "ModelBAdvanceIncompleteTO"];
+    const orgTags = ["ModelBAdvanceTO", "ModelBAdvanceIncompleteTO", "ModelBDedupTO"];
     const orgPlayers = await Player.find({ tag: { $in: orgTags } });
     const orgUserIds = orgPlayers.map(p => p.userId).filter(Boolean);
     await Player.deleteMany({ tag: { $in: orgTags } });
