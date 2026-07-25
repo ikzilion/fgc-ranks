@@ -10,7 +10,12 @@ export const typeDefs = `#graphql
   enum UserRole         { PLAYER ADMIN SUPER_ADMIN }
   enum EventStatus      { PENDING APPROVED REJECTED }
   enum TORequestStatus  { PENDING APPROVED REJECTED }
-  enum SeedingMethod    { RANDOM RANDOM_WITHIN_TIERS MANUAL AVOID_SAME_POOL }
+  # MANUAL is a reordered ranked list still fed through the normal seed-vs-seed
+  # bracket pairing math (resolveSeedOrder). MANUAL_BRACKET is a genuinely
+  # different mechanism — literal Round-1 slot placement via drag-and-drop
+  # (generateBracket/generateMainBracket's manualSlotAssignment arg), which
+  # bypasses that pairing math entirely so the TO's exact matchups are kept.
+  enum SeedingMethod    { RANDOM RANDOM_WITHIN_TIERS MANUAL AVOID_SAME_POOL MANUAL_BRACKET }
   # Pool play + top-cut only — which pool-stage model a "Pools + Bracket"
   # tournament uses. A = round-robin pools, fresh bracket restart. B =
   # EVO-style continuous carry-over — massive-scale (128+ entrant) fields
@@ -459,7 +464,11 @@ export const typeDefs = `#graphql
     reportResult(matchId: ID!, player1Score: Int, player2Score: Int, isForfeit: Boolean, forfeitingPlayerId: ID): Match!
     editMatchResult(matchId: ID!, player1Score: Int, player2Score: Int, isForfeit: Boolean, forfeitingPlayerId: ID): Match!
 
-    generateBracket(tournamentId: ID!, seedingMethod: SeedingMethod!, manualSeedOrder: [ID!]): Bracket!
+    # manualSeedOrder: MANUAL only — a ranked list (every entrant, no gaps).
+    # manualSlotAssignment: MANUAL_BRACKET only — a literal Round-1 slot
+    # assignment sized to nextPowerOfTwo(entrantCount); a null entry is an
+    # intentional bye, so unlike manualSeedOrder this list CAN have gaps.
+    generateBracket(tournamentId: ID!, seedingMethod: SeedingMethod!, manualSeedOrder: [ID!], manualSlotAssignment: [ID]): Bracket!
     deleteBracket(tournamentId: ID!): Boolean!
     # Pool play + top-cut bracket format only (tournament.format === "Pools +
     # Bracket"). Splits every current entrant evenly across poolCount pools
@@ -493,7 +502,10 @@ export const typeDefs = `#graphql
     # Pool play + top-cut only. Requires every pool's Grand Final to have
     # completed (Tournament.allPoolsComplete). Seeds the fresh main bracket
     # from the 2 advancers per pool (winners-finalist + losers-finalist).
-    generateMainBracket(tournamentId: ID!, seedingMethod: SeedingMethod!): Bracket!
+    # manualSlotAssignment: MANUAL_BRACKET only — same shape as
+    # generateBracket's, but placing the pool advancers (winners-finalist +
+    # losers-finalist per pool) rather than raw tournament entrants.
+    generateMainBracket(tournamentId: ID!, seedingMethod: SeedingMethod!, manualSlotAssignment: [ID]): Bracket!
     # Pool play + top-cut only. Reverts back to "entrants only, no pools" —
     # deletes every Pool and its own Bracket/Match documents. Blocked while
     # a main bracket already exists (delete that first) since it was seeded

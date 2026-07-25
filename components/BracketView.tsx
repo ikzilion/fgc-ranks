@@ -30,6 +30,7 @@ const SEEDING_LABELS: Record<string, string> = {
   // main bracket seeded this way fell through to the `?? bracket.seedingMethod`
   // fallback below and showed the raw enum value instead of a friendly label.
   AVOID_SAME_POOL: "Avoid same-pool matchups",
+  MANUAL_BRACKET: "Manual (drag into bracket)",
 };
 
 const SIDE_LABELS: Record<string, string> = {

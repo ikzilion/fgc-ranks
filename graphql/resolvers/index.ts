@@ -28,7 +28,7 @@ import {
 } from "@/lib/rateLimit";
 import { sendPasswordResetEmail, sendVerificationEmail, sendAccountDeletionEmail } from "@/lib/email";
 import { verifyTurnstileToken } from "@/lib/turnstile";
-import { buildDoubleEliminationBracket, resolveSeedOrder, advanceBracketMatch, nextPowerOfTwo, computeMainBracketSeedOrder, shuffle, SeedingMethod, deleteMatchWithCascade, MODEL_B_MIN_ENTRANTS, computeModelBInitialPoolCount, computeNextRepooledRound, buildFinalsCutoffBracket, extractPoolSurvivors, PoolSurvivors } from "@/lib/bracket";
+import { buildDoubleEliminationBracket, resolveSeedOrder, validateManualSlotAssignment, advanceBracketMatch, nextPowerOfTwo, computeMainBracketSeedOrder, shuffle, SeedingMethod, deleteMatchWithCascade, MODEL_B_MIN_ENTRANTS, computeModelBInitialPoolCount, computeNextRepooledRound, buildFinalsCutoffBracket, extractPoolSurvivors, PoolSurvivors } from "@/lib/bracket";
 import { buildRoundRobinMatches, computeRoundRobinStandings } from "@/lib/roundRobin";
 import { getNextSequence } from "@/lib/counter";
 import { computeRankingPoints, computeRankingPointsForPlayers } from "@/lib/ranking";
@@ -1488,7 +1488,7 @@ export const resolvers = {
     // Brackets
     generateBracket: async (
       _: unknown,
-      { tournamentId, seedingMethod, manualSeedOrder }: { tournamentId: string; seedingMethod: SeedingMethod; manualSeedOrder?: string[] },
+      { tournamentId, seedingMethod, manualSeedOrder, manualSlotAssignment }: { tournamentId: string; seedingMethod: SeedingMethod; manualSeedOrder?: string[]; manualSlotAssignment?: (string | null)[] },
       { playerId, role }: { playerId?: string; role?: string }
     ) => {
       await connectToDatabase();
@@ -1508,23 +1508,38 @@ export const resolvers = {
       const entrants = await Entrant.find({ tournamentId });
       if (entrants.length < 2) throw new Error("Need at least 2 entrants to generate a bracket");
 
-      const orderedPlayerIds = await resolveSeedOrder(seedingMethod, entrants, manualSeedOrder);
+      const bracketId = new Types.ObjectId();
+      let matches: ReturnType<typeof buildDoubleEliminationBracket>["matches"];
+      let seedOrderForDisplay: string[];
+      let bracketSize: number;
+
+      if (seedingMethod === "MANUAL_BRACKET") {
+        const entrantPlayerIds = entrants.map((e: any) => e.playerId.toString());
+        validateManualSlotAssignment(entrantPlayerIds, manualSlotAssignment);
+        ({ matches } = buildDoubleEliminationBracket({ tournamentId, bracketId, orderedPlayerIds: [], manualSlots: manualSlotAssignment! }));
+        seedOrderForDisplay = manualSlotAssignment!.filter((id): id is string => id != null);
+        bracketSize = manualSlotAssignment!.length;
+      } else {
+        const orderedPlayerIds = await resolveSeedOrder(seedingMethod, entrants, manualSeedOrder);
+        ({ matches } = buildDoubleEliminationBracket({ tournamentId, bracketId, orderedPlayerIds }));
+        seedOrderForDisplay = orderedPlayerIds;
+        bracketSize = nextPowerOfTwo(orderedPlayerIds.length);
+      }
 
       // Reflect the computed seed number back onto each Entrant — reuses the
-      // existing `seed` field already displayed in the entrant sidebar.
+      // existing `seed` field already displayed in the entrant sidebar. For
+      // MANUAL_BRACKET this is "position among filled slots," not a ranking
+      // in the traditional sense, but keeps the same UI convention working.
       await Promise.all(
-        orderedPlayerIds.map((pid, i) => Entrant.updateOne({ tournamentId, playerId: pid }, { seed: i + 1 }))
+        seedOrderForDisplay.map((pid, i) => Entrant.updateOne({ tournamentId, playerId: pid }, { seed: i + 1 }))
       );
-
-      const bracketId = new Types.ObjectId();
-      const { matches } = buildDoubleEliminationBracket({ tournamentId, bracketId, orderedPlayerIds });
 
       const bracket = await Bracket.create({
         _id: bracketId,
         tournamentId,
         seedingMethod,
-        seedOrder: orderedPlayerIds,
-        size: nextPowerOfTwo(orderedPlayerIds.length),
+        seedOrder: seedOrderForDisplay,
+        size: bracketSize,
       });
 
       if (matches.length > 0) await Match.insertMany(matches);
@@ -1885,7 +1900,7 @@ export const resolvers = {
     // computeMainBracketSeedOrder's AVOID_SAME_POOL low-seed/high-seed split.
     generateMainBracket: async (
       _: unknown,
-      { tournamentId, seedingMethod }: { tournamentId: string; seedingMethod: "RANDOM" | "AVOID_SAME_POOL" },
+      { tournamentId, seedingMethod, manualSlotAssignment }: { tournamentId: string; seedingMethod: "RANDOM" | "AVOID_SAME_POOL" | "MANUAL_BRACKET"; manualSlotAssignment?: (string | null)[] },
       { playerId, role }: { playerId?: string; role?: string }
     ) => {
       await connectToDatabase();
@@ -1898,8 +1913,8 @@ export const resolvers = {
       if (tournament.mainBracketId) {
         throw new Error("The main bracket has already been generated");
       }
-      if (seedingMethod !== "RANDOM" && seedingMethod !== "AVOID_SAME_POOL") {
-        throw new Error("Main bracket seeding must be Random or Avoid same-pool matchups");
+      if (seedingMethod !== "RANDOM" && seedingMethod !== "AVOID_SAME_POOL" && seedingMethod !== "MANUAL_BRACKET") {
+        throw new Error("Main bracket seeding must be Random, Avoid same-pool matchups, or Manual");
       }
 
       const pools = await Pool.find({ tournamentId }).sort({ poolNumber: 1 });
@@ -1928,24 +1943,37 @@ export const resolvers = {
         }
       }
 
-      const orderedPlayerIds = computeMainBracketSeedOrder(winnersFinalistIds, losersFinalistIds, seedingMethod);
+      const bracketId = new Types.ObjectId();
+      let matches: ReturnType<typeof buildDoubleEliminationBracket>["matches"];
+      let seedOrderForDisplay: string[];
+      let bracketSize: number;
+
+      if (seedingMethod === "MANUAL_BRACKET") {
+        const participantIds = [...winnersFinalistIds, ...losersFinalistIds];
+        validateManualSlotAssignment(participantIds, manualSlotAssignment);
+        ({ matches } = buildDoubleEliminationBracket({ tournamentId, bracketId, orderedPlayerIds: [], manualSlots: manualSlotAssignment! }));
+        seedOrderForDisplay = manualSlotAssignment!.filter((id): id is string => id != null);
+        bracketSize = manualSlotAssignment!.length;
+      } else {
+        const orderedPlayerIds = computeMainBracketSeedOrder(winnersFinalistIds, losersFinalistIds, seedingMethod);
+        ({ matches } = buildDoubleEliminationBracket({ tournamentId, bracketId, orderedPlayerIds }));
+        seedOrderForDisplay = orderedPlayerIds;
+        bracketSize = nextPowerOfTwo(orderedPlayerIds.length);
+      }
 
       // Reflect the main-bracket seed number onto each advancing Entrant —
       // same convention generateBracket uses for a standard tournament.
       await Promise.all(
-        orderedPlayerIds.map((pid, i) => Entrant.updateOne({ tournamentId, playerId: pid }, { seed: i + 1 }))
+        seedOrderForDisplay.map((pid, i) => Entrant.updateOne({ tournamentId, playerId: pid }, { seed: i + 1 }))
       );
-
-      const bracketId = new Types.ObjectId();
-      const { matches } = buildDoubleEliminationBracket({ tournamentId, bracketId, orderedPlayerIds });
 
       const bracket = await Bracket.create({
         _id: bracketId,
         tournamentId,
         poolId: null,
         seedingMethod,
-        seedOrder: orderedPlayerIds,
-        size: nextPowerOfTwo(orderedPlayerIds.length),
+        seedOrder: seedOrderForDisplay,
+        size: bracketSize,
       });
 
       if (matches.length > 0) await Match.insertMany(matches);

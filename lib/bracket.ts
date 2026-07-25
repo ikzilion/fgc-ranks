@@ -73,7 +73,15 @@ export function seedSlotOrder(size: number): number[] {
 
 // ─── Seeding method resolution ───────────────────────────────────────────
 
-export type SeedingMethod = "RANDOM" | "RANDOM_WITHIN_TIERS" | "MANUAL";
+// MANUAL_BRACKET is deliberately a separate value from the existing MANUAL —
+// MANUAL is a custom SEED RANKING (a reordered flat list that still goes
+// through seedSlotOrder's normal 1-vs-N pairing math, see resolveSeedOrder
+// below), whereas MANUAL_BRACKET is literal Round-1 SLOT placement (the TO
+// drags entrants directly into bracket positions, bypassing seedSlotOrder
+// entirely — see buildDoubleEliminationBracket's manualSlots param). Naming
+// these the same would have made the existing "Manual seeding" (ranked-list)
+// feature and this one (drag-into-bracket-slots) indistinguishable.
+export type SeedingMethod = "RANDOM" | "RANDOM_WITHIN_TIERS" | "MANUAL" | "MANUAL_BRACKET";
 
 // Standard FGC "pools" tiering: sort by points descending, chunk into groups
 // of 4, shuffle within each group, concatenate. Documented simplification —
@@ -86,6 +94,14 @@ export async function resolveSeedOrder(
   manualSeedOrder?: string[] | null
 ): Promise<string[]> {
   const entrantPlayerIds = entrants.map(e => e.playerId.toString());
+
+  // MANUAL_BRACKET doesn't produce a seed order at all — it's literal Round-1
+  // slot placement (see validateManualSlotAssignment + buildDoubleElimination
+  // Bracket's manualSlots param), handled entirely by the caller before
+  // resolveSeedOrder would ever be reached for it.
+  if (seedingMethod === "MANUAL_BRACKET") {
+    throw new Error("Internal error: MANUAL_BRACKET must be handled via manualSlots, not resolveSeedOrder");
+  }
 
   if (seedingMethod === "MANUAL") {
     if (!manualSeedOrder || manualSeedOrder.length !== entrantPlayerIds.length) {
@@ -114,6 +130,40 @@ export async function resolveSeedOrder(
 
   // RANDOM
   return shuffle([...entrantPlayerIds]);
+}
+
+// Manual drag-and-drop bracket seeding (MANUAL_BRACKET) — validates a literal
+// Round-1 slot assignment before it's built: an array of length
+// nextPowerOfTwo(participantIds.length), each entry either a real
+// participant's player ID (a filled slot) or null (an intentional bye,
+// exactly like any other seeding method's byes). Every participant must
+// occupy EXACTLY one slot — this is the server-side twin of the sidebar's
+// "unplaced entrants" validation (the client blocks Generate for the same
+// reason, but this exists so the resolver never trusts client-side
+// validation alone). Returns nothing — throws with a specific reason on any
+// violation, since there's no sensible fallback value to return instead of
+// silently losing an entrant.
+export function validateManualSlotAssignment(participantIds: string[], manualSlotAssignment: (string | null)[] | null | undefined): void {
+  if (!manualSlotAssignment) {
+    throw new Error("Manual bracket seeding requires a slot assignment");
+  }
+  const expectedSize = nextPowerOfTwo(participantIds.length);
+  if (manualSlotAssignment.length !== expectedSize) {
+    throw new Error(`Manual bracket seeding needs exactly ${expectedSize} slots (bracket size for ${participantIds.length} entrants) — got ${manualSlotAssignment.length}`);
+  }
+  const participantSet = new Set(participantIds.map(String));
+  const filledIds = manualSlotAssignment.filter((id): id is string => id != null).map(String);
+  const filledSet = new Set(filledIds);
+  if (filledSet.size !== filledIds.length) {
+    throw new Error("Manual bracket seeding can't place the same entrant into more than one slot");
+  }
+  if (filledIds.some(id => !participantSet.has(id))) {
+    throw new Error("Manual bracket seeding includes a player ID that isn't one of this bracket's real entrants");
+  }
+  if (filledSet.size !== participantIds.length) {
+    const unplacedCount = participantIds.length - filledSet.size;
+    throw new Error(`Every entrant must be placed into a slot before generating — ${unplacedCount} ${unplacedCount === 1 ? "entrant is" : "entrants are"} still unplaced`);
+  }
 }
 
 // ─── Pool play + top-cut: main-bracket seeding ──────────────────────────
@@ -256,16 +306,28 @@ export function buildDoubleEliminationBracket(params: {
   tournamentId: any;
   bracketId: Types.ObjectId;
   orderedPlayerIds: string[]; // seed 1..N in order, position 0 = seed 1
+  // MANUAL_BRACKET only — a literal physical Round-1 slot assignment
+  // (validated beforehand via validateManualSlotAssignment), index i = slot
+  // i, null = an intentional bye. When provided, this is used VERBATIM as
+  // Round 1 instead of seedSlotOrder(size).map(seedToSlot) — orderedPlayerIds
+  // is ignored entirely in this mode (every other seeding method still goes
+  // through seedSlotOrder so top seeds never meet early; manual placement is
+  // the one case where the TO controls physical pairings directly, so
+  // running it back through seedSlotOrder would silently rearrange the exact
+  // matchups they just built).
+  manualSlots?: (string | null)[];
 }): { matches: BracketMatchDraft[] } {
-  const { tournamentId, bracketId, orderedPlayerIds } = params;
-  const n = orderedPlayerIds.length;
-  const size = nextPowerOfTwo(n);
+  const { tournamentId, bracketId, orderedPlayerIds, manualSlots } = params;
+  const n = manualSlots ? manualSlots.filter(id => id != null).length : orderedPlayerIds.length;
+  const size = manualSlots ? manualSlots.length : nextPowerOfTwo(n);
   const m = Math.log2(size); // number of Winners-bracket rounds
 
   const seedToSlot = (seed: number): Slot =>
     seed <= n ? { kind: "PLAYER", playerId: new Types.ObjectId(orderedPlayerIds[seed - 1]) } : { kind: "BYE" };
 
-  const slots = seedSlotOrder(size).map(seedToSlot);
+  const slots: Slot[] = manualSlots
+    ? manualSlots.map((id): Slot => (id != null ? { kind: "PLAYER", playerId: new Types.ObjectId(id) } : { kind: "BYE" }))
+    : seedSlotOrder(size).map(seedToSlot);
   const drafts: BracketMatchDraft[] = [];
 
   // ── Winners bracket ──────────────────────────────────────────────

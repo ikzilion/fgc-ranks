@@ -93,6 +93,25 @@ function poolAdvancers(pool: PoolData): { first: string; second: string } | null
   return { first: grandFinal.player1.id, second: grandFinal.player2.id };
 }
 
+// GenerateMainBracketButton's MANUAL_BRACKET seeder needs the flat list of
+// real advancing participants (2 per pool) with their tags, not just IDs —
+// reuses poolAdvancers' own per-pool computation (handles both round-robin
+// and bracket pools, and the Grand Final Reset "decided" check) rather than
+// re-deriving it, then looks each advancer's tag up from that same pool's
+// own entrants list (poolAdvancers only returns IDs).
+function allPoolAdvancerParticipants(pools: PoolData[]): { playerId: string; tag: string }[] {
+  const out: { playerId: string; tag: string }[] = [];
+  for (const pool of pools) {
+    const advancers = poolAdvancers(pool);
+    if (!advancers) continue;
+    for (const playerId of [advancers.first, advancers.second]) {
+      const tag = pool.entrants.find(e => e.player.id === playerId)?.player.tag ?? playerId;
+      out.push({ playerId, tag });
+    }
+  }
+  return out;
+}
+
 function PoolAdvancementTags({ pool }: { pool: PoolData }) {
   const advancers = poolAdvancers(pool);
   return (
@@ -513,7 +532,12 @@ export function PoolsSection({
             </>
           ) : (
             <>
-              <GenerateMainBracketButton tournamentId={tournamentId} allPoolsComplete={allPoolsComplete} canManage={canManage} />
+              <GenerateMainBracketButton
+                tournamentId={tournamentId}
+                allPoolsComplete={allPoolsComplete}
+                canManage={canManage}
+                poolAdvancerParticipants={allPoolAdvancerParticipants(pools)}
+              />
               {/* Full reset is allowed mid-play, not just before any results —
                   deletePools itself is what actually blocks this once a main
                   bracket exists (delete that first), so this button doesn't

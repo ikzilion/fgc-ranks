@@ -3,19 +3,35 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { ManualBracketSlotSeeder } from "@/components/ManualBracketSlotSeeder";
 
 interface EntrantOption {
   id: string;
   player: { id: string; tag: string };
 }
 
-type SeedingMethod = "RANDOM" | "RANDOM_WITHIN_TIERS" | "MANUAL";
+// MANUAL_BRACKET is intentionally distinct from MANUAL — MANUAL is a
+// reordered ranked list still fed through the normal seed-vs-seed bracket
+// pairing math (resolveSeedOrder); MANUAL_BRACKET is literal Round-1 slot
+// placement via drag-and-drop, bypassing that pairing math entirely. See
+// lib/bracket.ts's SeedingMethod comment.
+type SeedingMethod = "RANDOM" | "RANDOM_WITHIN_TIERS" | "MANUAL" | "MANUAL_BRACKET";
 
 const SEEDING_LABELS: Record<SeedingMethod, string> = {
   RANDOM: "Fully random",
   RANDOM_WITHIN_TIERS: "Random within tiers (by points)",
   MANUAL: "Manual seeding",
+  MANUAL_BRACKET: "Manual (drag into bracket)",
 };
+
+// Smallest power of two >= n — mirrors lib/bracket.ts's nextPowerOfTwo, but
+// duplicated here rather than imported since that module pulls in
+// server-only Mongoose models and shouldn't end up in a client bundle.
+function nextPowerOfTwo(n: number): number {
+  let size = 1;
+  while (size < n) size *= 2;
+  return size;
+}
 
 export function GenerateBracketButton({
   tournamentId,
@@ -32,13 +48,17 @@ export function GenerateBracketButton({
   const [open, setOpen] = useState(false);
   const [seedingMethod, setSeedingMethod] = useState<SeedingMethod>("RANDOM");
   const [manualOrder, setManualOrder] = useState<EntrantOption[]>(entrants);
+  const [manualSlots, setManualSlots] = useState<(string | null)[]>(() => Array(nextPowerOfTwo(entrants.length)).fill(null));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   if (!canManage) return null;
 
+  const unplacedCount = entrants.length - manualSlots.filter(Boolean).length;
+
   function openModal() {
     setManualOrder(entrants);
+    setManualSlots(Array(nextPowerOfTwo(entrants.length)).fill(null));
     setSeedingMethod("RANDOM");
     setError("");
     setOpen(true);
@@ -53,6 +73,11 @@ export function GenerateBracketButton({
   }
 
   async function handleGenerate() {
+    if (seedingMethod === "MANUAL_BRACKET" && unplacedCount > 0) {
+      setError(`${unplacedCount} ${unplacedCount === 1 ? "entrant is" : "entrants are"} still unplaced — drag every entrant into a slot (empty slots left over become byes).`);
+      return;
+    }
+
     setLoading(true);
     setError("");
 
@@ -62,14 +87,15 @@ export function GenerateBracketButton({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           query: `
-            mutation GenerateBracket($tournamentId: ID!, $seedingMethod: SeedingMethod!, $manualSeedOrder: [ID!]) {
-              generateBracket(tournamentId: $tournamentId, seedingMethod: $seedingMethod, manualSeedOrder: $manualSeedOrder) { id }
+            mutation GenerateBracket($tournamentId: ID!, $seedingMethod: SeedingMethod!, $manualSeedOrder: [ID!], $manualSlotAssignment: [ID]) {
+              generateBracket(tournamentId: $tournamentId, seedingMethod: $seedingMethod, manualSeedOrder: $manualSeedOrder, manualSlotAssignment: $manualSlotAssignment) { id }
             }
           `,
           variables: {
             tournamentId,
             seedingMethod,
             manualSeedOrder: seedingMethod === "MANUAL" ? manualOrder.map(e => e.player.id) : null,
+            manualSlotAssignment: seedingMethod === "MANUAL_BRACKET" ? manualSlots : null,
           },
         }),
       });
@@ -144,7 +170,11 @@ export function GenerateBracketButton({
           style={{ background: "rgba(0,0,0,0.7)" }}
           onClick={() => setOpen(false)}
         >
-          <div className="fgc-card p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+          <div
+            className={`fgc-card p-6 w-full flex flex-col ${seedingMethod === "MANUAL_BRACKET" ? "max-w-3xl" : "max-w-sm"}`}
+            style={seedingMethod === "MANUAL_BRACKET" ? { maxHeight: "90vh" } : undefined}
+            onClick={e => e.stopPropagation()}
+          >
             <h2 className="font-rajdhani text-xl font-bold text-[var(--text-primary)] mb-1">Generate bracket</h2>
             <p className="text-[12px] text-[var(--text-secondary)] mb-4">Double elimination, {entrants.length} entrants.</p>
 
@@ -192,6 +222,19 @@ export function GenerateBracketButton({
               </div>
             )}
 
+            {seedingMethod === "MANUAL_BRACKET" && (
+              <div className="mb-4 overflow-y-auto flex-1 min-h-0">
+                <p className="text-[11px] text-[var(--text-secondary)] mb-3">
+                  Drag each entrant into a Round 1 slot. Slots left empty become real byes — drag a placed entrant back onto the sidebar (or use ×) to unplace them.
+                </p>
+                <ManualBracketSlotSeeder
+                  participants={entrants.map(e => ({ playerId: e.player.id, tag: e.player.tag }))}
+                  slots={manualSlots}
+                  onSlotsChange={setManualSlots}
+                />
+              </div>
+            )}
+
             {error && (
               <p className="text-[12px] mb-4 px-3 py-2 rounded" style={{ background: "var(--coral-dim)", color: "var(--coral)" }}>
                 {error}
@@ -208,11 +251,17 @@ export function GenerateBracketButton({
               </button>
               <button
                 onClick={handleGenerate}
-                disabled={loading}
+                disabled={loading || (seedingMethod === "MANUAL_BRACKET" && unplacedCount > 0)}
                 className="flex-1 py-2 rounded font-rajdhani text-[14px] font-bold"
-                style={{ background: "var(--blue)", color: "white", border: "none", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.6 : 1 }}
+                style={{
+                  background: "var(--blue)",
+                  color: "white",
+                  border: "none",
+                  cursor: loading || (seedingMethod === "MANUAL_BRACKET" && unplacedCount > 0) ? "not-allowed" : "pointer",
+                  opacity: loading || (seedingMethod === "MANUAL_BRACKET" && unplacedCount > 0) ? 0.6 : 1,
+                }}
               >
-                {loading ? "Generating..." : "Generate"}
+                {loading ? "Generating..." : seedingMethod === "MANUAL_BRACKET" && unplacedCount > 0 ? `${unplacedCount} unplaced` : "Generate"}
               </button>
             </div>
           </div>

@@ -10,6 +10,10 @@ export enum SeedingMethod {
   // computeMainBracketSeedOrder). Never used for a standard tournament's
   // only bracket or for a pool's own internal bracket.
   AVOID_SAME_POOL = "AVOID_SAME_POOL",
+  // Drag-and-drop literal Round-1 slot placement — deliberately distinct
+  // from MANUAL (a reordered ranked list still fed through the standard
+  // seedSlotOrder pairing math). See lib/bracket.ts's SeedingMethod comment.
+  MANUAL_BRACKET = "MANUAL_BRACKET",
 }
 
 const BracketSchema = new Schema(
