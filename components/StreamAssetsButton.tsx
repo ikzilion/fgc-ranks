@@ -304,7 +304,12 @@ export function StreamAssetsButton({
           style={{ background: "rgba(0,0,0,0.7)" }}
           onClick={closeWithoutSaving}
         >
-          <div className="fgc-card p-6 w-full max-w-3xl flex flex-col" style={{ maxHeight: "90vh" }} onClick={e => e.stopPropagation()}>
+          {/* pl-8 (vs pr-6) — the inner scrollable region below adds its own
+              pr-1/-mr-1 scrollbar-gutter compensation (see its comment), so
+              the right edge already reads with a bit more breathing room
+              than the left got from a plain uniform p-6; this closes that
+              gap instead of matching it exactly. */}
+          <div className="fgc-card pl-8 pr-6 py-6 w-full max-w-3xl flex flex-col" style={{ maxHeight: "90vh" }} onClick={e => e.stopPropagation()}>
             <h2 className="font-rajdhani text-xl font-bold text-[var(--text-primary)] mb-1">Stream settings</h2>
             <p className="text-[12px] text-[var(--text-secondary)] mb-4">
               Customize the broadcast overlay at{" "}
