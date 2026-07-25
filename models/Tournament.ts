@@ -16,13 +16,12 @@ export enum TournamentVisibility {
 // tournament uses, chosen once at creation (see createTournament) and never
 // re-derived; changing it after pools exist would invalidate their
 // structure, so there's no update mutation for it. Irrelevant/unused for
-// "Standard Bracket". B only exists here so the picker can list it as a
-// disabled "Coming soon" option using the same enum as A/C — its Round 1 is
-// buildable (generateModelBPools in graphql/resolvers/index.ts, reusing this
-// same generatePools DB-write pattern) but round-to-round advancement past
-// Round 1 (repooling survivors via lib/bracket.ts's computeNextRepooledRound,
-// driven off real match results) isn't wired up yet, so createTournament
-// still rejects it server-side until that exists.
+// "Standard Bracket". B = EVO-style massive-scale continuous carry-over
+// (128+ entrants only) — generateModelBPools builds Round 1,
+// advanceModelBRound advances every round after (real results regrouped via
+// lib/bracket.ts's computeNextRepooledRound) through to the real Finals
+// bracket. Full per-pool UI polish and real-scale load-testing are still
+// separate, later work, but the format itself is playable end to end.
 export enum PoolModel {
   A = "A", // round-robin pools, fresh bracket restart
   B = "B", // EVO-style continuous carry-over — not buildable yet

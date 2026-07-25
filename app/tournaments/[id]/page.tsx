@@ -103,6 +103,7 @@ const GET_TOURNAMENT = `
       allPoolsComplete
       suggestedPoolCount
       poolModel
+      modelBCurrentRoundComplete
       pools {
         id
         poolNumber
@@ -458,6 +459,8 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                   entrantCount={tournament.entrants.length}
                   suggestedPoolCount={tournament.suggestedPoolCount}
                   allPoolsComplete={tournament.allPoolsComplete}
+                  poolModel={tournament.poolModel}
+                  modelBCurrentRoundComplete={tournament.modelBCurrentRoundComplete}
                   canManage={canManage}
                   lineColor={tournament.bracketLineColor}
                   boxColor={tournament.bracketBoxColor}

@@ -557,6 +557,17 @@ export interface RepooledNewPool {
   winnersEntrySize: number;
   entrantCount: number;
   sourcePoolCount: number;
+  // The exact real (or, pre-Phase-5, synthetic-placeholder) survivor IDs
+  // this pool was built from -- i.e. buildRepooledBracket's own
+  // winnersSurvivorIds/losersSurvivorIds inputs, already trimmed to whatever
+  // this round actually used. Exposed so a caller (generateModelBTournament's
+  // FINAL_CONSOLIDATION branch, or Phase 5's real-DB advancement) can reuse
+  // them directly -- e.g. to route a splits-into-Finals pool through
+  // buildFinalsCutoffBracket instead, or to know exactly which real players
+  // belong in this new Pool document -- without re-deriving the same
+  // distributeEvenly/takeExactly grouping a second time.
+  winnersSurvivorIds: string[];
+  losersSurvivorIds: string[];
 }
 
 export type RepoolStage = "MERGE" | "FINAL_CONSOLIDATION";
@@ -611,6 +622,8 @@ function buildNewPoolFromGroup(tournamentId: any, group: PoolSurvivors[]): Repoo
     winnersEntrySize,
     entrantCount: winnersSurvivorIds.length + losersSurvivorIds.length,
     sourcePoolCount: group.length,
+    winnersSurvivorIds,
+    losersSurvivorIds,
   };
 }
 
@@ -1039,7 +1052,6 @@ export function generateModelBTournament(params: {
     roundNumber++;
   }
 
-  const finalStageInput = currentPools; // the exact pools[] that triggered FINAL_CONSOLIDATION
   const finalPool = result.newPools[0];
   const splitsIntoFinals = result.splitsIntoFinals === true;
 
@@ -1061,20 +1073,11 @@ export function generateModelBTournament(params: {
     return { entrantCount, initialPoolCount, rounds, splitsIntoFinals: false };
   }
 
-  // ── Finals split: rebuild the exact same survivor group
-  // computeNextRepooledRound's own FINAL_CONSOLIDATION branch derives
-  // internally (same constant, same helpers) and route it through the
-  // cutoff primitive instead of the full bracket already discarded above --
-  // see this function's own doc comment for why. ──
-  const poolCount = finalStageInput.length;
-  const totalEntrantsThisRound = finalStageInput.reduce((sum, p) => sum + p.entrantCount, 0);
-  const target = Math.min(REPOOL_FINAL_TARGET_SIZE, totalEntrantsThisRound);
-  const advancersPerPool = distributeEvenly(target, poolCount);
-  const winnersSurvivorIds = finalStageInput.map(p => p.winnersChampionId);
-  const losersSurvivorIds = finalStageInput.flatMap((p, i) =>
-    takeExactly(p.losersSurvivorIds, advancersPerPool[i] - 1, "Model B orchestration's final consolidation stage")
-  );
-  const winnersEntrySize = Math.max(2, nextPowerOfTwo(winnersSurvivorIds.length));
+  // ── Finals split: reuse the exact same survivor group finalPool was
+  // already built from (RepooledNewPool now exposes it directly) and route
+  // it through the cutoff primitive instead of the full bracket already
+  // discarded above -- see this function's own doc comment for why. ──
+  const { winnersSurvivorIds, losersSurvivorIds, winnersEntrySize } = finalPool;
 
   const semifinalsBracketId = new Types.ObjectId();
   const finalsCutoff = buildFinalsCutoffBracket({
@@ -1094,7 +1097,7 @@ export function generateModelBTournament(params: {
       matches: finalsCutoff.matches,
       entrantCount: winnersSurvivorIds.length + losersSurvivorIds.length,
       winnersEntrySize,
-      sourcePoolCount: poolCount,
+      sourcePoolCount: finalPool.sourcePoolCount,
     }],
   });
 
@@ -1127,6 +1130,95 @@ export function generateModelBTournament(params: {
     finalsBracketId,
     finalsMatches,
   };
+}
+
+// ─── Pool format Model B: real-result survivor extraction (Phase 5) ─────
+//
+// generateModelBTournament (Phase 3) had to invent synthetic placeholder IDs
+// for every round past Round 1, since no match had actually been played.
+// Phase 5 is the opposite: a real Model B round's pools HAVE really been
+// played, so this reads their REAL results and produces the same
+// PoolSurvivors shape computeNextRepooledRound already expects -- reusing
+// the exact bracket-result-reading approach computeAndApplyBracketPlacements
+// above already established (read the decided Grand Final/Reset, walk the
+// Losers side by elimination depth), just returning an ORDERED per-player
+// list instead of tier-bucketed placements.
+//
+// Per the settled real EVO mechanic (see buildRepooledBracket's own doc
+// comment), all 3 roles are derived purely from bracket STRUCTURE, never
+// from the Grand Final's own outcome:
+//   - winnersChampionId = this pool's Winners-side finalist (0 losses
+//     entering the Grand Final) = the Grand Final's player1Id, by
+//     buildDoubleEliminationBracket/buildRepooledBracket's own documented
+//     convention. This is well-defined and stable regardless of whether
+//     they go on to win, lose, or need a reset in the Grand Final itself --
+//     "undefeated" specifically means undefeated THROUGH THE WINNERS
+//     BRACKET, a fact settled the moment the pool's own Winners Finals match
+//     completes, not the moment the whole pool is decided.
+//   - losersSurvivorIds[0] = this pool's Winners-Final LOSER (their
+//     first-ever loss) -- the loser of whichever WINNERS-side match fed the
+//     Grand Final (found via nextMatchId, not by round-counting, so it works
+//     regardless of bracket depth).
+//   - losersSurvivorIds[1] = this pool's Losers-bracket champion = the Grand
+//     Final's player2Id, same convention as above.
+//   - losersSurvivorIds[2+] = further real placements, ranked by Losers-
+//     bracket elimination depth (deepest/best first, same depth grouping
+//     computeAndApplyBracketPlacements uses) -- only ever consulted by
+//     computeNextRepooledRound's FINAL_CONSOLIDATION stage, which can need
+//     more than 2 losers-survivors per pool; an ordinary MERGE-stage round
+//     never looks past index 1.
+//
+// Assumes the pool's bracket has strictly more than 2 entrants (guaranteed
+// by Model B's own sizing at every stage -- see generateModelBTournament's
+// MODEL_B_MIN_ENTRANTS/computeModelBInitialPoolCount) -- with exactly 2, the
+// Winners-Final loser and Losers-bracket champion collapse into the same
+// person (buildDoubleEliminationBracket's own m===1 special case, no real
+// Losers bracket at all), which this function doesn't special-case.
+export async function extractPoolSurvivors(bracket: { _id: any }): Promise<Pick<PoolSurvivors, "winnersChampionId" | "losersSurvivorIds">> {
+  const matches = await Match.find({ bracketId: bracket._id });
+
+  const grandFinal = matches.find(m => m.bracketSide === "GRAND_FINAL");
+  if (!grandFinal?.player1Id || !grandFinal?.player2Id) {
+    throw new Error("Can't extract survivors -- this pool's bracket has no decided Grand Final yet");
+  }
+  const winnersChampionId = grandFinal.player1Id.toString();
+  const lbChampionId = grandFinal.player2Id.toString();
+
+  const wbFinalsMatch = matches.find(m => m.bracketSide === "WINNERS" && m.nextMatchId?.toString() === grandFinal._id.toString());
+  if (!wbFinalsMatch?.winnerId) {
+    throw new Error("Can't extract survivors -- this pool's Winners Finals match has no recorded winner");
+  }
+  const wbFinalsLoserId = (
+    wbFinalsMatch.winnerId.toString() === wbFinalsMatch.player1Id.toString() ? wbFinalsMatch.player2Id : wbFinalsMatch.player1Id
+  ).toString();
+
+  const loserSideMatches = matches.filter(m => m.bracketSide === "LOSERS" && m.status === "COMPLETED" && m.winnerId);
+  const totalLBRounds = loserSideMatches.reduce((max, m) => Math.max(max, m.bracketRound), 0);
+  const rankedFurtherLosers = [...loserSideMatches]
+    .sort((a, b) => {
+      const depthA = totalLBRounds - a.bracketRound;
+      const depthB = totalLBRounds - b.bracketRound;
+      return depthA !== depthB ? depthA - depthB : a.bracketPosition - b.bracketPosition;
+    })
+    .map(m => (m.winnerId.toString() === m.player1Id.toString() ? m.player2Id : m.player1Id).toString());
+
+  // The Winners-Final loser drops into THIS pool's own Losers bracket like
+  // anyone else, so they can perfectly normally go on to win it (a very
+  // common real double-elim outcome) -- making them BOTH the
+  // Winners-Final-loser AND the Losers-bracket champion. Deduped, keeping
+  // wbFinalsLoserId's higher-priority position (matches the documented
+  // "Winners-Final loser first" rank), so the next real distinct person
+  // (already present somewhere in rankedFurtherLosers, since it covers
+  // every real elimination in this pool) naturally backfills instead of a
+  // duplicate identity ever reaching the next round's bracket twice.
+  const seen = new Set<string>();
+  const losersSurvivorIds = [wbFinalsLoserId, lbChampionId, ...rankedFurtherLosers].filter(id => {
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+
+  return { winnersChampionId, losersSurvivorIds };
 }
 
 // ─── Progression on match report ─────────────────────────────────────────

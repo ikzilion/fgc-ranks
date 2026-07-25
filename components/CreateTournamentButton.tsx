@@ -475,9 +475,9 @@ export function CreateTournamentButton() {
               {/* Pool format Model A/B/C — only shown once "Pools + Bracket"
                   is picked above. Each option gets its own plain-language
                   explanation since the three models have real gameplay
-                  tradeoffs a TO can't tell from the name alone. Model B is
-                  disabled ("Coming soon") — not buildable yet, see
-                  models/Tournament.ts's PoolModel enum. */}
+                  tradeoffs a TO can't tell from the name alone. Model B needs
+                  a large field (128+ entrants) to be worth its extra
+                  complexity — see models/Tournament.ts's PoolModel enum. */}
               {format === "Pools + Bracket" && (
                 <div className="mb-4">
                   <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Pool stage model</label>
@@ -497,29 +497,22 @@ export function CreateTournamentButton() {
                         {
                           value: "B" as const,
                           label: "Model B — Continuous carry-over",
-                          description: "Coming soon. EVO's system: pool results carry over into the main bracket instead of resetting.",
-                          disabled: true,
+                          description: "EVO's massive-scale system: pool results carry over into fresh, re-grouped pools across several rounds instead of resetting once. Needs at least 128 entrants — for anything smaller, Model A or C already give you the same result more simply.",
                         },
                       ]
                     ).map(option => (
                       <button
                         key={option.value}
                         type="button"
-                        disabled={option.disabled}
-                        onClick={() => !option.disabled && setPoolModel(option.value)}
+                        onClick={() => setPoolModel(option.value)}
                         className="text-left px-3 py-2.5 rounded-md"
                         style={{
-                          background: option.disabled ? "var(--navy-3)" : poolModel === option.value ? "var(--blue-dim)" : "var(--navy-3)",
-                          border: option.disabled
-                            ? "1px solid var(--border)"
-                            : poolModel === option.value
-                              ? "1px solid var(--blue)"
-                              : "1px solid var(--border-strong)",
-                          cursor: option.disabled ? "not-allowed" : "pointer",
-                          opacity: option.disabled ? 0.55 : 1,
+                          background: poolModel === option.value ? "var(--blue-dim)" : "var(--navy-3)",
+                          border: poolModel === option.value ? "1px solid var(--blue)" : "1px solid var(--border-strong)",
+                          cursor: "pointer",
                         }}
                       >
-                        <p className="font-rajdhani text-[14px] font-bold" style={{ color: option.disabled ? "var(--text-muted)" : "var(--text-primary)" }}>
+                        <p className="font-rajdhani text-[14px] font-bold" style={{ color: "var(--text-primary)" }}>
                           {option.label}
                         </p>
                         <p className="text-[11px] mt-0.5" style={{ color: "var(--text-secondary)" }}>{option.description}</p>

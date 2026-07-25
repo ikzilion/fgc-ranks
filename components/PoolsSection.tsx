@@ -5,6 +5,7 @@ import { useState } from "react";
 import { BracketView } from "./BracketView";
 import { GeneratePoolsButton } from "./GeneratePoolsButton";
 import { GenerateMainBracketButton } from "./GenerateMainBracketButton";
+import { AdvanceModelBRoundButton } from "./AdvanceModelBRoundButton";
 import { DeletePoolsButton } from "./DeletePoolsButton";
 import { DeleteMainBracketButton } from "./DeleteMainBracketButton";
 import { ReportMatchButton } from "./ReportMatchButton";
@@ -231,6 +232,8 @@ export function PoolsSection({
   entrantCount,
   suggestedPoolCount,
   allPoolsComplete,
+  poolModel,
+  modelBCurrentRoundComplete,
   canManage,
   lineColor,
   boxColor,
@@ -242,11 +245,14 @@ export function PoolsSection({
   entrantCount: number;
   suggestedPoolCount: number;
   allPoolsComplete: boolean;
+  poolModel: string;
+  modelBCurrentRoundComplete: boolean;
   canManage: boolean;
   lineColor?: string;
   boxColor?: string;
   fontColor?: string;
 }) {
+  const isModelB = poolModel === "B";
   const hasMainBracket = !!mainBracket;
 
   // Tab list is stable for the lifetime of one page load — every mutation
@@ -289,15 +295,25 @@ export function PoolsSection({
         <div>
           <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Pools</p>
           <TabBar tabs={tabs} activeKey={activeTab ?? tabs[0].key} onSelect={setActiveTab} />
-          {!allPoolsComplete && (
+          {!hasMainBracket && (
             <p className="text-[11px] font-bold text-[var(--text-secondary)] mt-2">
-              Top 2 finishers of each pool advance to the main bracket once every pool finishes.
+              {isModelB
+                ? "Each pool's real advancers regroup into fresh pools once the current round finishes, narrowing down to the real Finals bracket."
+                : "Top 2 finishers of each pool advance to the main bracket once every pool finishes."}
             </p>
           )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {hasMainBracket ? (
             <DeleteMainBracketButton tournamentId={tournamentId} canManage={canManage} />
+          ) : isModelB ? (
+            <>
+              <AdvanceModelBRoundButton tournamentId={tournamentId} modelBCurrentRoundComplete={modelBCurrentRoundComplete} canManage={canManage} />
+              {/* deletePools already handles every round's pools for a
+                  tournament (unscoped Pool.find({tournamentId})), so it works
+                  unchanged for Model B's multi-round pools too. */}
+              <DeletePoolsButton tournamentId={tournamentId} canManage={canManage} />
+            </>
           ) : (
             <>
               <GenerateMainBracketButton tournamentId={tournamentId} allPoolsComplete={allPoolsComplete} canManage={canManage} />

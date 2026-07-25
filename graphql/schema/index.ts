@@ -13,11 +13,11 @@ export const typeDefs = `#graphql
   enum SeedingMethod    { RANDOM RANDOM_WITHIN_TIERS MANUAL AVOID_SAME_POOL }
   # Pool play + top-cut only — which pool-stage model a "Pools + Bracket"
   # tournament uses. A = round-robin pools, fresh bracket restart. B =
-  # EVO-style continuous carry-over (Round 1 is buildable via
-  # generateModelBPools, but round-to-round advancement past Round 1 isn't
-  # wired up yet, so it's still always rejected by createTournament, shown
-  # "Coming soon"/disabled in the picker). C = double-elim pools, fresh
-  # bracket restart (the existing/default model).
+  # EVO-style continuous carry-over — massive-scale (128+ entrant) fields
+  # only; generateModelBPools builds Round 1, advanceModelBRound advances
+  # every round after (real match results regrouped via
+  # computeNextRepooledRound) through to the real Finals bracket. C =
+  # double-elim pools, fresh bracket restart (the existing/default model).
   enum PoolModel        { A B C }
   enum BracketSide      { WINNERS LOSERS GRAND_FINAL GRAND_FINAL_RESET }
   enum NotificationType {
@@ -148,6 +148,12 @@ export const typeDefs = `#graphql
     # uses (see the PoolModel enum). Set once at creation; unused/ignored
     # for a "Standard Bracket" tournament.
     poolModel: PoolModel!
+    # Pool format Model B only — false for every other tournament, and false
+    # once its Finals bracket (mainBracket) has already been generated.
+    # True once every pool of the current (latest) round has finished — gates
+    # the "Advance to next round" action (advanceModelBRound), the Model B
+    # analogue of allPoolsComplete/"Generate Main Bracket" above.
+    modelBCurrentRoundComplete: Boolean!
   }
 
   type Pool {
@@ -462,6 +468,21 @@ export const typeDefs = `#graphql
     # for Model A/C. Later rounds are regrouped ("repooled") from these
     # pools' results by a separate mechanism, not this mutation.
     generateModelBPools(tournamentId: ID!): [Pool!]!
+    # Pool format Model B only. Requires Tournament.modelBCurrentRoundComplete
+    # (every pool of the current round finished). Reads that round's REAL
+    # results (lib/bracket.ts's extractPoolSurvivors), regroups them via
+    # computeNextRepooledRound, and persists the next round exactly like
+    # generateModelBPools persists Round 1 -- real Pool + Bracket + Match
+    # documents. Once the field has narrowed to the final ~24-entrant
+    # Semifinal pool, that round is instead built via buildFinalsCutoffBracket
+    # (no Grand Final of its own — see Pool.isFinalsCutoff). Calling this
+    # again once THAT round finishes resolves its 8 real qualifiers and
+    # generates the tournament's real Finals bracket (buildDoubleEliminationBracket),
+    # setting Tournament.mainBracketId — the same "Main Bracket" slot Model
+    # A/C's generateMainBracket already fills. Returns the newly created
+    # pools for this call (empty once it generates the Finals bracket
+    # instead, since that's exposed via Tournament.mainBracket, not a Pool).
+    advanceModelBRound(tournamentId: ID!): [Pool!]!
     # Pool play + top-cut only. Requires every pool's Grand Final to have
     # completed (Tournament.allPoolsComplete). Seeds the fresh main bracket
     # from the 2 advancers per pool (winners-finalist + losers-finalist).
