@@ -3,6 +3,7 @@ import { startServerAndCreateNextHandler } from "@as-integrations/next";
 import { typeDefs } from "@/graphql/schema";
 import { resolvers } from "@/graphql/resolvers";
 import { auth } from "@/lib/auth";
+import { createLoaders } from "@/graphql/loaders";
 import { NextRequest } from "next/server";
 
 const server = new ApolloServer({ typeDefs, resolvers });
@@ -15,6 +16,9 @@ const handler = startServerAndCreateNextHandler<NextRequest>(server, {
       userId: (session?.user as any)?.id,
       role: (session?.user as any)?.role,
       playerId: (session?.user as any)?.playerId,
+      // Fresh per request -- see graphql/loaders.ts for why this can't be
+      // hoisted above the context factory.
+      loaders: createLoaders(),
     };
   },
 });

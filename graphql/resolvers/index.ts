@@ -33,6 +33,7 @@ import { buildRoundRobinMatches, computeRoundRobinStandings } from "@/lib/roundR
 import { getNextSequence } from "@/lib/counter";
 import { computeRankingPoints, computeRankingPointsForPlayers } from "@/lib/ranking";
 import { formatPlayerNumber } from "@/lib/playerId";
+import { Loaders } from "@/graphql/loaders";
 import { formatEventNumber } from "@/lib/eventId";
 import { NextRequest } from "next/server";
 
@@ -2698,7 +2699,12 @@ export const resolvers = {
   },
 
   Entrant: {
-    player: async (parent: { playerId: string }) => await Player.findById(parent.playerId),
+    // Batched via a per-request DataLoader — this field resolves once per
+    // Entrant in a list (e.g. every entrant on a tournament page), so an
+    // individual findById here is exactly the N+1 shape DataLoader exists
+    // to collapse. See graphql/loaders.ts.
+    player: async (parent: { playerId: string }, _args: unknown, { loaders }: { loaders: Loaders }) =>
+      await loaders.playerLoader.load(parent.playerId.toString()),
     tournament: async (parent: { tournamentId: string }) => await Tournament.findById(parent.tournamentId),
   },
 
@@ -2716,15 +2722,23 @@ export const resolvers = {
   },
 
   Match: {
-    player1: async (parent: { player1Id?: string }) => (parent.player1Id ? await Player.findById(parent.player1Id) : null),
-    player2: async (parent: { player2Id?: string }) => (parent.player2Id ? await Player.findById(parent.player2Id) : null),
-    winner: async (parent: { winnerId?: string }) =>
-      parent.winnerId ? await Player.findById(parent.winnerId) : null,
+    // player1/player2/winner/nextMatch/nextLoserMatch are each resolved once
+    // PER MATCH -- a tournament page renders every match in every visible
+    // bracket, so these are the exact N+1 fan-out DataLoader exists to
+    // collapse into batched find({_id:{$in:[...]}}) calls. See
+    // graphql/loaders.ts; measured impact in the Notion Phase 7 writeup.
+    player1: async (parent: { player1Id?: string }, _args: unknown, { loaders }: { loaders: Loaders }) =>
+      parent.player1Id ? await loaders.playerLoader.load(parent.player1Id.toString()) : null,
+    player2: async (parent: { player2Id?: string }, _args: unknown, { loaders }: { loaders: Loaders }) =>
+      parent.player2Id ? await loaders.playerLoader.load(parent.player2Id.toString()) : null,
+    winner: async (parent: { winnerId?: string }, _args: unknown, { loaders }: { loaders: Loaders }) =>
+      parent.winnerId ? await loaders.playerLoader.load(parent.winnerId.toString()) : null,
     tournament: async (parent: { tournamentId: string }) => await Tournament.findById(parent.tournamentId),
     bracket: async (parent: { bracketId?: string }) => (parent.bracketId ? await Bracket.findById(parent.bracketId) : null),
-    nextMatch: async (parent: { nextMatchId?: string }) => (parent.nextMatchId ? await Match.findById(parent.nextMatchId) : null),
-    nextLoserMatch: async (parent: { nextLoserMatchId?: string }) =>
-      parent.nextLoserMatchId ? await Match.findById(parent.nextLoserMatchId) : null,
+    nextMatch: async (parent: { nextMatchId?: string }, _args: unknown, { loaders }: { loaders: Loaders }) =>
+      parent.nextMatchId ? await loaders.matchLoader.load(parent.nextMatchId.toString()) : null,
+    nextLoserMatch: async (parent: { nextLoserMatchId?: string }, _args: unknown, { loaders }: { loaders: Loaders }) =>
+      parent.nextLoserMatchId ? await loaders.matchLoader.load(parent.nextLoserMatchId.toString()) : null,
   },
 
   NewsPost: {

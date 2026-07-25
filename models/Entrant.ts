@@ -20,7 +20,17 @@ const EntrantSchema = new Schema(
   { timestamps: true }
 );
 
-// Prevent a player from registering twice in the same tournament
+// Prevent a player from registering twice in the same tournament. Covers
+// playerId-only queries too (Player.tournaments, lib/ranking.ts) since
+// playerId is the compound prefix -- but NOT tournamentId-only queries
+// (Tournament.entrants and friends), since tournamentId isn't the prefix.
 EntrantSchema.index({ playerId: 1, tournamentId: 1 }, { unique: true });
+
+// Added alongside the above rather than reordering it -- confirmed via
+// explain() that Entrant.find({tournamentId}) ran as a COLLSCAN (see the
+// Notion "FGC Ranks — Claude Context" page's Phase 7 follow-up); this is the
+// far more common query shape across the resolvers (every tournament page
+// load) than a playerId-only lookup.
+EntrantSchema.index({ tournamentId: 1 });
 
 export const Entrant = models.Entrant || model("Entrant", EntrantSchema);

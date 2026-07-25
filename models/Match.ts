@@ -62,4 +62,14 @@ const MatchSchema = new Schema(
   { timestamps: true }
 );
 
+// Every one of these fields is queried directly and frequently (bracket
+// progression, pool-completion checks, the tournament page's per-bracket/
+// per-pool match fetches) with no other field in the filter that would
+// otherwise make a compound index worth it — confirmed via explain() that
+// all three ran as COLLSCAN with no index at all before this (see the
+// Notion "FGC Ranks — Claude Context" page's Phase 7 follow-up).
+MatchSchema.index({ bracketId: 1 });
+MatchSchema.index({ poolId: 1 });
+MatchSchema.index({ tournamentId: 1 });
+
 export const Match = models.Match || model("Match", MatchSchema);
