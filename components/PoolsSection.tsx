@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { BracketView } from "./BracketView";
 import { GeneratePoolsButton } from "./GeneratePoolsButton";
+import { GenerateModelBPoolsButton } from "./GenerateModelBPoolsButton";
 import { GenerateMainBracketButton } from "./GenerateMainBracketButton";
 import { AdvanceModelBRoundButton } from "./AdvanceModelBRoundButton";
 import { DeletePoolsButton } from "./DeletePoolsButton";
@@ -57,6 +58,11 @@ interface PoolData {
   matches: PoolBracketMatch[];
   // Model A (round-robin) only — null for a Model B/C pool.
   standings: PoolStandingRow[] | null;
+  // Pool format Model B only — which repooling round this pool belongs to.
+  // Always 1 for Model A/C.
+  roundNumber: number;
+  // Pool format Model B only — true for the Semifinal-cutoff round's pool.
+  isFinalsCutoff: boolean;
 }
 
 // A pool is "decided" the same way the server treats it: for a double-elim
@@ -255,16 +261,68 @@ export function PoolsSection({
   const isModelB = poolModel === "B";
   const hasMainBracket = !!mainBracket;
 
+  // Model B only — every round that has at least one pool so far, in order.
+  // Model A/C never have more than one pool round, so this stays empty for
+  // them and the round-selector tier below never renders.
+  const roundNumbers = isModelB
+    ? Array.from(new Set(pools.map(p => p.roundNumber ?? 1))).sort((a, b) => a - b)
+    : [];
+  const latestRound = roundNumbers.length ? roundNumbers[roundNumbers.length - 1] : 1;
+  const roundKeyFor = (r: number) => `round-${r}`;
+
+  // A round is the Semifinal-cutoff round if its one pool says so (a
+  // Finals-cutoff round is always exactly one pool — see advanceModelBRound).
+  function roundLabel(r: number) {
+    const roundPools = pools.filter(p => (p.roundNumber ?? 1) === r);
+    return roundPools.length === 1 && roundPools[0].isFinalsCutoff ? "Semifinal Cutoff" : `Round ${r}`;
+  }
+
+  // Model B's round-selector tier — one tab per pool round generated so far,
+  // plus a "Finals" tab once the real Finals bracket exists (same
+  // Tournament.mainBracket slot Model A/C's "Main Bracket" tab already uses,
+  // just elevated to this tier instead of sitting alongside pool tabs).
+  const roundTabs = isModelB
+    ? [
+        ...roundNumbers.map(r => ({ key: roundKeyFor(r), label: roundLabel(r) })),
+        ...(hasMainBracket ? [{ key: "main", label: "Finals" }] : []),
+      ]
+    : [];
+
+  function firstPoolTabForRound(roundKey: string): string | undefined {
+    if (roundKey === "main") return undefined;
+    const roundPools = pools.filter(p => roundKeyFor(p.roundNumber ?? 1) === roundKey);
+    return roundPools[0] ? `pool-${roundPools[0].id}` : undefined;
+  }
+
+  const defaultRoundKey = hasMainBracket ? "main" : roundKeyFor(latestRound);
+
   // Tab list is stable for the lifetime of one page load — every mutation
-  // that changes it (generatePools, generateMainBracket) calls
-  // router.refresh(), which remounts this component with fresh props, so a
-  // plain useState default (not recomputed on every render) is enough; no
-  // effect needed to keep it in sync with prop changes mid-session.
-  const tabs = [
-    ...(hasMainBracket ? [{ key: "main", label: "Main Bracket" }] : []),
-    ...pools.map(p => ({ key: `pool-${p.id}`, label: `Pool ${p.poolNumber}` })),
-  ];
-  const [activeTab, setActiveTab] = useState(tabs[0]?.key);
+  // that changes it (generatePools, generateMainBracket, advanceModelBRound)
+  // calls router.refresh(), which remounts this component with fresh props,
+  // so plain useState defaults (not recomputed on every render) are enough;
+  // no effect needed to keep them in sync with prop changes mid-session.
+  const [activeRound, setActiveRound] = useState<string | undefined>(isModelB ? defaultRoundKey : undefined);
+
+  // Model A/C: unchanged shape — "Main Bracket" merged directly into this
+  // one tab bar alongside every pool. Model B: this tab bar is scoped to
+  // whichever round is currently selected above; Finals lives in roundTabs
+  // instead, so it renders no pool tabs while "Finals" is selected.
+  const tabs = isModelB
+    ? activeRound === "main"
+      ? []
+      : pools.filter(p => roundKeyFor(p.roundNumber ?? 1) === activeRound).map(p => ({ key: `pool-${p.id}`, label: `Pool ${p.poolNumber}` }))
+    : [
+        ...(hasMainBracket ? [{ key: "main", label: "Main Bracket" }] : []),
+        ...pools.map(p => ({ key: `pool-${p.id}`, label: `Pool ${p.poolNumber}` })),
+      ];
+  const [activeTab, setActiveTab] = useState<string | undefined>(
+    isModelB ? firstPoolTabForRound(defaultRoundKey) : tabs[0]?.key
+  );
+
+  function handleSelectRound(key: string) {
+    setActiveRound(key);
+    setActiveTab(firstPoolTabForRound(key));
+  }
 
   if (pools.length === 0) {
     return (
@@ -273,28 +331,45 @@ export function PoolsSection({
           <div>
             <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Pools</p>
             <p className="text-[13px] text-[var(--text-secondary)] mt-1">
-              {canManage ? "Split entrants into pools to begin the pool stage." : "Pools haven't been generated yet."}
+              {canManage
+                ? isModelB
+                  ? "Generate this tournament's Round 1 pools to begin the pool stage (requires at least 128 entrants)."
+                  : "Split entrants into pools to begin the pool stage."
+                : "Pools haven't been generated yet."}
             </p>
           </div>
-          <GeneratePoolsButton
-            tournamentId={tournamentId}
-            entrantCount={entrantCount}
-            suggestedPoolCount={suggestedPoolCount}
-            canManage={canManage}
-          />
+          {isModelB ? (
+            <GenerateModelBPoolsButton tournamentId={tournamentId} entrantCount={entrantCount} canManage={canManage} />
+          ) : (
+            <GeneratePoolsButton
+              tournamentId={tournamentId}
+              entrantCount={entrantCount}
+              suggestedPoolCount={suggestedPoolCount}
+              canManage={canManage}
+            />
+          )}
         </div>
       </div>
     );
   }
 
   const activePool = pools.find(p => `pool-${p.id}` === activeTab);
+  const isViewingLatestRound = activeRound === roundKeyFor(latestRound);
+  const showingMainBracket = isModelB ? activeRound === "main" : activeTab === "main";
 
   return (
     <div className="fgc-card p-6" style={{ overflow: "visible" }}>
       <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
         <div>
           <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Pools</p>
-          <TabBar tabs={tabs} activeKey={activeTab ?? tabs[0].key} onSelect={setActiveTab} />
+          {isModelB && (
+            <div className="mb-3">
+              <TabBar tabs={roundTabs} activeKey={activeRound ?? roundTabs[0]?.key ?? ""} onSelect={handleSelectRound} />
+            </div>
+          )}
+          {(!isModelB || activeRound !== "main") && (
+            <TabBar tabs={tabs} activeKey={activeTab ?? tabs[0]?.key ?? ""} onSelect={setActiveTab} />
+          )}
           {!hasMainBracket && (
             <p className="text-[11px] font-bold text-[var(--text-secondary)] mt-2">
               {isModelB
@@ -308,7 +383,13 @@ export function PoolsSection({
             <DeleteMainBracketButton tournamentId={tournamentId} canManage={canManage} />
           ) : isModelB ? (
             <>
-              <AdvanceModelBRoundButton tournamentId={tournamentId} modelBCurrentRoundComplete={modelBCurrentRoundComplete} canManage={canManage} />
+              {/* Advancing always targets the CURRENT (latest) round — hidden
+                  while browsing an earlier round's pools as history, so it
+                  never reads as attached to whichever round happens to be
+                  on screen. */}
+              {isViewingLatestRound && (
+                <AdvanceModelBRoundButton tournamentId={tournamentId} modelBCurrentRoundComplete={modelBCurrentRoundComplete} canManage={canManage} />
+              )}
               {/* deletePools already handles every round's pools for a
                   tournament (unscoped Pool.find({tournamentId})), so it works
                   unchanged for Model B's multi-round pools too. */}
@@ -327,14 +408,19 @@ export function PoolsSection({
         </div>
       </div>
 
-      {activeTab === "main" && mainBracket && (
+      {showingMainBracket && mainBracket && (
         <BracketView bracket={mainBracket} canManage={canManage} lineColor={lineColor} boxColor={boxColor} fontColor={fontColor} />
       )}
 
       {activePool && (
         <div>
           <div className="flex items-center justify-between mb-3">
-            <p className="font-rajdhani text-lg font-bold text-[var(--text-primary)]">Pool {activePool.poolNumber}</p>
+            <p className="font-rajdhani text-lg font-bold text-[var(--text-primary)]">
+              Pool {activePool.poolNumber}
+              {activePool.isFinalsCutoff && (
+                <span className="ml-2 text-[11px] font-bold" style={{ color: "var(--gold)" }}>SEMIFINAL CUTOFF</span>
+              )}
+            </p>
             <p className="text-[11px] text-[var(--text-muted)]">{activePool.entrants.length} entrants</p>
           </div>
           <PoolAdvancementTags pool={activePool} />

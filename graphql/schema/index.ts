@@ -172,6 +172,13 @@ export const typeDefs = `#graphql
     # a Model B/C pool (advancement there is read off the pool's own
     # Grand Final instead).
     standings: [PoolStanding!]
+    # Pool format Model B only — which repooling round this pool belongs to
+    # (1 = the tournament's own first pool round). Always 1 for Model A/C.
+    roundNumber: Int!
+    # Pool format Model B only — true for the final Semifinal-cutoff round,
+    # whose bracket (built by buildFinalsCutoffBracket) has no Grand Final
+    # of its own. Always false for Model A/C.
+    isFinalsCutoff: Boolean!
   }
 
   # One row of a round-robin pool's standings table (Pool format Model A

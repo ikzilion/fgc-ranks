@@ -107,6 +107,8 @@ const GET_TOURNAMENT = `
       pools {
         id
         poolNumber
+        roundNumber
+        isFinalsCutoff
         entrants {
           id
           player { id tag avatarUrl }
