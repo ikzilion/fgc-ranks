@@ -62,6 +62,7 @@ const GET_STREAM_TOURNAMENT = `
         id
         seedingMethod
         size
+        seedOrder { id }
         matches { ${MATCH_FIELDS} }
       }
     }
@@ -133,6 +134,71 @@ function ViewTabs({
   );
 }
 
+// Models A/C's main bracket only — "live entrant count" = pool advancers
+// (bracket.seedOrder) minus already-eliminated entrants (2 losses in this
+// bracket; standard double-elim), recomputed from current match results
+// every render. Duplicated from PoolsSection.tsx's identical helper (same
+// "reuse BracketView unchanged" scope, no shared-component layer between
+// the TO-facing page and this broadcast view) rather than imported.
+function computeLiveEntrantCount(bracket: any): number {
+  if (!bracket?.seedOrder) return 0;
+  const losses = new Map<string, number>();
+  for (const m of bracket.matches) {
+    if (m.status !== "COMPLETED" || !m.winner) continue;
+    const loserId = m.player1 && m.winner.id === m.player1.id ? m.player2?.id : m.player1?.id;
+    if (!loserId) continue;
+    losses.set(loserId, (losses.get(loserId) ?? 0) + 1);
+  }
+  return bracket.seedOrder.filter((p: any) => (losses.get(p.id) ?? 0) < 2).length;
+}
+
+// Duplicated from BracketView.tsx's own private getRoundPositionCounts —
+// see PoolsSection.tsx's identical copy for the full explanation of why the
+// trailing K rounds of a bigger bracket are structurally interchangeable
+// with a standalone size-2^K bracket's own round sequence.
+function trailingRoundCounts(size: number, side: "WINNERS" | "LOSERS"): number[] {
+  const m = Math.log2(size);
+  if (side === "WINNERS") {
+    const counts: number[] = [];
+    for (let r = 1; r <= m; r++) counts.push(size / 2 ** r);
+    return counts;
+  }
+  if (m === 1) return [];
+  const counts: number[] = [];
+  let current = size / 4;
+  counts.push(current);
+  for (let j = 1; j <= m - 1; j++) {
+    const isLastDropIn = j === m - 1;
+    counts.push(current);
+    if (!isLastDropIn) {
+      current = current / 2;
+      counts.push(current);
+    }
+  }
+  return counts;
+}
+
+// Models A/C's main bracket only — a live-narrowing PRESENTATION filter,
+// not a new bracket. tierSize=8 for "Top 8"; tierSize=32 (nextPowerOfTwo(24))
+// for "Top 24", since 24 itself isn't a power of two. See PoolsSection.tsx's
+// identical helper for the full structural explanation.
+function filterBracketToTier(bracket: any, tierSize: number) {
+  const wbOffset = Math.max(0, Math.log2(bracket.size) - Math.log2(tierSize));
+  const lbOffset = Math.max(0, trailingRoundCounts(bracket.size, "LOSERS").length - trailingRoundCounts(tierSize, "LOSERS").length);
+  const matches = bracket.matches
+    .filter((m: any) => {
+      if (m.bracketSide === "WINNERS") return m.bracketRound > wbOffset;
+      if (m.bracketSide === "LOSERS") return m.bracketRound > lbOffset;
+      return true;
+    })
+    .map((m: any) => {
+      if (m.bracketSide === "WINNERS") return { ...m, bracketRound: m.bracketRound - wbOffset };
+      if (m.bracketSide === "LOSERS") return { ...m, bracketRound: m.bracketRound - lbOffset };
+      return m;
+    });
+  return { seedingMethod: bracket.seedingMethod, size: tierSize, matches, seedOrder: bracket.seedOrder };
+}
+
 export function StreamBracket({ tournamentId, initialTournament }: { tournamentId: string; initialTournament: StreamTournament }) {
   const [tournament, setTournament] = useState(initialTournament);
   // Tracks the last-applied data as a string so a poll that returns identical
@@ -183,6 +249,14 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
   const isModelB = isPoolsFormat && tournament.poolModel === "B";
   const hasMainBracket = !!tournament.mainBracket;
 
+  // Models A/C only (settled design, July 24, 2026) — same live Top 24/
+  // Top 8 tiers PoolsSection.tsx's TO-facing page has, re-themed here for
+  // consistency. Model B has its own Semifinal-cutoff/Finals stages already.
+  const mainStartCount = !isModelB ? (tournament.mainBracket?.seedOrder?.length ?? 0) : 0;
+  const liveCount = !isModelB && tournament.mainBracket ? computeLiveEntrantCount(tournament.mainBracket) : 0;
+  const showTop24 = !isModelB && hasMainBracket && mainStartCount >= 48 && liveCount <= 24;
+  const showTop8 = !isModelB && hasMainBracket && mainStartCount >= 16 && liveCount <= 8;
+
   // Model B only — same round dimension PoolsSection.tsx's Phase 6 round
   // selector added for the TO-facing page, re-themed here. Every round that
   // has at least one pool so far, in order.
@@ -230,6 +304,8 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
     : isPoolsFormat
       ? [
           ...(hasMainBracket ? [{ key: "main", label: "Main Bracket" }] : []),
+          ...(showTop24 ? [{ key: "main-top24", label: "Top 24" }] : []),
+          ...(showTop8 ? [{ key: "main-top8", label: "Top 8" }] : []),
           ...tournament.pools.map(p => ({ key: `pool-${p.id}`, label: `Pool ${p.poolNumber}` })),
         ]
       : [];
@@ -243,10 +319,22 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
   }
 
   const selectedPool = tournament.pools.find(p => `pool-${p.id}` === selectedView);
-  const showingMainBracket = isModelB ? selectedRound === "main" : selectedView === "main";
+  // Models A/C: "Main Bracket"/"Top 24"/"Top 8" are three different VIEWS of
+  // the same tournament.mainBracket data (see filterBracketToTier) — the
+  // selected tab just picks which one to hand to BracketView, unchanged.
+  const mainViewKey =
+    !isModelB && (selectedView === "main" || selectedView === "main-top24" || selectedView === "main-top8")
+      ? selectedView
+      : isModelB && selectedRound === "main"
+        ? "main"
+        : undefined;
   const displayedBracket = isPoolsFormat
-    ? showingMainBracket
-      ? tournament.mainBracket
+    ? mainViewKey
+      ? mainViewKey === "main"
+        ? tournament.mainBracket
+        : tournament.mainBracket
+          ? filterBracketToTier(tournament.mainBracket, mainViewKey === "main-top8" ? 8 : 32)
+          : null
       : (selectedPool?.bracket ?? null)
     : tournament.bracket;
   const noPoolsYet = isModelB ? roundTabs.length === 0 : views.length === 0;
@@ -302,6 +390,12 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
 
         {isPoolsFormat && (!isModelB || selectedRound !== "main") && views.length > 0 && (
           <ViewTabs tabs={views} activeKey={selectedView ?? views[0].key} onSelect={setSelectedView} className="mb-6" />
+        )}
+
+        {(mainViewKey === "main-top24" || mainViewKey === "main-top8") && (
+          <p className="text-[12px] mb-3" style={{ color: "rgba(255,255,255,0.6)" }}>
+            {liveCount} live {liveCount === 1 ? "entrant" : "entrants"} remaining
+          </p>
         )}
 
         {displayedBracket ? (

@@ -37,6 +37,11 @@ interface PoolBracket {
   seedingMethod: string;
   size: number;
   matches: PoolBracketMatch[];
+  // Only needed/queried for the main bracket (Models A/C's live Top 24/
+  // Top 8 tiers below) — real ordered entrant list, no bye padding, so its
+  // length is "how many entrants the main bracket actually started with".
+  // Unused for a pool's own bracket.
+  seedOrder?: { id: string }[];
 }
 
 interface PoolStandingRow {
@@ -231,6 +236,88 @@ function TabBar({
   );
 }
 
+// Models A/C's main bracket only — "live entrant count" = pool advancers
+// (bracket.seedOrder) minus already-eliminated entrants (2 losses in this
+// bracket; standard double-elim), recomputed from current match results
+// every render (no stored/cached elimination state). GRAND_FINAL_RESET is
+// just another bracket match here — its loser's 2nd loss eliminates them
+// exactly like any Losers-side match would.
+function computeLiveEntrantCount(bracket: PoolBracket): number {
+  if (!bracket.seedOrder) return 0;
+  const losses = new Map<string, number>();
+  for (const m of bracket.matches) {
+    if (m.status !== "COMPLETED" || !m.winner) continue;
+    const loserId = m.player1 && m.winner.id === m.player1.id ? m.player2?.id : m.player1?.id;
+    if (!loserId) continue;
+    losses.set(loserId, (losses.get(loserId) ?? 0) + 1);
+  }
+  return bracket.seedOrder.filter(p => (losses.get(p.id) ?? 0) < 2).length;
+}
+
+// Duplicated (not imported) from BracketView.tsx's own private
+// getRoundPositionCounts — same exact formula, kept separate per this
+// feature's "reuse BracketView unchanged" scope. Used here only to compute
+// how many TRAILING Winners/Losers rounds make up a Top-N filtered view,
+// never to render anything directly.
+function trailingRoundCounts(size: number, side: "WINNERS" | "LOSERS"): number[] {
+  const m = Math.log2(size);
+  if (side === "WINNERS") {
+    const counts: number[] = [];
+    for (let r = 1; r <= m; r++) counts.push(size / 2 ** r);
+    return counts;
+  }
+  if (m === 1) return [];
+  const counts: number[] = [];
+  let current = size / 4;
+  counts.push(current);
+  for (let j = 1; j <= m - 1; j++) {
+    const isLastDropIn = j === m - 1;
+    counts.push(current);
+    if (!isLastDropIn) {
+      current = current / 2;
+      counts.push(current);
+    }
+  }
+  return counts;
+}
+
+// Models A/C's main bracket only — a live-narrowing PRESENTATION filter,
+// not a new bracket: same underlying Bracket/Match data, just the trailing
+// `tierSize`-worth of Winners/Losers rounds (plus Grand Finals, always
+// included). This works cleanly with BracketView completely unchanged
+// because of one structural fact about every double-elimination bracket
+// this codebase generates (lib/bracket.ts's buildConsolidationRound/
+// buildDropInRound, both always 0-indexed PER ROUND): the trailing K
+// Winners/Losers rounds of a size-S bracket have IDENTICAL per-round
+// entrant counts AND identical 0-indexed bracketPosition numbering to the
+// full round sequence of a standalone size-2^K bracket. So slicing to the
+// last few rounds and shifting bracketRound down to start at 1 again
+// reproduces exactly what BracketView already knows how to render for a
+// bracket of that smaller size — unlike a naive "only matches touching a
+// still-live player" filter, which would leave every earlier, un-included
+// round's positions looking like genuine bye gaps to BracketView's byes
+// math (it always expects every round 1..log2(size) to be present).
+// tierSize=8 for the "Top 8" tab; tierSize=32 (nextPowerOfTwo(24)) for the
+// "Top 24" tab, since 24 itself isn't a power of two — the entry gating
+// (mainStartCount >= 48 for Top 24, >= 16 for Top 8) always guarantees the
+// real bracket has enough rounds for this slice to be valid.
+function filterBracketToTier(bracket: PoolBracket, tierSize: number): PoolBracket {
+  const wbOffset = Math.max(0, Math.log2(bracket.size) - Math.log2(tierSize));
+  const lbOffset = Math.max(0, trailingRoundCounts(bracket.size, "LOSERS").length - trailingRoundCounts(tierSize, "LOSERS").length);
+  const matches = bracket.matches
+    .filter(m => {
+      if (m.bracketSide === "WINNERS") return m.bracketRound > wbOffset;
+      if (m.bracketSide === "LOSERS") return m.bracketRound > lbOffset;
+      return true; // GRAND_FINAL / GRAND_FINAL_RESET — always included
+    })
+    .map(m => {
+      if (m.bracketSide === "WINNERS") return { ...m, bracketRound: m.bracketRound - wbOffset };
+      if (m.bracketSide === "LOSERS") return { ...m, bracketRound: m.bracketRound - lbOffset };
+      return m;
+    });
+  return { seedingMethod: bracket.seedingMethod, size: tierSize, matches, seedOrder: bracket.seedOrder };
+}
+
 export function PoolsSection({
   tournamentId,
   pools,
@@ -260,6 +347,18 @@ export function PoolsSection({
 }) {
   const isModelB = poolModel === "B";
   const hasMainBracket = !!mainBracket;
+
+  // Models A/C only (settled design, July 24, 2026) — a "Top 24" tab
+  // appears once live count <=24, but only if the main bracket started with
+  // >=48 entrants; a "Top 8" tab appears once live count <=8, but only if
+  // it started with >=16. A small main bracket that never reaches these
+  // thresholds simply never shows the extra tabs. Model B has its own
+  // Semifinal-cutoff/Finals presentation stages already — this doesn't
+  // apply there.
+  const mainStartCount = !isModelB ? (mainBracket?.seedOrder?.length ?? 0) : 0;
+  const liveCount = !isModelB && mainBracket ? computeLiveEntrantCount(mainBracket) : 0;
+  const showTop24 = !isModelB && hasMainBracket && mainStartCount >= 48 && liveCount <= 24;
+  const showTop8 = !isModelB && hasMainBracket && mainStartCount >= 16 && liveCount <= 8;
 
   // Model B only — every round that has at least one pool so far, in order.
   // Model A/C never have more than one pool round, so this stays empty for
@@ -313,6 +412,8 @@ export function PoolsSection({
       : pools.filter(p => roundKeyFor(p.roundNumber ?? 1) === activeRound).map(p => ({ key: `pool-${p.id}`, label: `Pool ${p.poolNumber}` }))
     : [
         ...(hasMainBracket ? [{ key: "main", label: "Main Bracket" }] : []),
+        ...(showTop24 ? [{ key: "main-top24", label: "Top 24" }] : []),
+        ...(showTop8 ? [{ key: "main-top8", label: "Top 8" }] : []),
         ...pools.map(p => ({ key: `pool-${p.id}`, label: `Pool ${p.poolNumber}` })),
       ];
   const [activeTab, setActiveTab] = useState<string | undefined>(
@@ -355,7 +456,22 @@ export function PoolsSection({
 
   const activePool = pools.find(p => `pool-${p.id}` === activeTab);
   const isViewingLatestRound = activeRound === roundKeyFor(latestRound);
-  const showingMainBracket = isModelB ? activeRound === "main" : activeTab === "main";
+  // Models A/C: "Main Bracket"/"Top 24"/"Top 8" are three different VIEWS
+  // of the exact same mainBracket data (see filterBracketToTier) — the
+  // active tab just picks which one to hand to BracketView, unchanged.
+  const mainViewKey = isModelB
+    ? activeRound === "main"
+      ? "main"
+      : undefined
+    : activeTab === "main" || activeTab === "main-top24" || activeTab === "main-top8"
+      ? activeTab
+      : undefined;
+  const displayedMainBracket =
+    !mainViewKey || !mainBracket
+      ? null
+      : mainViewKey === "main"
+        ? mainBracket
+        : filterBracketToTier(mainBracket, mainViewKey === "main-top8" ? 8 : 32);
 
   return (
     <div className="fgc-card p-6" style={{ overflow: "visible" }}>
@@ -408,8 +524,15 @@ export function PoolsSection({
         </div>
       </div>
 
-      {showingMainBracket && mainBracket && (
-        <BracketView bracket={mainBracket} canManage={canManage} lineColor={lineColor} boxColor={boxColor} fontColor={fontColor} />
+      {displayedMainBracket && (
+        <div>
+          {(mainViewKey === "main-top24" || mainViewKey === "main-top8") && (
+            <p className="text-[11px] text-[var(--text-muted)] mb-3">
+              {liveCount} live {liveCount === 1 ? "entrant" : "entrants"} remaining — the complete Main Bracket is always available in its own tab.
+            </p>
+          )}
+          <BracketView bracket={displayedMainBracket} canManage={canManage} lineColor={lineColor} boxColor={boxColor} fontColor={fontColor} />
+        </div>
       )}
 
       {activePool && (

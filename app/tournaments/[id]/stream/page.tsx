@@ -65,6 +65,7 @@ const GET_STREAM_TOURNAMENT = `
         id
         seedingMethod
         size
+        seedOrder { id }
         matches { ${MATCH_FIELDS} }
       }
     }
