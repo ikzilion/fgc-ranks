@@ -328,8 +328,27 @@ export function StreamAssetsButton({
                 here: a flex child's default min-height is `auto` (i.e. its
                 content size), which would let this region grow past the
                 parent's own `maxHeight: 90vh` instead of shrinking to fit
-                and scrolling internally — min-h-0 overrides that. */}
-            <div className="overflow-y-auto pr-1 -mr-1 flex-1 min-h-0">
+                and scrolling internally — min-h-0 overrides that.
+
+                p-4/-mr-4 (not the previous pr-1/-mr-1): setting only
+                overflow-y here means the browser computes overflow-x as
+                "auto" too (per spec, an axis left at its default "visible"
+                gets forced into a clipping regime once the OTHER axis
+                isn't "visible" — the exact same rule the bracket-scroll fix
+                in this codebase hit in reverse), so this element itself
+                clips both axes despite only meaning to scroll vertically.
+                Each ColorPickerField's react-colorful handle overhangs its
+                own 160x140 box by 14px (half its 28px diameter) whenever
+                dragged to an edge — with the old 4px pr-1/-mr-1 buffer (and
+                zero padding on the other 3 sides), a picker sitting flush
+                against this element's own left/right/top/bottom clipped
+                that overhang. p-4 gives 16px of real buffer on all 4 sides
+                (comfortably more than the 14px overhang); -mr-4 keeps the
+                original intent on the right specifically — the scrollbar's
+                own track still sits flush at the ancestor `.fgc-card`'s true
+                edge (borrowing into its pr-6) instead of doubling up
+                whitespace, just scaled up from the old -mr-1. */}
+            <div className="overflow-y-auto p-4 -mr-4 flex-1 min-h-0">
               {isRestricted && (
                 <p className="text-[12px] mb-6 px-3 py-2 rounded" style={{ background: "var(--navy-4)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>
                   This tournament was created without TO status, so a stream background/sponsor banner isn't available — bracket color customization below still is.
