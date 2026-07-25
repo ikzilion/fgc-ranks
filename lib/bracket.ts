@@ -879,6 +879,248 @@ export function buildFinalsCutoffBracket(params: {
   };
 }
 
+// ─── Pool format Model B: full tournament orchestration (Phase 3) ───────
+//
+// Runs the ENTIRE Model B pipeline end-to-end, in memory, from a flat list
+// of a real tournament's registered entrants all the way down to the real
+// Top-8 Finals bracket -- no DB access, same as every function above it in
+// this file. It exists to prove the whole pipeline's plumbing is correct at
+// real scale (round sizes, hand-offs between stages) before any of it is
+// wired into a resolver.
+//
+// ── Why every survivor past Round 1 is a synthetic placeholder ID ─────────
+// No match has actually been played yet -- this function builds the SHAPE
+// of every round's brackets before a single result exists, so which real
+// player advances out of any given pool genuinely isn't knowable here. Each
+// pool always contributes a fixed count of advancers (1 winners-champion +
+// however many losers-survivors that round's rule calls for -- see
+// computeNextRepooledRound above), so this function generates that many
+// fresh placeholder IDs per pool and threads THOSE through
+// computeNextRepooledRound, checking that the right NUMBER of survivors
+// flow correctly from one round's output into the next round's input at
+// every scale. Resolving these placeholders into real playerIds, one round
+// at a time as real results actually come in, is Phase 4's job -- exactly
+// the same real-vs-placeholder split Phase 2's own doc comment already
+// draws for computeNextRepooledRound itself.
+//
+// ── Why the final consolidated pool is rebuilt instead of reused ──────────
+// computeNextRepooledRound's FINAL_CONSOLIDATION stage always builds a full
+// bracket (via buildRepooledBracket) all the way to its own Grand Final --
+// correct when splitsIntoFinals is false (that Grand Final IS the real
+// final), but wrong when it's true, since the real EVO data shows that pool
+// never actually plays out that far: its Winners/Losers sides cut off early
+// (buildFinalsCutoffBracket) and hand 8 qualifiers to a separate standard
+// bracket instead. So when splitsIntoFinals is true, this function discards
+// that full bracket and rebuilds the exact same survivor group -- same
+// REPOOL_FINAL_TARGET_SIZE constant, same distributeEvenly/takeExactly
+// helpers computeNextRepooledRound itself uses internally -- routed through
+// buildFinalsCutoffBracket instead.
+//
+// Minimum entrant guard: below MODEL_B_MIN_ENTRANTS, Model B's own math
+// collapses to a single consolidation round no matter what (see the Notion
+// "Pool format Model B" writeup's simulation results) -- no different from
+// Model C's simpler "one pool round -> fresh bracket" flow, so Model B's
+// extra complexity buys nothing there. Model C already handles that range.
+export const MODEL_B_MIN_ENTRANTS = 128;
+const MODEL_B_TARGET_ENTRANTS_PER_POOL = 15;
+
+// Generous surplus so a synthesized pool's placeholder losers-survivors
+// list is always long enough for whatever the NEXT computeNextRepooledRound
+// call actually needs from it -- exactly 2 for an ordinary merge round, or
+// up to distributeEvenly(REPOOL_FINAL_TARGET_SIZE, poolCount) - 1 for the
+// final consolidation round. takeExactly only ever trims a surplus down, so
+// sizing this at REPOOL_FINAL_TARGET_SIZE itself is always more than any
+// round could ever need per pool.
+const SYNTHETIC_LOSERS_SURPLUS = REPOOL_FINAL_TARGET_SIZE;
+
+function syntheticPoolSurvivors(entrantCount: number): PoolSurvivors {
+  return {
+    entrantCount,
+    winnersChampionId: new Types.ObjectId().toString(),
+    losersSurvivorIds: Array.from({ length: SYNTHETIC_LOSERS_SURPLUS }, () => new Types.ObjectId().toString()),
+  };
+}
+
+export interface ModelBRoundPool {
+  bracketId: Types.ObjectId;
+  matches: BracketMatchDraft[];
+  entrantCount: number;
+  winnersEntrySize?: number; // absent for Round 1's standard flat pools
+  sourcePoolCount?: number; // absent for Round 1's standard flat pools
+}
+
+export type ModelBRoundStage = "INITIAL" | RepoolStage;
+
+export interface ModelBRound {
+  roundNumber: number;
+  label: string;
+  stage: ModelBRoundStage;
+  pools: ModelBRoundPool[];
+}
+
+export interface ModelBTournamentResult {
+  entrantCount: number;
+  initialPoolCount: number;
+  rounds: ModelBRound[]; // every pool/round generated, Round 1 through the final consolidated pool
+  splitsIntoFinals: boolean;
+  // Only present when splitsIntoFinals is true -- otherwise the last
+  // `rounds` entry's own Grand Final already IS the tournament's real final.
+  finalsCutoff?: FinalsCutoffResult;
+  finalsBracketId?: Types.ObjectId;
+  finalsMatches?: BracketMatchDraft[];
+}
+
+export function generateModelBTournament(params: {
+  tournamentId: any;
+  entrantPlayerIds: string[]; // a real tournament's full flat list of registered entrants
+}): ModelBTournamentResult {
+  const { tournamentId, entrantPlayerIds } = params;
+  const entrantCount = entrantPlayerIds.length;
+
+  if (entrantCount < MODEL_B_MIN_ENTRANTS) {
+    throw new Error(
+      `Model B needs at least ${MODEL_B_MIN_ENTRANTS} entrants (got ${entrantCount}) -- below that it collapses ` +
+        `to behavior equivalent to Model C's simpler pooling flow. Use Model C for smaller fields.`
+    );
+  }
+
+  // ── Round 1: standard flat pools -- same shape Model A/C's own
+  // generatePools already produces for a single pool, just applied
+  // tournament-wide. Shuffle every real entrant, split evenly across a
+  // power-of-two pool count targeting ~15 entrants/pool, and build each
+  // pool as its own ordinary double-elimination bracket. ──
+  const initialPoolCount = nextPowerOfTwo(Math.max(1, Math.round(entrantCount / MODEL_B_TARGET_ENTRANTS_PER_POOL)));
+  const shuffledEntrants = shuffle([...entrantPlayerIds]);
+  const poolGroups: string[][] = Array.from({ length: initialPoolCount }, () => []);
+  shuffledEntrants.forEach((id, i) => poolGroups[i % initialPoolCount].push(id));
+
+  const initialPools: ModelBRoundPool[] = poolGroups
+    .filter(group => group.length > 0)
+    .map(group => {
+      const bracketId = new Types.ObjectId();
+      const { matches } = buildDoubleEliminationBracket({ tournamentId, bracketId, orderedPlayerIds: group });
+      return { bracketId, matches, entrantCount: group.length };
+    });
+
+  const rounds: ModelBRound[] = [{ roundNumber: 1, label: "Round 1", stage: "INITIAL", pools: initialPools }];
+
+  // ── Rounds 2+: regroup survivors round by round via
+  // computeNextRepooledRound until it reports the final ~24-entrant
+  // consolidated pool (see the placeholder-ID reasoning above). ──
+  let currentPools: PoolSurvivors[] = initialPools.map(p => syntheticPoolSurvivors(p.entrantCount));
+  let roundNumber = 2;
+  let result: RepoolRoundResult;
+
+  while (true) {
+    result = computeNextRepooledRound({ tournamentId, pools: currentPools });
+    if (result.stage === "FINAL_CONSOLIDATION") break;
+
+    rounds.push({
+      roundNumber,
+      label: `Round ${roundNumber}`,
+      stage: result.stage,
+      pools: result.newPools.map(np => ({
+        bracketId: np.bracketId,
+        matches: np.matches,
+        entrantCount: np.entrantCount,
+        winnersEntrySize: np.winnersEntrySize,
+        sourcePoolCount: np.sourcePoolCount,
+      })),
+    });
+    currentPools = result.newPools.map(np => syntheticPoolSurvivors(np.entrantCount));
+    roundNumber++;
+  }
+
+  const finalStageInput = currentPools; // the exact pools[] that triggered FINAL_CONSOLIDATION
+  const finalPool = result.newPools[0];
+  const splitsIntoFinals = result.splitsIntoFinals === true;
+
+  if (!splitsIntoFinals) {
+    // The consolidated pool is small enough that its OWN Grand Final simply
+    // IS the tournament's real final -- no separate Finals bracket needed.
+    rounds.push({
+      roundNumber,
+      label: "Finals",
+      stage: "FINAL_CONSOLIDATION",
+      pools: [{
+        bracketId: finalPool.bracketId,
+        matches: finalPool.matches,
+        entrantCount: finalPool.entrantCount,
+        winnersEntrySize: finalPool.winnersEntrySize,
+        sourcePoolCount: finalPool.sourcePoolCount,
+      }],
+    });
+    return { entrantCount, initialPoolCount, rounds, splitsIntoFinals: false };
+  }
+
+  // ── Finals split: rebuild the exact same survivor group
+  // computeNextRepooledRound's own FINAL_CONSOLIDATION branch derives
+  // internally (same constant, same helpers) and route it through the
+  // cutoff primitive instead of the full bracket already discarded above --
+  // see this function's own doc comment for why. ──
+  const poolCount = finalStageInput.length;
+  const totalEntrantsThisRound = finalStageInput.reduce((sum, p) => sum + p.entrantCount, 0);
+  const target = Math.min(REPOOL_FINAL_TARGET_SIZE, totalEntrantsThisRound);
+  const advancersPerPool = distributeEvenly(target, poolCount);
+  const winnersSurvivorIds = finalStageInput.map(p => p.winnersChampionId);
+  const losersSurvivorIds = finalStageInput.flatMap((p, i) =>
+    takeExactly(p.losersSurvivorIds, advancersPerPool[i] - 1, "Model B orchestration's final consolidation stage")
+  );
+  const winnersEntrySize = Math.max(2, nextPowerOfTwo(winnersSurvivorIds.length));
+
+  const semifinalsBracketId = new Types.ObjectId();
+  const finalsCutoff = buildFinalsCutoffBracket({
+    tournamentId,
+    bracketId: semifinalsBracketId,
+    winnersSurvivorIds,
+    winnersEntrySize,
+    losersSurvivorIds,
+  });
+
+  rounds.push({
+    roundNumber,
+    label: "Semifinals",
+    stage: "FINAL_CONSOLIDATION",
+    pools: [{
+      bracketId: semifinalsBracketId,
+      matches: finalsCutoff.matches,
+      entrantCount: winnersSurvivorIds.length + losersSurvivorIds.length,
+      winnersEntrySize,
+      sourcePoolCount: poolCount,
+    }],
+  });
+
+  // ── Finals: the 8 finalist slots feed a completely standard fresh
+  // double-elimination bracket -- same generator every non-pool tournament
+  // and every Model A/C pool already uses. Same placeholder-ID reasoning as
+  // every round above: a PENDING slot's real occupant isn't knowable
+  // without an actual played result. seedSlotOrder's own no-double-bye
+  // guarantee (see its comment above) means a finalist slot here can never
+  // itself be a bye for a real Model B field. ──
+  const finalistPlayerIds = finalsCutoff.finalistSlots.map(slot => {
+    if (slot.kind === "PLAYER") return slot.playerId.toString();
+    if (slot.kind === "PENDING") return new Types.ObjectId().toString();
+    throw new Error("Internal error: a Model B Finals-cutoff finalist slot was an unresolved bye");
+  });
+
+  const finalsBracketId = new Types.ObjectId();
+  const { matches: finalsMatches } = buildDoubleEliminationBracket({
+    tournamentId,
+    bracketId: finalsBracketId,
+    orderedPlayerIds: finalistPlayerIds,
+  });
+
+  return {
+    entrantCount,
+    initialPoolCount,
+    rounds,
+    splitsIntoFinals: true,
+    finalsCutoff,
+    finalsBracketId,
+    finalsMatches,
+  };
+}
+
 // ─── Progression on match report ─────────────────────────────────────────
 
 // Called after reportResult/editMatchResult resolves a bracket match's

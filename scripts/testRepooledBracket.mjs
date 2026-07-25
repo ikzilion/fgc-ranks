@@ -49,7 +49,7 @@
 // Run: npx tsx scripts/testRepooledBracket.mjs
 
 import { Types } from "mongoose";
-const { buildRepooledBracket, computeNextRepooledRound, buildFinalsCutoffBracket } = await import("../lib/bracket");
+const { buildRepooledBracket, computeNextRepooledRound, buildFinalsCutoffBracket, generateModelBTournament, MODEL_B_MIN_ENTRANTS } = await import("../lib/bracket");
 
 let failures = 0;
 function assert(cond, label) {
@@ -430,6 +430,127 @@ function main() {
     throwsCutoff(() => buildFinalsCutoffBracket({ tournamentId, bracketId, winnersSurvivorIds: idList("g", 4), winnersEntrySize: 4, losersSurvivorIds: [] })),
     "Rejects an empty losersSurvivorIds list"
   );
+
+  // ═══════════════════════════════════════════════════════════════════
+  // TEST 9 (Phase 3): full end-to-end generateModelBTournament run against
+  // a synthetic entrant list the size of the real EVO Japan 2026 SF6
+  // reference dataset (7,683 entrants). Real player names/seeds aren't
+  // essential -- only the shape (round sizes, hand-offs, Finals) matters,
+  // per the task's own framing.
+  // ═══════════════════════════════════════════════════════════════════
+  console.log("\n=== TEST 9: generateModelBTournament end-to-end (SF6-scale, 7,683 entrants) ===");
+
+  const sf6Entrants = idList("sf6full", 7683);
+  const sf6Result = generateModelBTournament({ tournamentId, entrantPlayerIds: sf6Entrants });
+
+  assert(sf6Result.entrantCount === 7683, `entrantCount echoes the input (7683) -- got ${sf6Result.entrantCount}`);
+  assert(sf6Result.initialPoolCount === 512, `Initial pool count is 512 (power-of-2, ~15/pool target on 7683 entrants) -- got ${sf6Result.initialPoolCount}`);
+  assert(sf6Result.rounds.length === 5, `5 rounds recorded (Round 1, 2, 3, 4, Semifinals) -- got ${sf6Result.rounds.length}`);
+
+  const roundPoolCounts = sf6Result.rounds.map(r => r.pools.length);
+  assert(
+    JSON.stringify(roundPoolCounts) === JSON.stringify([512, 128, 32, 8, 1]),
+    `Round sizes are 512 -> 128 -> 32 -> 8 pools, then the 24-entrant Semifinal pool -- got ${JSON.stringify(roundPoolCounts)}`
+  );
+
+  const roundStages = sf6Result.rounds.map(r => r.stage);
+  assert(
+    JSON.stringify(roundStages) === JSON.stringify(["INITIAL", "MERGE", "MERGE", "MERGE", "FINAL_CONSOLIDATION"]),
+    `Stage sequence is INITIAL, then 3 merges, then final consolidation -- got ${JSON.stringify(roundStages)}`
+  );
+
+  const round1EntrantTotal = sf6Result.rounds[0].pools.reduce((sum, p) => sum + p.entrantCount, 0);
+  assert(round1EntrantTotal === 7683, `Round 1's pools collectively hold all 7683 entrants -- got ${round1EntrantTotal}`);
+  assert(sf6Result.rounds[0].pools.every(p => p.matches.length > 0), "Every Round 1 pool has real matches (a standard double-elim bracket)");
+
+  // Hand-off correctness: each merge round is exactly a 4:1 reduction of
+  // the previous round's pool count, and every merged pool ends up with the
+  // fixed 12 entrants (4 source pools x 3 advancers/pool) computeNextRepooledRound's
+  // MERGE stage always produces.
+  for (let i = 1; i <= 3; i++) {
+    assert(
+      sf6Result.rounds[i - 1].pools.length === sf6Result.rounds[i].pools.length * 4,
+      `Round ${i + 1}'s pool count is exactly 1/4 of Round ${i}'s (4:1 merge) -- ${sf6Result.rounds[i - 1].pools.length} -> ${sf6Result.rounds[i].pools.length}`
+    );
+    assert(
+      sf6Result.rounds[i].pools.every(p => p.entrantCount === 12),
+      `Round ${i + 1}'s pools each hold exactly 12 entrants (4 source pools x 3 survivors) -- got ${JSON.stringify(sf6Result.rounds[i].pools.map(p => p.entrantCount))}`
+    );
+  }
+
+  const semifinalPool = sf6Result.rounds[4].pools[0];
+  assert(semifinalPool.entrantCount === 24, `Semifinal pool has 24 entrants (8 source pools x 3 survivors) -- got ${semifinalPool.entrantCount}`);
+  assert(semifinalPool.winnersEntrySize === 8, `Semifinal pool's Winners bracket enters at size 8 -- got ${semifinalPool.winnersEntrySize}`);
+  assert(semifinalPool.matches.length === 20, `Semifinal pool's matches are the truncated Finals-cutoff shape (20 matches, no Grand Final) -- got ${semifinalPool.matches.length}`);
+  assert(!semifinalPool.matches.some(m => m.bracketSide === "GRAND_FINAL"), "Semifinal pool never plays its own Grand Final -- its qualifiers feed a separate Finals bracket");
+
+  assert(sf6Result.splitsIntoFinals === true, "24-entrant Semifinal pool (>=16) splits into a separate Finals stage");
+  assert(!!sf6Result.finalsCutoff, "finalsCutoff is present when splitsIntoFinals is true");
+  assert(sf6Result.finalsCutoff.finalistSlots.length === 8, `finalsCutoff produces exactly 8 finalist slots -- got ${sf6Result.finalsCutoff.finalistSlots.length}`);
+  assert(!!sf6Result.finalsBracketId, "finalsBracketId is present when splitsIntoFinals is true");
+  assert(Array.isArray(sf6Result.finalsMatches) && sf6Result.finalsMatches.length > 0, "finalsMatches is a non-empty array of match drafts");
+
+  const sf6GrandFinal = sf6Result.finalsMatches.find(m => m.bracketSide === "GRAND_FINAL");
+  assert(!!sf6GrandFinal, "The real Finals bracket has a Grand Final");
+  const sf6FinalsR1 = sf6Result.finalsMatches.filter(m => m.bracketSide === "WINNERS" && m.bracketRound === 1);
+  assert(sf6FinalsR1.length === 4, `The real Finals bracket's Winners Round 1 has exactly 4 matches (8 finalists, no byes) -- got ${sf6FinalsR1.length}`);
+  const sf6FinalsEntrantIds = new Set();
+  sf6FinalsR1.forEach(m => {
+    sf6FinalsEntrantIds.add(m.player1Id.toString());
+    sf6FinalsEntrantIds.add(m.player2Id.toString());
+  });
+  assert(sf6FinalsEntrantIds.size === 8, `The real Finals bracket's Winners Round 1 references exactly 8 distinct entrants -- got ${sf6FinalsEntrantIds.size}`);
+
+  // ═══════════════════════════════════════════════════════════════════
+  // TEST 10 (Phase 3): the below-128 guard.
+  // ═══════════════════════════════════════════════════════════════════
+  console.log("\n=== TEST 10: generateModelBTournament below-128 guard ===");
+
+  assert(MODEL_B_MIN_ENTRANTS === 128, `MODEL_B_MIN_ENTRANTS is 128 -- got ${MODEL_B_MIN_ENTRANTS}`);
+  assert(
+    throwsCutoff(() => generateModelBTournament({ tournamentId, entrantPlayerIds: idList("small", 127) })),
+    "Rejects 127 entrants (just below the 128 minimum)"
+  );
+  assert(
+    throwsCutoff(() => generateModelBTournament({ tournamentId, entrantPlayerIds: idList("tiny", 20) })),
+    "Rejects a small (20-entrant) field with a clear error rather than silently running Model B on it"
+  );
+
+  // ═══════════════════════════════════════════════════════════════════
+  // TEST 11 (Phase 3): end-to-end against the real Tekken 8 reference scale
+  // (882 entrants). Our own initial pool sizing doesn't need to replicate
+  // EVO's own per-event intermediate numbers (settled design, no single
+  // universal formula exists across real events) -- only the two genuinely
+  // universal invariants (funnel to ~24, then Top 8) are checked here.
+  // ═══════════════════════════════════════════════════════════════════
+  console.log("\n=== TEST 11: generateModelBTournament end-to-end (Tekken 8 scale, 882 entrants) ===");
+
+  const tekken8Entrants = idList("tk8", 882);
+  const tekken8Result = generateModelBTournament({ tournamentId, entrantPlayerIds: tekken8Entrants });
+
+  assert(tekken8Result.rounds[0].pools.reduce((sum, p) => sum + p.entrantCount, 0) === 882, "Round 1's pools collectively hold all 882 entrants");
+  assert(tekken8Result.rounds[tekken8Result.rounds.length - 1].stage === "FINAL_CONSOLIDATION", "Last recorded round is the final consolidation stage");
+  assert(tekken8Result.rounds[tekken8Result.rounds.length - 1].pools.length === 1, "Final consolidation produces exactly 1 Semifinal pool");
+  assert(tekken8Result.splitsIntoFinals === true, "Tekken 8-scale field splits into a separate Finals stage");
+  assert(tekken8Result.finalsCutoff.finalistSlots.length === 8, "Tekken 8-scale Finals cutoff produces exactly 8 finalist slots");
+  assert(tekken8Result.finalsMatches.some(m => m.bracketSide === "GRAND_FINAL"), "Tekken 8-scale real Finals bracket has a Grand Final");
+
+  // ═══════════════════════════════════════════════════════════════════
+  // TEST 12 (Phase 3): end-to-end against the real Fist of the North Star
+  // reference scale (154 entrants) -- the smallest confirmed real Model B
+  // dataset, just above the 128 minimum.
+  // ═══════════════════════════════════════════════════════════════════
+  console.log("\n=== TEST 12: generateModelBTournament end-to-end (Fist of the North Star scale, 154 entrants) ===");
+
+  const fotnsEntrants = idList("fotns", 154);
+  const fotnsResult = generateModelBTournament({ tournamentId, entrantPlayerIds: fotnsEntrants });
+
+  assert(fotnsResult.rounds[0].pools.reduce((sum, p) => sum + p.entrantCount, 0) === 154, "Round 1's pools collectively hold all 154 entrants");
+  assert(fotnsResult.rounds[fotnsResult.rounds.length - 1].stage === "FINAL_CONSOLIDATION", "Last recorded round is the final consolidation stage");
+  assert(fotnsResult.rounds[fotnsResult.rounds.length - 1].pools.length === 1, "Final consolidation produces exactly 1 Semifinal pool");
+  assert(fotnsResult.splitsIntoFinals === true, "Fist of the North Star-scale field splits into a separate Finals stage");
+  assert(fotnsResult.finalsCutoff.finalistSlots.length === 8, "Fist of the North Star-scale Finals cutoff produces exactly 8 finalist slots");
+  assert(fotnsResult.finalsMatches.some(m => m.bracketSide === "GRAND_FINAL"), "Fist of the North Star-scale real Finals bracket has a Grand Final");
 
   console.log(`\n${failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURE(S)`}`);
   process.exit(failures === 0 ? 0 : 1);
