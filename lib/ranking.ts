@@ -24,10 +24,13 @@ import { Tournament } from "@/models/Tournament";
 
 const BEST_RESULTS_COUNTED = 10;
 const ROLLING_WINDOW_MS = 52 * 7 * 24 * 60 * 60 * 1000;
+// A 16-entrant tournament is the size-scaling baseline (multiplier = 1).
+const BASELINE_ENTRANT_COUNT = 16;
 
-// Flat placement -> points table. `placement` is undefined/null for an
+// Base placement -> points table. `placement` is undefined/null for an
 // entrant whose final result was never recorded — same floor as an actual
-// finish below 16th.
+// finish below 16th. This is the UNSCALED base value — see
+// scaledPointsForPlacement for the real per-tournament point value.
 export function pointsForPlacement(placement?: number | null): number {
   if (placement === 1) return 100;
   if (placement === 2) return 60;
@@ -35,6 +38,20 @@ export function pointsForPlacement(placement?: number | null): number {
   if (placement != null && placement >= 5 && placement <= 8) return 20;
   if (placement != null && placement >= 9 && placement <= 16) return 10;
   return 1;
+}
+
+// Size-scaled points actually awarded for a placement — multiplies the base
+// table by sqrt(entrantCount / 16), rounded to the nearest whole point. No
+// floor/special-casing for small fields: the multiplier scales down smoothly
+// below the 16-entrant baseline exactly the same way it scales up above it
+// (e.g. 8 entrants -> 0.71x, 500 entrants -> ~5.59x). `entrantCount` should
+// always be the tournament's own maintained Tournament.entrantCount field
+// (kept in sync by join/leave — see generateBracket and friends) rather than
+// a separately-recomputed count, so this can never disagree with what the
+// rest of the app already considers "how many entrants this tournament had."
+export function scaledPointsForPlacement(placement: number | null | undefined, entrantCount: number): number {
+  const multiplier = Math.sqrt(entrantCount / BASELINE_ENTRANT_COUNT);
+  return Math.round(pointsForPlacement(placement) * multiplier);
 }
 
 // Batched version — computes ranking points for many players in one pass
@@ -73,7 +90,7 @@ export async function computeRankingPointsForPlayers(
 
     const playerId = entrant.playerId.toString();
     const list = resultsByPlayer.get(playerId) ?? [];
-    list.push(pointsForPlacement(entrant.placement));
+    list.push(scaledPointsForPlacement(entrant.placement, tournament.entrantCount ?? 0));
     resultsByPlayer.set(playerId, list);
   }
 
