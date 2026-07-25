@@ -924,6 +924,14 @@ export function buildFinalsCutoffBracket(params: {
 export const MODEL_B_MIN_ENTRANTS = 128;
 const MODEL_B_TARGET_ENTRANTS_PER_POOL = 15;
 
+// Initial pool count for Model B's Round 1 -- a power of two targeting ~15
+// entrants/pool. Exported so Phase 4's DB-writing resolver can compute the
+// exact same Round 1 shape this function does, without duplicating the
+// formula.
+export function computeModelBInitialPoolCount(entrantCount: number): number {
+  return nextPowerOfTwo(Math.max(1, Math.round(entrantCount / MODEL_B_TARGET_ENTRANTS_PER_POOL)));
+}
+
 // Generous surplus so a synthesized pool's placeholder losers-survivors
 // list is always long enough for whatever the NEXT computeNextRepooledRound
 // call actually needs from it -- exactly 2 for an ordinary merge round, or
@@ -989,7 +997,7 @@ export function generateModelBTournament(params: {
   // tournament-wide. Shuffle every real entrant, split evenly across a
   // power-of-two pool count targeting ~15 entrants/pool, and build each
   // pool as its own ordinary double-elimination bracket. ──
-  const initialPoolCount = nextPowerOfTwo(Math.max(1, Math.round(entrantCount / MODEL_B_TARGET_ENTRANTS_PER_POOL)));
+  const initialPoolCount = computeModelBInitialPoolCount(entrantCount);
   const shuffledEntrants = shuffle([...entrantPlayerIds]);
   const poolGroups: string[][] = Array.from({ length: initialPoolCount }, () => []);
   shuffledEntrants.forEach((id, i) => poolGroups[i % initialPoolCount].push(id));

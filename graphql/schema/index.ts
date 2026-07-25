@@ -13,9 +13,11 @@ export const typeDefs = `#graphql
   enum SeedingMethod    { RANDOM RANDOM_WITHIN_TIERS MANUAL AVOID_SAME_POOL }
   # Pool play + top-cut only — which pool-stage model a "Pools + Bracket"
   # tournament uses. A = round-robin pools, fresh bracket restart. B =
-  # EVO-style continuous carry-over (not buildable yet — always rejected by
-  # createTournament, shown "Coming soon"/disabled in the picker). C =
-  # double-elim pools, fresh bracket restart (the existing/default model).
+  # EVO-style continuous carry-over (Round 1 is buildable via
+  # generateModelBPools, but round-to-round advancement past Round 1 isn't
+  # wired up yet, so it's still always rejected by createTournament, shown
+  # "Coming soon"/disabled in the picker). C = double-elim pools, fresh
+  # bracket restart (the existing/default model).
   enum PoolModel        { A B C }
   enum BracketSide      { WINNERS LOSERS GRAND_FINAL GRAND_FINAL_RESET }
   enum NotificationType {
@@ -451,6 +453,15 @@ export const typeDefs = `#graphql
     # (or the auto-suggested count if omitted) and generates each pool's own
     # double-elimination Bracket via the same generator generateBracket uses.
     generatePools(tournamentId: ID!, poolCount: Int): [Pool!]!
+    # Pool format Model B only (tournament.poolModel === "B"). Requires at
+    # least 128 entrants (Model B needs a large field to be worth its extra
+    # complexity — Model A/C's generatePools already covers smaller fields).
+    # Builds Round 1 only: splits every current entrant evenly across a
+    # power-of-two pool count targeting ~15 entrants/pool, and generates each
+    # pool's own double-elimination Bracket exactly like generatePools does
+    # for Model A/C. Later rounds are regrouped ("repooled") from these
+    # pools' results by a separate mechanism, not this mutation.
+    generateModelBPools(tournamentId: ID!): [Pool!]!
     # Pool play + top-cut only. Requires every pool's Grand Final to have
     # completed (Tournament.allPoolsComplete). Seeds the fresh main bracket
     # from the 2 advancers per pool (winners-finalist + losers-finalist).

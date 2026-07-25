@@ -28,7 +28,7 @@ import {
 } from "@/lib/rateLimit";
 import { sendPasswordResetEmail, sendVerificationEmail, sendAccountDeletionEmail } from "@/lib/email";
 import { verifyTurnstileToken } from "@/lib/turnstile";
-import { buildDoubleEliminationBracket, resolveSeedOrder, advanceBracketMatch, nextPowerOfTwo, computeMainBracketSeedOrder, shuffle, SeedingMethod, deleteMatchWithCascade } from "@/lib/bracket";
+import { buildDoubleEliminationBracket, resolveSeedOrder, advanceBracketMatch, nextPowerOfTwo, computeMainBracketSeedOrder, shuffle, SeedingMethod, deleteMatchWithCascade, MODEL_B_MIN_ENTRANTS, computeModelBInitialPoolCount } from "@/lib/bracket";
 import { buildRoundRobinMatches, computeRoundRobinStandings } from "@/lib/roundRobin";
 import { getNextSequence } from "@/lib/counter";
 import { computeRankingPoints, computeRankingPointsForPlayers } from "@/lib/ranking";
@@ -949,9 +949,14 @@ export const resolvers = {
     ) => {
       if (!playerId) throw new Error("Not authorized");
 
-      // Model B isn't buildable yet (see models/Tournament.ts's PoolModel
-      // enum) — the picker never offers it as selectable, but reject it
-      // server-side too rather than trusting the client not to send it.
+      // Model B's Round 1 is buildable now (generateModelBPools), but
+      // round-to-round advancement past Round 1 isn't yet -- a tournament
+      // created with this model today would have no way to progress past
+      // its first round of pools. Still rejected at creation time (see
+      // models/Tournament.ts's PoolModel enum) until that advancement
+      // mechanism exists; the picker never offers it as selectable, but
+      // reject it server-side too rather than trusting the client not to
+      // send it.
       if (poolModel === "B") throw new Error("This pool model isn't available yet.");
 
       // Keyed by playerId (authenticated action), not IP.
@@ -1560,6 +1565,83 @@ export const resolvers = {
           continue;
         }
 
+        const bracketId = new Types.ObjectId();
+        const { matches } = buildDoubleEliminationBracket({ tournamentId, bracketId, orderedPlayerIds });
+
+        await Bracket.create({
+          _id: bracketId,
+          tournamentId,
+          poolId: pool._id,
+          seedingMethod: "RANDOM",
+          seedOrder: orderedPlayerIds,
+          size: nextPowerOfTwo(orderedPlayerIds.length),
+        });
+
+        if (matches.length > 0) await Match.insertMany(matches);
+        createdPools.push(pool);
+      }
+
+      return createdPools;
+    },
+
+    // Pool format Model B (lib/bracket.ts's generateModelBTournament) only.
+    // Builds Round 1 ONLY -- structurally identical to a normal Model A/C
+    // pool round (flat entrant list -> a real Pool + its own Bracket/Match
+    // documents, same generator/DB-write pattern as generatePools above), so
+    // it reuses that exact shape rather than inventing a new one. Round 2+
+    // needs the repooling machinery (computeNextRepooledRound) driven off
+    // real match results once a round completes -- that round-to-round
+    // advancement trigger is a separate, later mechanism, not this mutation.
+    generateModelBPools: async (
+      _: unknown,
+      { tournamentId }: { tournamentId: string },
+      { playerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const tournament = await Tournament.findById(tournamentId);
+      if (!tournament) throw new Error("Tournament not found");
+      if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+      if (tournament.format !== "Pools + Bracket") {
+        throw new Error("This tournament isn't using the Pools + Bracket format");
+      }
+      if ((tournament.poolModel ?? "C") !== "B") {
+        throw new Error("This tournament isn't using Pool format Model B");
+      }
+      if (tournament.status === "ENDED" || tournament.status === "CANCELLED") {
+        throw new Error("Cannot generate pools for a tournament that has ended or was cancelled");
+      }
+
+      const existingPools = await Pool.countDocuments({ tournamentId });
+      if (existingPools > 0) throw new Error("Pools have already been generated for this tournament");
+
+      const entrants = await Entrant.find({ tournamentId });
+      if (entrants.length < MODEL_B_MIN_ENTRANTS) {
+        throw new Error(
+          `Model B needs at least ${MODEL_B_MIN_ENTRANTS} entrants (got ${entrants.length}) -- use Model A or C for smaller fields`
+        );
+      }
+
+      // Same power-of-two, ~15-entrants/pool sizing generateModelBTournament's
+      // own Phase 3 logic uses, then split evenly across it -- identical
+      // shuffle + round-robin distribution generatePools uses above for
+      // Model A/C.
+      const count = computeModelBInitialPoolCount(entrants.length);
+      const shuffledEntrants = shuffle([...entrants]);
+      const poolEntrantGroups: (typeof entrants)[] = Array.from({ length: count }, () => []);
+      shuffledEntrants.forEach((entrant, i) => poolEntrantGroups[i % count].push(entrant));
+
+      const createdPools = [];
+      for (let i = 0; i < count; i++) {
+        const group = poolEntrantGroups[i];
+        if (group.length === 0) continue;
+
+        const pool = await Pool.create({
+          tournamentId,
+          poolNumber: i + 1,
+          entrantIds: group.map((e: any) => e._id),
+        });
+
+        const orderedPlayerIds = group.map((e: any) => e.playerId.toString());
         const bracketId = new Types.ObjectId();
         const { matches } = buildDoubleEliminationBracket({ tournamentId, bracketId, orderedPlayerIds });
 
