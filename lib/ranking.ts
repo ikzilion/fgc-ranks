@@ -24,8 +24,23 @@ import { Tournament } from "@/models/Tournament";
 
 const BEST_RESULTS_COUNTED = 10;
 const ROLLING_WINDOW_MS = 52 * 7 * 24 * 60 * 60 * 1000;
-// A 16-entrant tournament is the size-scaling baseline (multiplier = 1).
+// A 16-entrant tournament is the size-scaling baseline used by the
+// large-field branch below (multiplier = 1 at exactly 16 entrants, under
+// that formula alone). No longer descriptive of small fields since the
+// small/mid-tournament exception below took over that range — see
+// SMALL_TOURNAMENT_CUTOFF.
 const BASELINE_ENTRANT_COUNT = 16;
+// Small/mid-tournament ranking exception (settled July 26, 2026, Notion
+// "FGC Ranks — Claude Context"): below this entrant count, the plain
+// sqrt(entrantCount/16) curve awarded too many points for tiny/repeated
+// low-stakes tournaments relative to their real competitive weight -- e.g.
+// under the old formula alone, an 8-entrant win was already worth 71% of a
+// full 16-entrant win, cheap enough to farm by running lots of small
+// brackets. Below this cutoff, a steep cubic curve suppresses small fields
+// far more aggressively while the two pieces still meet exactly at the
+// cutoff (both equal a 2x multiplier there), so there's no discontinuity --
+// just a much steeper ramp-up below it than the unchanged sqrt curve above.
+const SMALL_TOURNAMENT_CUTOFF = 64;
 
 // Base placement -> points table. `placement` is undefined/null for an
 // entrant whose final result was never recorded — same floor as an actual
@@ -41,16 +56,25 @@ export function pointsForPlacement(placement?: number | null): number {
 }
 
 // Size-scaled points actually awarded for a placement — multiplies the base
-// table by sqrt(entrantCount / 16), rounded to the nearest whole point. No
-// floor/special-casing for small fields: the multiplier scales down smoothly
-// below the 16-entrant baseline exactly the same way it scales up above it
-// (e.g. 8 entrants -> 0.71x, 500 entrants -> ~5.59x). `entrantCount` should
-// always be the tournament's own maintained Tournament.entrantCount field
-// (kept in sync by join/leave — see generateBracket and friends) rather than
-// a separately-recomputed count, so this can never disagree with what the
-// rest of the app already considers "how many entrants this tournament had."
+// table by a size-scaling multiplier, rounded to the nearest whole point.
+// Two pieces, joined continuously at SMALL_TOURNAMENT_CUTOFF (64 entrants),
+// where both formulas evaluate to exactly 2x:
+//   - entrantCount < 64:  2 * (entrantCount / 64)^3 -- a steep cubic ramp
+//     that aggressively suppresses small/mid fields (the anti-farming
+//     exception; see SMALL_TOURNAMENT_CUTOFF's comment above).
+//   - entrantCount >= 64: sqrt(entrantCount / 16) -- completely unchanged
+//     from the original formula, still scaling up smoothly for large fields
+//     (e.g. 500 entrants -> ~5.59x).
+// `entrantCount` should always be the tournament's own maintained
+// Tournament.entrantCount field (kept in sync by join/leave — see
+// generateBracket and friends) rather than a separately-recomputed count,
+// so this can never disagree with what the rest of the app already
+// considers "how many entrants this tournament had."
 export function scaledPointsForPlacement(placement: number | null | undefined, entrantCount: number): number {
-  const multiplier = Math.sqrt(entrantCount / BASELINE_ENTRANT_COUNT);
+  const multiplier =
+    entrantCount < SMALL_TOURNAMENT_CUTOFF
+      ? 2 * Math.pow(entrantCount / SMALL_TOURNAMENT_CUTOFF, 3)
+      : Math.sqrt(entrantCount / BASELINE_ENTRANT_COUNT);
   return Math.round(pointsForPlacement(placement) * multiplier);
 }
 
