@@ -31,7 +31,7 @@ import { verifyTurnstileToken } from "@/lib/turnstile";
 import { buildDoubleEliminationBracket, resolveSeedOrder, validateManualSlotAssignment, advanceBracketMatch, nextPowerOfTwo, computeMainBracketSeedOrder, shuffle, SeedingMethod, deleteMatchWithCascade, MODEL_B_MIN_ENTRANTS, computeModelBInitialPoolCount, computeNextRepooledRound, buildFinalsCutoffBracket, extractPoolSurvivors, PoolSurvivors } from "@/lib/bracket";
 import { buildRoundRobinMatches, computeRoundRobinStandings } from "@/lib/roundRobin";
 import { getNextSequence } from "@/lib/counter";
-import { computeRankingPoints, computeRankingPointsForPlayers } from "@/lib/ranking";
+import { computeRankingPoints, computeRankingPointsForPlayers, computeGameRankingsForPlayer } from "@/lib/ranking";
 import { formatPlayerNumber } from "@/lib/playerId";
 import { Loaders } from "@/graphql/loaders";
 import { StreamAssetType } from "@/models/StreamAsset";
@@ -2586,6 +2586,7 @@ export const resolvers = {
     // Computed at read time (best-10, 52-week-rolling ranking points) — see
     // lib/ranking.ts. Player.points is no longer a stored counter.
     points: async (parent: { _id: string }) => await computeRankingPoints(parent._id.toString()),
+    gameRankings: async (parent: { _id: string }) => await computeGameRankingsForPlayer(parent._id.toString()),
     tournaments: async (parent: { _id: string }) => await Entrant.find({ playerId: parent._id }),
     displayId: (parent: { playerNumber?: number }) =>
       parent.playerNumber != null ? formatPlayerNumber(parent.playerNumber) : null,

@@ -53,7 +53,7 @@ const { User } = await import("../models/User");
 const { Player } = await import("../models/Player");
 const { Tournament } = await import("../models/Tournament");
 const { Entrant } = await import("../models/Entrant");
-const { pointsForPlacement, scaledPointsForPlacement, computeRankingPoints } = await import("../lib/ranking");
+const { pointsForPlacement, scaledPointsForPlacement, computeRankingPoints, computeGameRankingsForPlayer } = await import("../lib/ranking");
 
 let failures = 0;
 function assert(cond, label) {
@@ -80,10 +80,10 @@ async function makeTestPlayer(tag) {
 // entrantCount is set directly since scaledPointsForPlacement only ever
 // reads that stored field, never a live recount of real Entrant documents
 // (see lib/ranking.ts's comment on why that's the correct field to trust).
-async function makeEndedTournament(organizerId, name, entrantCount) {
+async function makeEndedTournament(organizerId, name, entrantCount, game = "Test Game") {
   return Tournament.create({
     name,
-    game: "Test Game",
+    game,
     format: "Standard Bracket",
     status: "ENDED",
     organizers: [organizerId],
@@ -190,6 +190,79 @@ async function main() {
     }
     const capTotal = await computeRankingPoints(capPlayer._id.toString());
     assert(capTotal === 1000, `11 real Winner (100pt) results, best-10 cap -> exactly 1000, not 1100 (got ${capTotal})`);
+
+    console.log("\n=== TEST 5: per-game ranking (computeGameRankingsForPlayer) -- isolation, independent cap, no threshold, combined calc unaffected ===");
+
+    // Player A: 2 real Street Fighter 6 results (Winner + Runner-up) and 1
+    // real Tekken 8 result (Winner) -- confirms every game they've entered
+    // shows up, including Tekken with just its single result (no minimum
+    // threshold).
+    const playerA = await makeTestPlayer("GameRankPlayerA");
+    createdPlayerTags.push("GameRankPlayerA");
+    const sf6First = await makeEndedTournament(organizer._id, "Ranking Test Game SF6 1st", 16, "RankingTestIsolatedGameSF6");
+    createdTournamentIds.push(sf6First._id);
+    await Entrant.create({ playerId: playerA._id, tournamentId: sf6First._id, placement: 1 });
+    const sf6Second = await makeEndedTournament(organizer._id, "Ranking Test Game SF6 2nd", 16, "RankingTestIsolatedGameSF6");
+    createdTournamentIds.push(sf6Second._id);
+    await Entrant.create({ playerId: playerA._id, tournamentId: sf6Second._id, placement: 2 });
+    const tekkenOnly = await makeEndedTournament(organizer._id, "Ranking Test Game Tekken Only", 16, "RankingTestIsolatedGameTekken");
+    createdTournamentIds.push(tekkenOnly._id);
+    await Entrant.create({ playerId: playerA._id, tournamentId: tekkenOnly._id, placement: 1 });
+
+    // Player B: a real 1st-place Street Fighter 6 result in a MUCH bigger
+    // field, so B's SF6 points genuinely outrank A's -- proves rank is
+    // computed relative to other real players in that game, not just a
+    // placeholder constant.
+    const playerB = await makeTestPlayer("GameRankPlayerB");
+    createdPlayerTags.push("GameRankPlayerB");
+    const sf6BigOne = await makeEndedTournament(organizer._id, "Ranking Test Game SF6 Big", 64, "RankingTestIsolatedGameSF6");
+    createdTournamentIds.push(sf6BigOne._id);
+    await Entrant.create({ playerId: playerB._id, tournamentId: sf6BigOne._id, placement: 1 });
+
+    const combinedA = await computeRankingPoints(playerA._id.toString());
+    assert(combinedA === 260, `Player A's COMBINED points aggregate across BOTH games unchanged (100 SF6 + 60 SF6 + 100 Tekken = 260, got ${combinedA})`);
+
+    const gameRankingsA = await computeGameRankingsForPlayer(playerA._id.toString());
+    assert(gameRankingsA.length === 2, `Player A shows exactly 2 games entered (got ${gameRankingsA.length}: ${gameRankingsA.map(g => g.game).join(", ")})`);
+
+    const aSf6 = gameRankingsA.find(g => g.game === "RankingTestIsolatedGameSF6");
+    const aTekken = gameRankingsA.find(g => g.game === "RankingTestIsolatedGameTekken");
+    assert(!!aSf6 && aSf6.points === 160, `Player A's SF6-only points correctly isolated to just the 2 SF6 results (100+60=160, got ${aSf6?.points})`);
+    assert(!!aTekken && aTekken.points === 100, `Player A's Tekken entry exists with just 1 counted result -- no minimum-tournament threshold (100 pts, got ${aTekken?.points})`);
+
+    assert(aSf6.rank === 2, `Player A ranks #2 in SF6, behind Player B's bigger-field win (got #${aSf6.rank})`);
+
+    const gameRankingsB = await computeGameRankingsForPlayer(playerB._id.toString());
+    const bSf6 = gameRankingsB.find(g => g.game === "RankingTestIsolatedGameSF6");
+    assert(bSf6.rank === 1, `Player B ranks #1 in SF6 (got #${bSf6?.rank})`);
+    assert(bSf6.points === 200, `Player B's SF6 points: 64-entrant Winner = sqrt(64/16)*100 = 200 exactly (got ${bSf6?.points})`);
+    assert(gameRankingsB.length === 1, `Player B (never entered Tekken) shows exactly 1 game, not an empty/placeholder Tekken entry (got ${gameRankingsB.length})`);
+
+    // Independent best-10 cap per game: 11 real SF6 results + 11 real
+    // Tekken results for the SAME player, all Winner (100pts unscaled at 16
+    // entrants) -- each game's own cap must land at exactly 1000, while the
+    // COMBINED cap (applied across the full 22-result pool) must ALSO cap
+    // at 1000, not 2000 -- proving the per-game cap operates on the
+    // game-filtered subset independently, not merely re-reading the
+    // already-capped combined total.
+    const capPlayerMultiGame = await makeTestPlayer("GameRankCapPlayer");
+    createdPlayerTags.push("GameRankCapPlayer");
+    for (let i = 0; i < 11; i++) {
+      const sf6 = await makeEndedTournament(organizer._id, `Ranking Test Game Cap SF6 ${i}`, 16, "RankingTestIsolatedGameSF6");
+      createdTournamentIds.push(sf6._id);
+      await Entrant.create({ playerId: capPlayerMultiGame._id, tournamentId: sf6._id, placement: 1 });
+      const tekken = await makeEndedTournament(organizer._id, `Ranking Test Game Cap Tekken ${i}`, 16, "RankingTestIsolatedGameTekken");
+      createdTournamentIds.push(tekken._id);
+      await Entrant.create({ playerId: capPlayerMultiGame._id, tournamentId: tekken._id, placement: 1 });
+    }
+    const capPlayerCombined = await computeRankingPoints(capPlayerMultiGame._id.toString());
+    assert(capPlayerCombined === 1000, `22 total real Winner results across 2 games, COMBINED best-10 cap -> exactly 1000 (got ${capPlayerCombined})`);
+
+    const capPlayerGameRankings = await computeGameRankingsForPlayer(capPlayerMultiGame._id.toString());
+    const capSf6 = capPlayerGameRankings.find(g => g.game === "RankingTestIsolatedGameSF6");
+    const capTekken = capPlayerGameRankings.find(g => g.game === "RankingTestIsolatedGameTekken");
+    assert(capSf6.points === 1000, `SF6-only best-10 cap (11 real SF6 results) -> exactly 1000 independently of Tekken (got ${capSf6?.points})`);
+    assert(capTekken.points === 1000, `Tekken-only best-10 cap (11 real Tekken results) -> exactly 1000 independently of SF6 (got ${capTekken?.points})`);
 
     console.log(`\n${failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURE(S)`}`);
   } finally {

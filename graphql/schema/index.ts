@@ -76,6 +76,12 @@ export const typeDefs = `#graphql
     # ATP-style rolling ranking points — computed at read time from this
     # player's tournament placements, not a stored counter. See lib/ranking.ts.
     points: Int!
+    # Per-game ranking points/rank, alongside the combined points above —
+    # same 52-week window and best-10 cap, just filtered to one game before
+    # the cap is applied (see lib/ranking.ts's computeGameRankingsForPlayer).
+    # Every game this player has an in-window result in, no minimum
+    # threshold — a game with just 1 counted tournament still appears.
+    gameRankings: [GameRanking!]!
     winRate: Float
     tournaments: [Entrant!]!
     createdAt: Date!
@@ -87,6 +93,14 @@ export const typeDefs = `#graphql
     # completed matches (forfeits included — a forfeit still has a real
     # winner/loser).
     headToHead(opponentId: ID!): HeadToHead
+  }
+
+  type GameRanking {
+    game: String!
+    points: Int!
+    # 1-indexed position among every OTHER player with an in-window result
+    # in this same game — not among all players site-wide.
+    rank: Int!
   }
 
   type HeadToHead {

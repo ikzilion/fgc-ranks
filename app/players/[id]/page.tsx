@@ -29,6 +29,11 @@ const GET_PLAYER = `
       wins
       losses
       points
+      gameRankings {
+        game
+        points
+        rank
+      }
       winRate
       isDeleted
       tournaments {
@@ -260,6 +265,38 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
           </div>
         ))}
       </div>
+
+      {/* Rankings by game — additive alongside the combined points badge
+          above, not replacing it. Simple list for this first pass (game
+          name + points + rank); no minimum-tournament threshold, so a game
+          with just 1 counted result still shows up. See
+          lib/ranking.ts's computeGameRankingsForPlayer. */}
+      {player.gameRankings.length > 0 && (
+        <>
+          <h2 className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">Rankings by game</h2>
+          <div className="fgc-card mb-6">
+            {[...player.gameRankings]
+              .sort((a: any, b: any) => b.points - a.points)
+              .map((gr: any) => (
+                <div
+                  key={gr.game}
+                  className="flex items-center justify-between gap-4 px-5 py-3 border-b border-[var(--border)] last:border-0"
+                >
+                  <p className="font-rajdhani text-[15px] font-semibold text-[var(--text-primary)]">{gr.game}</p>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <span className="text-[12px] text-[var(--text-secondary)]">#{gr.rank}</span>
+                    <span
+                      className="text-[11px] font-bold px-2 py-1 rounded font-rajdhani"
+                      style={{ background: "var(--gold-dim)", color: "var(--gold)", border: "1px solid rgba(240,180,41,0.25)" }}
+                    >
+                      {gr.points.toLocaleString()} pts
+                    </span>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </>
+      )}
 
       {/* Tournament history */}
       <h2 className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">Tournament history</h2>
