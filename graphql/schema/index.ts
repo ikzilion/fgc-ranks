@@ -487,6 +487,22 @@ export const typeDefs = `#graphql
     # back to surfacing as a synthetic/orphan Games-list entry afterward
     # (see the games resolver), never disappearing from browsing.
     deleteGame(id: ID!): Boolean!
+    # Admin management gap for uncurated game entries — these two apply only
+    # to UNCURATED orphan entries (see the games resolver); curated Games
+    # already have their working edit/delete path above.
+    #
+    # "Curate with corrected name": turns an orphan entry into a real
+    # curated Game, either under oldName's own exact string or a corrected
+    # newName — either way, retroactively renames Tournament.game on every
+    # tournament currently using oldName to newName, so they end up attached
+    # to the resulting Game instead of leaving a second orphan behind. If a
+    # curated Game already exists under newName (e.g. fixing a typo into an
+    # already-curated spelling), merges into it rather than erroring.
+    curateUncuratedGame(oldName: String!, newName: String!, iconUrl: String): Game!
+    # "Hide from list": hides an orphan entry (by its exact game-name
+    # string) from the shared games list — does NOT touch any
+    # Tournament.game value and does NOT create a real Game document.
+    hideUncuratedGame(name: String!): Boolean!
 
     createEvent(name: String!, isOnlineOnly: Boolean, address: String, logoUrl: String, twitchUrl: String): Event!
     updateEvent(id: ID!, name: String, isOnlineOnly: Boolean, address: String, logoUrl: String, twitchUrl: String): Event!

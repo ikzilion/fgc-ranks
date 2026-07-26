@@ -32,13 +32,21 @@ export function AdminGameManager({ games }: { games: GameRow[] }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [hidingName, setHidingName] = useState<string | null>(null);
+  // Set only while curating an orphan (see openCreate's curatingOldName
+  // param) — the exact Tournament.game string being curated, so
+  // handleSubmit knows to route through curateUncuratedGame (which
+  // retroactively renames every matching Tournament.game to whatever `name`
+  // ends up being) instead of plain createGame.
+  const [curatingOldName, setCuratingOldName] = useState<string | null>(null);
 
-  function openCreate(prefillName = "") {
+  function openCreate(prefillName = "", curatingOldNameArg: string | null = null) {
     setModalMode("create");
     setModalGame(null);
     setName(prefillName);
     setIconUrl("");
     setError("");
+    setCuratingOldName(curatingOldNameArg);
   }
 
   function openEdit(game: GameRow) {
@@ -47,11 +55,13 @@ export function AdminGameManager({ games }: { games: GameRow[] }) {
     setName(game.name);
     setIconUrl(game.iconUrl || "");
     setError("");
+    setCuratingOldName(null);
   }
 
   function closeModal() {
     setModalMode(null);
     setModalGame(null);
+    setCuratingOldName(null);
   }
 
   async function handleIconChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -97,12 +107,21 @@ export function AdminGameManager({ games }: { games: GameRow[] }) {
     setError("");
 
     const isEdit = modalMode === "edit" && modalGame;
-    const query = isEdit
-      ? `mutation UpdateGame($id: ID!, $name: String, $iconUrl: String) { updateGame(id: $id, name: $name, iconUrl: $iconUrl) { id } }`
-      : `mutation CreateGame($name: String!, $iconUrl: String) { createGame(name: $name, iconUrl: $iconUrl) { id } }`;
-    const variables = isEdit
-      ? { id: modalGame!.id, name, iconUrl: iconUrl || undefined }
-      : { name, iconUrl: iconUrl || undefined };
+    let query: string;
+    let variables: Record<string, unknown>;
+    if (isEdit) {
+      query = `mutation UpdateGame($id: ID!, $name: String, $iconUrl: String) { updateGame(id: $id, name: $name, iconUrl: $iconUrl) { id } }`;
+      variables = { id: modalGame!.id, name, iconUrl: iconUrl || undefined };
+    } else if (curatingOldName != null) {
+      // Curating an orphan — routes through curateUncuratedGame (not
+      // createGame) so a corrected name also retroactively renames every
+      // Tournament.game value that used the old/typo'd string.
+      query = `mutation CurateUncuratedGame($oldName: String!, $newName: String!, $iconUrl: String) { curateUncuratedGame(oldName: $oldName, newName: $newName, iconUrl: $iconUrl) { id } }`;
+      variables = { oldName: curatingOldName, newName: name, iconUrl: iconUrl || undefined };
+    } else {
+      query = `mutation CreateGame($name: String!, $iconUrl: String) { createGame(name: $name, iconUrl: $iconUrl) { id } }`;
+      variables = { name, iconUrl: iconUrl || undefined };
+    }
 
     try {
       const res = await fetch("/api/graphql", {
@@ -147,6 +166,36 @@ export function AdminGameManager({ games }: { games: GameRow[] }) {
       alert("Something went wrong. Try again.");
     }
     setDeletingId(null);
+  }
+
+  // Orphan-only — hides an uncurated entry (by its exact game-name string)
+  // from the shared games list. Deliberately doesn't touch any
+  // Tournament.game value or create a real Game document (see
+  // hideUncuratedGame's resolver comment). No "unhide" UI exists yet, so
+  // this is a one-way action from the admin's perspective — same
+  // no-undo-in-the-UI precedent as Delete on a curated Game above.
+  async function handleHide(game: GameRow) {
+    if (!confirm(`Hide "${game.name}" from the games list? Tournaments keep this exact game value either way — this only removes it from the browsable list.`)) return;
+    setHidingName(game.name);
+    try {
+      const res = await fetch("/api/graphql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: `mutation HideUncuratedGame($name: String!) { hideUncuratedGame(name: $name) }`,
+          variables: { name: game.name },
+        }),
+      });
+      const json = await res.json();
+      if (json.errors) {
+        alert(json.errors[0]?.message ?? "Failed to hide game");
+      } else {
+        router.refresh();
+      }
+    } catch {
+      alert("Something went wrong. Try again.");
+    }
+    setHidingName(null);
   }
 
   return (
@@ -197,11 +246,19 @@ export function AdminGameManager({ games }: { games: GameRow[] }) {
                     Uncurated
                   </span>
                   <button
-                    onClick={() => openCreate(game.name)}
+                    onClick={() => openCreate(game.name, game.name)}
                     className="text-[11px] font-semibold px-3 py-1.5 rounded flex-shrink-0"
                     style={{ background: "var(--blue-dim)", color: "var(--blue)", border: "1px solid rgba(79,142,247,0.25)", cursor: "pointer" }}
                   >
                     Curate
+                  </button>
+                  <button
+                    onClick={() => handleHide(game)}
+                    disabled={hidingName === game.name}
+                    className="text-[11px] font-semibold px-3 py-1.5 rounded flex-shrink-0"
+                    style={{ background: "var(--coral-dim)", color: "var(--coral)", border: "1px solid rgba(255,77,77,0.2)", cursor: hidingName === game.name ? "not-allowed" : "pointer", opacity: hidingName === game.name ? 0.6 : 1 }}
+                  >
+                    {hidingName === game.name ? "..." : "Hide"}
                   </button>
                 </>
               ) : (
@@ -236,8 +293,14 @@ export function AdminGameManager({ games }: { games: GameRow[] }) {
         >
           <div className="fgc-card p-6 w-full max-w-lg" onClick={e => e.stopPropagation()}>
             <h2 className="font-rajdhani text-xl font-bold text-[var(--text-primary)] mb-4">
-              {modalMode === "edit" ? "Edit game" : "New game"}
+              {modalMode === "edit" ? "Edit game" : curatingOldName != null ? "Curate uncurated game" : "New game"}
             </h2>
+
+            {curatingOldName != null && (
+              <p className="text-[12px] text-[var(--text-secondary)] mb-4">
+                Currently listed as “{curatingOldName}”. Fix a typo here if needed, or leave it as-is to curate under this exact name — every tournament using “{curatingOldName}” will be updated to match.
+              </p>
+            )}
 
             <div className="mb-4">
               <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Game name</label>
@@ -298,7 +361,7 @@ export function AdminGameManager({ games }: { games: GameRow[] }) {
                 className="flex-1 py-2 rounded font-rajdhani text-[14px] font-bold"
                 style={{ background: "var(--blue)", color: "white", border: "none", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.6 : 1 }}
               >
-                {loading ? "Saving..." : modalMode === "edit" ? "Save" : "Create"}
+                {loading ? "Saving..." : modalMode === "edit" ? "Save" : curatingOldName != null ? "Curate" : "Create"}
               </button>
             </div>
           </div>

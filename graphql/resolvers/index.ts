@@ -17,6 +17,7 @@ import { Notification } from "@/models/Notification";
 import { NewsPost } from "@/models/NewsPost";
 import { Event, EventStatus } from "@/models/Event";
 import { Game } from "@/models/Game";
+import { HiddenGameName } from "@/models/HiddenGameName";
 import { TORequest, TORequestStatus } from "@/models/TORequest";
 import {
   loginRateLimit,
@@ -490,13 +491,18 @@ export const resolvers = {
     // why this drift-guard exists. Orphan entries are plain objects, not
     // Mongoose docs, so `id` is set directly (no `_id` virtual to fall back
     // on) using a prefix that can never collide with a real ObjectId hex string.
+    // Admin management gap for uncurated game entries (settled July 26,
+    // 2026): an orphan name an admin has hidden (hideUncuratedGame) is
+    // dropped here too — the single shared list every caller (public /games,
+    // /admin/games, the tournament-creation game dropdown) draws from.
     games: async () => {
       await connectToDatabase();
       const curated = await Game.find();
       const curatedNames = new Set(curated.map((g: any) => g.name));
+      const hiddenNames = new Set((await HiddenGameName.find().select("name").lean()).map((h: any) => h.name));
       const distinctTournamentGames: string[] = await Tournament.distinct("game");
       const orphans = distinctTournamentGames
-        .filter(name => name && !curatedNames.has(name))
+        .filter(name => name && !curatedNames.has(name) && !hiddenNames.has(name))
         .map(name => ({ id: `orphan-${Buffer.from(name).toString("base64url")}`, name, iconUrl: "" }));
       return [...curated, ...orphans].sort((a: any, b: any) => a.name.localeCompare(b.name));
     },
@@ -2454,6 +2460,67 @@ export const resolvers = {
       await connectToDatabase();
       const result = await Game.findByIdAndDelete(id);
       return !!result;
+    },
+
+    // Admin management gap for uncurated game entries (settled July 26,
+    // 2026) — "Curate with corrected name". Unlike createGame (which just
+    // accepts whatever string the admin types as the new Game's name), this
+    // is specifically for turning an UNCURATED orphan entry (see the `games`
+    // resolver) into a real curated Game, optionally under a CORRECTED name
+    // — and, when the name actually changes, retroactively renaming
+    // Tournament.game on every tournament that used the old/typo'd spelling
+    // so they end up attached to the new curated Game instead of leaving a
+    // second, still-broken orphan entry behind under the old spelling.
+    //
+    // find-or-create by newName rather than always creating: curating a
+    // typo (oldName) into a spelling that's ALREADY a real curated Game
+    // (e.g. fixing "Street Fight 6" -> "Street Fighter 6") should merge into
+    // that existing Game, not fail with a duplicate-name error — that's
+    // exactly the typo-duplicate cleanup this feature exists for.
+    curateUncuratedGame: async (
+      _: unknown,
+      { oldName, newName, iconUrl }: { oldName: string; newName: string; iconUrl?: string },
+      { role }: { role?: string }
+    ) => {
+      if (!isAdminOrAbove(role)) throw new Error("Not authorized");
+      if (!newName.trim()) throw new Error("Game name is required.");
+      const trimmedNewName = newName.trim();
+      await connectToDatabase();
+
+      let game = await Game.findOne({ name: trimmedNewName });
+      if (!game) {
+        try {
+          game = await Game.create({ name: trimmedNewName, iconUrl });
+        } catch (err: any) {
+          if (err?.code === 11000) throw new Error("A game with that name already exists.");
+          throw err;
+        }
+      } else if (iconUrl !== undefined && iconUrl !== game.iconUrl) {
+        game = await Game.findByIdAndUpdate(game._id, { iconUrl }, { new: true });
+      }
+
+      // Retroactive fix — a no-op update when oldName === trimmedNewName
+      // (curating an orphan under its own exact string, the old plain
+      // "Curate" behavior), harmless either way.
+      await Tournament.updateMany({ game: oldName }, { game: trimmedNewName });
+
+      return game;
+    },
+
+    // Admin management gap for uncurated game entries (settled July 26,
+    // 2026) — "Hide from list". Persists to the tiny HiddenGameName
+    // collection (see models/HiddenGameName.ts) so the `games` resolver
+    // skips this exact string going forward — deliberately does NOT touch
+    // any Tournament.game value and does NOT create a real Game document
+    // (for junk like a literal "n/a" that isn't a real game and doesn't
+    // need "correcting", just needs to stop cluttering the list). Idempotent
+    // — hiding an already-hidden name is a no-op success, not an error.
+    hideUncuratedGame: async (_: unknown, { name }: { name: string }, { role }: { role?: string }) => {
+      if (!isAdminOrAbove(role)) throw new Error("Not authorized");
+      if (!name.trim()) throw new Error("Game name is required.");
+      await connectToDatabase();
+      await HiddenGameName.findOneAndUpdate({ name: name.trim() }, { name: name.trim() }, { upsert: true });
+      return true;
     },
 
     // Events
