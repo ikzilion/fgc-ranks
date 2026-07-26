@@ -237,6 +237,14 @@ export function CreateEventButton() {
               </p>
             )}
 
+            {/* Matches the real gate: a new Event starts PENDING (see this
+                file's top comment) — visible to its creator/managers, but
+                left out of /events and Event-ID lookup until an admin
+                approves it via the review queue. */}
+            <p className="text-[11px] text-[var(--text-muted)] mb-4">
+              Your event will need admin approval before it's posted publicly.
+            </p>
+
             <div className="flex gap-2">
               <button
                 onClick={() => setOpen(false)}
