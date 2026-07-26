@@ -22,8 +22,9 @@ function isOrphan(id: string) {
   return id.startsWith("orphan-");
 }
 
-export function AdminGameManager({ games }: { games: GameRow[] }) {
+export function AdminGameManager({ games, hiddenGameNames }: { games: GameRow[]; hiddenGameNames: string[] }) {
   const router = useRouter();
+  const [unhidingName, setUnhidingName] = useState<string | null>(null);
   const [modalGame, setModalGame] = useState<GameRow | null>(null);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [name, setName] = useState("");
@@ -171,9 +172,8 @@ export function AdminGameManager({ games }: { games: GameRow[] }) {
   // Orphan-only — hides an uncurated entry (by its exact game-name string)
   // from the shared games list. Deliberately doesn't touch any
   // Tournament.game value or create a real Game document (see
-  // hideUncuratedGame's resolver comment). No "unhide" UI exists yet, so
-  // this is a one-way action from the admin's perspective — same
-  // no-undo-in-the-UI precedent as Delete on a curated Game above.
+  // hideUncuratedGame's resolver comment). Reversible via the "Hidden
+  // entries" section below (handleUnhide).
   async function handleHide(game: GameRow) {
     if (!confirm(`Hide "${game.name}" from the games list? Tournaments keep this exact game value either way — this only removes it from the browsable list.`)) return;
     setHidingName(game.name);
@@ -196,6 +196,33 @@ export function AdminGameManager({ games }: { games: GameRow[] }) {
       alert("Something went wrong. Try again.");
     }
     setHidingName(null);
+  }
+
+  // Reverses handleHide — removes the name from the hidden list. Whether it
+  // actually reappears in the games list above depends on whether a real
+  // Tournament.game still matches it (see unhideUncuratedGame's resolver
+  // comment); if not, it just stays gone, which is correct, not a bug.
+  async function handleUnhide(name: string) {
+    setUnhidingName(name);
+    try {
+      const res = await fetch("/api/graphql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: `mutation UnhideUncuratedGame($name: String!) { unhideUncuratedGame(name: $name) }`,
+          variables: { name },
+        }),
+      });
+      const json = await res.json();
+      if (json.errors) {
+        alert(json.errors[0]?.message ?? "Failed to unhide game");
+      } else {
+        router.refresh();
+      }
+    } catch {
+      alert("Something went wrong. Try again.");
+    }
+    setUnhidingName(null);
   }
 
   return (
@@ -284,6 +311,32 @@ export function AdminGameManager({ games }: { games: GameRow[] }) {
           );
         })}
       </div>
+
+      {hiddenGameNames.length > 0 && (
+        <>
+          <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mt-6 mb-3">
+            Hidden entries
+          </p>
+          <div className="fgc-card">
+            {hiddenGameNames.map(name => (
+              <div
+                key={name}
+                className="flex items-center gap-3 px-4 sm:px-5 py-3 border-b border-[var(--border)] last:border-0"
+              >
+                <p className="flex-1 min-w-0 font-rajdhani text-[15px] font-bold text-[var(--text-primary)] truncate">{name}</p>
+                <button
+                  onClick={() => handleUnhide(name)}
+                  disabled={unhidingName === name}
+                  className="text-[11px] font-semibold px-3 py-1.5 rounded flex-shrink-0"
+                  style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)", cursor: unhidingName === name ? "not-allowed" : "pointer", opacity: unhidingName === name ? 0.6 : 1 }}
+                >
+                  {unhidingName === name ? "..." : "Unhide"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       {modalMode && (
         <div

@@ -19,12 +19,14 @@ type TabId = "events" | "games" | "to-status" | "users";
 export function AdminDashboard({
   pendingEvents,
   games,
+  hiddenGameNames,
   pendingTORequests,
   players,
   showAdminRoles,
 }: {
   pendingEvents: any[];
   games: any[];
+  hiddenGameNames: string[];
   pendingTORequests: any[];
   players: any[];
   // Admin roles is SUPER_ADMIN-only (same gate as the standalone
@@ -75,7 +77,7 @@ export function AdminDashboard({
         )
       )}
 
-      {tab === "games" && <AdminGameManager games={games} />}
+      {tab === "games" && <AdminGameManager games={games} hiddenGameNames={hiddenGameNames} />}
 
       {tab === "to-status" && <AdminTOManager pendingRequests={pendingTORequests} players={players} />}
 

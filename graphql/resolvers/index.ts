@@ -507,6 +507,15 @@ export const resolvers = {
       return [...curated, ...orphans].sort((a: any, b: any) => a.name.localeCompare(b.name));
     },
 
+    // ADMIN-only — the /admin/games "hidden entries" section's data source
+    // (see hideUncuratedGame/unhideUncuratedGame).
+    hiddenGameNames: async (_: unknown, __: unknown, { role }: { role?: string }) => {
+      if (!isAdminOrAbove(role)) throw new Error("Not authorized");
+      await connectToDatabase();
+      const hidden = await HiddenGameName.find().select("name").sort({ name: 1 }).lean();
+      return hidden.map((h: any) => h.name);
+    },
+
     // TO permission overhaul
     myTORequest: async (_: unknown, __: unknown, { playerId }: { playerId?: string }) => {
       if (!playerId) return null;
@@ -2520,6 +2529,20 @@ export const resolvers = {
       if (!name.trim()) throw new Error("Game name is required.");
       await connectToDatabase();
       await HiddenGameName.findOneAndUpdate({ name: name.trim() }, { name: name.trim() }, { upsert: true });
+      return true;
+    },
+
+    // Reverses hideUncuratedGame — just deletes the HiddenGameName doc.
+    // Idempotent (unhiding something not currently hidden is a no-op
+    // success, not an error), same convention as hideUncuratedGame itself.
+    // Whether the name actually reappears in the `games` list afterward
+    // depends entirely on whether a real Tournament.game still matches it
+    // (see the `games` resolver) — nothing here needs to check that itself.
+    unhideUncuratedGame: async (_: unknown, { name }: { name: string }, { role }: { role?: string }) => {
+      if (!isAdminOrAbove(role)) throw new Error("Not authorized");
+      if (!name.trim()) throw new Error("Game name is required.");
+      await connectToDatabase();
+      await HiddenGameName.deleteOne({ name: name.trim() });
       return true;
     },
 

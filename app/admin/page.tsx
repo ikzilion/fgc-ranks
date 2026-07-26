@@ -37,6 +37,7 @@ const GET_ADMIN_DASHBOARD_DATA = `
       iconUrl
       tournamentCount
     }
+    hiddenGameNames
     pendingTORequests {
       id
       contactEmail
@@ -73,17 +74,18 @@ async function getAdminDashboardData() {
     const json = await res.json();
     if (json.errors) {
       console.error("[admin] GraphQL errors:", json.errors);
-      return { pendingEvents: [], games: [], pendingTORequests: [], players: [] };
+      return { pendingEvents: [], games: [], hiddenGameNames: [], pendingTORequests: [], players: [] };
     }
     return {
       pendingEvents: json.data?.pendingEvents ?? [],
       games: json.data?.games ?? [],
+      hiddenGameNames: json.data?.hiddenGameNames ?? [],
       pendingTORequests: json.data?.pendingTORequests ?? [],
       players: json.data?.players ?? [],
     };
   } catch (err) {
     console.error("[admin] Fetch error:", err);
-    return { pendingEvents: [], games: [], pendingTORequests: [], players: [] };
+    return { pendingEvents: [], games: [], hiddenGameNames: [], pendingTORequests: [], players: [] };
   }
 }
 
@@ -92,7 +94,7 @@ export default async function AdminPage() {
   const role = (session?.user as any)?.role;
   if (!isAdminOrAbove(role)) notFound();
 
-  const { pendingEvents, games, pendingTORequests, players } = await getAdminDashboardData();
+  const { pendingEvents, games, hiddenGameNames, pendingTORequests, players } = await getAdminDashboardData();
 
   return (
     <main className="max-w-3xl mx-auto px-4 py-8">
@@ -102,6 +104,7 @@ export default async function AdminPage() {
       <AdminDashboard
         pendingEvents={pendingEvents}
         games={games}
+        hiddenGameNames={hiddenGameNames}
         pendingTORequests={pendingTORequests}
         players={players}
         showAdminRoles={isSuperAdmin(role)}

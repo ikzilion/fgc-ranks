@@ -5,6 +5,7 @@
 // the createGame/updateGame/deleteGame resolvers, which run as browser
 // mutations from AdminGameManager and so carry the session cookie normally.
 import { notFound } from "next/navigation";
+import { cookies } from "next/headers";
 import { auth } from "@/lib/auth";
 import { isAdminOrAbove } from "@/lib/roles";
 import { AdminGameManager } from "@/components/AdminGameManager";
@@ -19,6 +20,7 @@ const GET_GAMES_FOR_ADMIN = `
       iconUrl
       tournamentCount
     }
+    hiddenGameNames
   }
 `;
 
@@ -27,19 +29,19 @@ async function getGames() {
   try {
     const res = await fetch(`${baseUrl}/api/graphql`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", cookie: (await cookies()).toString() },
       body: JSON.stringify({ query: GET_GAMES_FOR_ADMIN }),
       cache: "no-store",
     });
     const json = await res.json();
     if (json.errors) {
       console.error("[admin/games] GraphQL errors:", json.errors);
-      return [];
+      return { games: [], hiddenGameNames: [] };
     }
-    return json.data?.games ?? [];
+    return { games: json.data?.games ?? [], hiddenGameNames: json.data?.hiddenGameNames ?? [] };
   } catch (err) {
     console.error("[admin/games] Fetch error:", err);
-    return [];
+    return { games: [], hiddenGameNames: [] };
   }
 }
 
@@ -48,7 +50,7 @@ export default async function AdminGamesPage() {
   const role = (session?.user as any)?.role;
   if (!isAdminOrAbove(role)) notFound();
 
-  const games = await getGames();
+  const { games, hiddenGameNames } = await getGames();
 
   return (
     <main className="max-w-3xl mx-auto px-4 py-8">
@@ -59,7 +61,7 @@ export default async function AdminGamesPage() {
         Add, rename, or re-icon the curated Games list — this drives the "Games" nav tab and the game dropdown when creating a tournament.
       </p>
 
-      <AdminGameManager games={games} />
+      <AdminGameManager games={games} hiddenGameNames={hiddenGameNames} />
     </main>
   );
 }

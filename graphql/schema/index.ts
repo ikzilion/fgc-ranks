@@ -380,6 +380,10 @@ export const typeDefs = `#graphql
     # Tournament.game value that doesn't match a curated name (drift-guard —
     # see models/Game.ts) — public, no auth required, same as tournaments.
     games: [Game!]!
+    # ADMIN-only — every name currently in the HiddenGameName collection
+    # (see hideUncuratedGame), so /admin/games can actually show what's
+    # hidden and offer an Unhide action for each.
+    hiddenGameNames: [String!]!
 
     # The calling session's own most recent TO request (any status), or null
     # if it's never made one — lets the profile page show "Request pending",
@@ -503,6 +507,11 @@ export const typeDefs = `#graphql
     # string) from the shared games list — does NOT touch any
     # Tournament.game value and does NOT create a real Game document.
     hideUncuratedGame(name: String!): Boolean!
+    # Reverses hideUncuratedGame — removes the name from HiddenGameName, so
+    # it can surface again in the games list (only if it's still a real
+    # uncurated name with active tournaments; otherwise it just stays gone,
+    # which is correct, not a bug).
+    unhideUncuratedGame(name: String!): Boolean!
 
     createEvent(name: String!, isOnlineOnly: Boolean, address: String, logoUrl: String, twitchUrl: String): Event!
     updateEvent(id: ID!, name: String, isOnlineOnly: Boolean, address: String, logoUrl: String, twitchUrl: String): Event!
