@@ -16,6 +16,7 @@ import { BracketView } from "@/components/BracketView";
 import { PoolsSection } from "@/components/PoolsSection";
 import { StreamAssetsButton } from "@/components/StreamAssetsButton";
 import { ScanToAddPlayerButton } from "@/components/ScanToAddPlayerButton";
+import { TabletModeButton } from "@/components/TabletModeButton";
 import { EditTournamentDetailsButton } from "@/components/EditTournamentDetailsButton";
 
 export const dynamic = "force-dynamic";
@@ -400,6 +401,10 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                   tournamentId={tournament.id}
                   canManage={canManage}
                   status={tournament.status}
+                />
+                <TabletModeButton
+                  tournamentId={tournament.id}
+                  canManage={canManage}
                 />
                 <StreamAssetsButton
                   tournamentId={tournament.id}
