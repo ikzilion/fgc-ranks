@@ -1489,6 +1489,62 @@ export const resolvers = {
       return entrant;
     },
 
+    // Organizer/admin-initiated add — the ORGANIZER-side counterpart to
+    // joinTournament (which only ever lets a player add themselves, or an
+    // admin add anyone). Powers the QR-scan "add player" flow (a TO scans a
+    // real walk-up player's Player ID QR code and adds them directly).
+    // Reuses joinTournament's exact LIVE/ENDED status gate and
+    // duplicate-entry handling, but deliberately does NOT enforce
+    // joinTournament's PRIVATE-visibility invite check — an organizer
+    // manually adding someone from their own roster-management view is
+    // already the authority over who's in their tournament, invite or not.
+    addEntrantByOrganizer: async (
+      _: unknown,
+      { tournamentId, playerId }: { tournamentId: string; playerId: string },
+      { playerId: callerPlayerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const tournament = await Tournament.findById(tournamentId);
+      if (!tournament) throw new Error("Tournament not found");
+      if (!isOrganizer(tournament, callerPlayerId, role)) throw new Error("Not authorized");
+      if (tournament.status === "LIVE" || tournament.status === "ENDED") {
+        throw new Error("Cannot add a player to a tournament that is already live or has ended");
+      }
+
+      const player = await Player.findById(playerId);
+      if (!player || player.isDeleted) throw new Error("Player not found");
+
+      const existingEntrant = await Entrant.findOne({ tournamentId, playerId });
+      if (existingEntrant) {
+        return { entrant: existingEntrant, alreadyEntered: true };
+      }
+
+      const entrant = await Entrant.create({ tournamentId, playerId });
+      // Same invite-consumption behavior as joinTournament — if this player
+      // happened to have a pending invite, being added directly satisfies
+      // it, so it shouldn't linger as a stale pending invite afterward.
+      if (tournament.visibility === "PRIVATE" && tournament.invitedPlayerIds.some((id: any) => id.toString() === playerId)) {
+        tournament.invitedPlayerIds = tournament.invitedPlayerIds.filter((id: any) => id.toString() !== playerId);
+        await tournament.save();
+      }
+      await Tournament.findByIdAndUpdate(tournamentId, { $inc: { entrantCount: 1 } });
+
+      // Same "someone new joined" notification as joinTournament.
+      const others = await Entrant.find({ tournamentId, playerId: { $ne: playerId } });
+      if (others.length > 0) {
+        await Notification.create(
+          others.map(e => ({
+            playerId: e.playerId,
+            type: "PLAYER_JOINED",
+            message: `${player.tag} joined ${tournament.name}`,
+            link: `/tournaments/${tournamentId}`,
+          }))
+        );
+      }
+
+      return { entrant, alreadyEntered: false };
+    },
+
     setPlacement: async (
       _: unknown,
       { entrantId, placement }: { entrantId: string; placement: number },

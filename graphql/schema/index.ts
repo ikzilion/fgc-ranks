@@ -260,6 +260,16 @@ export const typeDefs = `#graphql
     placement: Int
   }
 
+  # addEntrantByOrganizer's return shape — distinct from Entrant! (what
+  # joinTournament returns) specifically so the caller can tell "actually
+  # just added" apart from "already an entrant, no-op" without an extra
+  # round trip. Used by the QR-scan add-player flow to show the right
+  # feedback for each case.
+  type AddEntrantResult {
+    entrant: Entrant!
+    alreadyEntered: Boolean!
+  }
+
   type Match {
     id: ID!
     tournament: Tournament!
@@ -535,6 +545,15 @@ export const typeDefs = `#graphql
     updateTournamentBracketLineColor(id: ID!, bracketLineColor: String!, bracketBoxColor: String, bracketFontColor: String): Tournament!
 
     joinTournament(tournamentId: ID!, playerId: ID!): Entrant!
+    # Organizer/admin-initiated add — the ORGANIZER-side counterpart to
+    # joinTournament (which only lets a player add themselves, or an admin
+    # add anyone). Powers the QR-scan "add player" flow: a TO scans a real
+    # walk-up player's Player ID QR and adds them directly, without that
+    # player needing to self-join. Same LIVE/ENDED status gate and
+    # duplicate-entry handling as joinTournament, but does NOT enforce the
+    # PRIVATE-tournament invite check — an organizer manually adding someone
+    # is already the authority over their own roster, invite or not.
+    addEntrantByOrganizer(tournamentId: ID!, playerId: ID!): AddEntrantResult!
     setPlacement(entrantId: ID!, placement: Int!): Entrant!
     # Resets placement back to fully unset AND clears placementSetManually —
     # see clearPlacement's resolver comment for why the flag is reset too,

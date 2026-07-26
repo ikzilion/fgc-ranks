@@ -17,6 +17,7 @@
     "bcryptjs": "^3.0.3",
     "dataloader": "^2.2.3",
     "graphql": "^16.14.2",
+    "html5-qrcode": "^2.3.8",
     "jsonwebtoken": "^9.0.3",
     "mongodb": "^7.5.0",
     "mongoose": "^9.7.4",
