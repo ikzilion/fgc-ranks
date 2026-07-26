@@ -21,6 +21,7 @@ export function RegisterForm({ siteKey }: { siteKey: string }) {
   const [registered, setRegistered] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
   const [resendSubmitted, setResendSubmitted] = useState(false);
+  const [resendError, setResendError] = useState("");
 
   const [turnstileToken, setTurnstileToken] = useState("");
   const widgetRef = useRef<HTMLDivElement>(null);
@@ -94,7 +95,8 @@ export function RegisterForm({ siteKey }: { siteKey: string }) {
 
   async function handleResend() {
     setResendLoading(true);
-    await fetch("/api/graphql", {
+    setResendError("");
+    const res = await fetch("/api/graphql", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -102,7 +104,17 @@ export function RegisterForm({ siteKey }: { siteKey: string }) {
         variables: { email },
       }),
     });
+    const json = await res.json();
     setResendLoading(false);
+    // See lib/rateLimit.ts's resendVerificationRateLimit -- a rejection here
+    // must surface distinctly rather than silently reporting "sent" (the
+    // exact bug this fixes). Any other resolver error is safe to ignore:
+    // resendVerificationEmail always returns true regardless of account
+    // state, so a non-rate-limit failure isn't enumeration-sensitive either way.
+    if (json.errors?.[0]?.extensions?.code === "RATE_LIMITED") {
+      setResendError("Too many attempts — please wait a few minutes and try again.");
+      return;
+    }
     setResendSubmitted(true);
   }
 
@@ -121,14 +133,21 @@ export function RegisterForm({ siteKey }: { siteKey: string }) {
             {resendSubmitted ? (
               <p className="text-[12px] text-[var(--text-muted)]">If needed, a new link has been sent.</p>
             ) : (
-              <button
-                onClick={handleResend}
-                disabled={resendLoading}
-                className="text-[12px] font-semibold px-3 py-2 rounded"
-                style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)", cursor: resendLoading ? "not-allowed" : "pointer" }}
-              >
-                {resendLoading ? "Sending..." : "Resend verification email"}
-              </button>
+              <>
+                <button
+                  onClick={handleResend}
+                  disabled={resendLoading}
+                  className="text-[12px] font-semibold px-3 py-2 rounded"
+                  style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)", cursor: resendLoading ? "not-allowed" : "pointer" }}
+                >
+                  {resendLoading ? "Sending..." : "Resend verification email"}
+                </button>
+                {resendError && (
+                  <p className="text-[12px] mt-3 px-3 py-2 rounded" style={{ background: "var(--coral-dim)", color: "var(--coral)" }}>
+                    {resendError}
+                  </p>
+                )}
+              </>
             )}
           </div>
 

@@ -38,7 +38,15 @@ export function DeleteAccountButton({ playerId }: { playerId: string }) {
       });
       const json = await res.json();
       if (json.errors) {
-        alert(json.errors[0]?.message ?? "Failed to request account deletion");
+        // deleteAccountRequestRateLimit (lib/rateLimit.ts) rejections get the
+        // same friendly, distinct wording used elsewhere in the app instead
+        // of the raw resolver text -- any other error still surfaces its
+        // real specific message.
+        alert(
+          json.errors[0]?.extensions?.code === "RATE_LIMITED"
+            ? "Too many attempts — please wait a few minutes and try again."
+            : json.errors[0]?.message ?? "Failed to request account deletion"
+        );
       } else {
         setSent(true);
       }

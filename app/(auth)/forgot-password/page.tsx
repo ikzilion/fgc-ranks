@@ -8,12 +8,14 @@ export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
+    setError("");
 
-    await fetch("/api/graphql", {
+    const res = await fetch("/api/graphql", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -25,11 +27,25 @@ export default function ForgotPasswordPage() {
         variables: { email },
       }),
     });
+    const json = await res.json();
+    setLoading(false);
+
+    // passwordResetRateLimit is checked before the resolver ever looks up
+    // the account, so surfacing this specific rejection can't be used to
+    // enumerate registered emails — unlike the "does this email exist"
+    // branch below, which must stay silent either way.
+    if (json.errors) {
+      setError(
+        json.errors[0]?.extensions?.code === "RATE_LIMITED"
+          ? "Too many attempts — please wait a few minutes and try again."
+          : "Something went wrong. Please try again."
+      );
+      return;
+    }
 
     // Always show the same success state regardless of whether the email
     // exists — the resolver returns true either way, so this can't be used
     // to enumerate registered accounts.
-    setLoading(false);
     setSubmitted(true);
   }
 
@@ -61,6 +77,12 @@ export default function ForgotPasswordPage() {
                   style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
                 />
               </div>
+
+              {error && (
+                <p className="text-[12px] mb-4 px-3 py-2 rounded" style={{ background: "var(--coral-dim)", color: "var(--coral)" }}>
+                  {error}
+                </p>
+              )}
 
               <button
                 type="submit"

@@ -16,6 +16,7 @@ function VerifyEmailInner() {
   const [resendEmail, setResendEmail] = useState("");
   const [resendLoading, setResendLoading] = useState(false);
   const [resendSubmitted, setResendSubmitted] = useState(false);
+  const [resendError, setResendError] = useState("");
 
   useEffect(() => {
     if (!token) {
@@ -51,7 +52,8 @@ function VerifyEmailInner() {
   async function handleResend(e: React.FormEvent) {
     e.preventDefault();
     setResendLoading(true);
-    await fetch("/api/graphql", {
+    setResendError("");
+    const res = await fetch("/api/graphql", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -59,7 +61,17 @@ function VerifyEmailInner() {
         variables: { email: resendEmail },
       }),
     });
+    const json = await res.json();
     setResendLoading(false);
+    // See lib/rateLimit.ts's resendVerificationRateLimit -- a rejection here
+    // must surface distinctly rather than silently reporting "sent" (the
+    // exact bug this fixes). Any other resolver error is safe to ignore:
+    // resendVerificationEmail always returns true regardless of account
+    // state, so a non-rate-limit failure isn't enumeration-sensitive either way.
+    if (json.errors?.[0]?.extensions?.code === "RATE_LIMITED") {
+      setResendError("Too many attempts — please wait a few minutes and try again.");
+      return;
+    }
     setResendSubmitted(true);
   }
 
@@ -112,6 +124,11 @@ function VerifyEmailInner() {
                     className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)] mb-3"
                     style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
                   />
+                  {resendError && (
+                    <p className="text-[12px] mb-3 px-3 py-2 rounded" style={{ background: "var(--coral-dim)", color: "var(--coral)" }}>
+                      {resendError}
+                    </p>
+                  )}
                   <button
                     type="submit"
                     disabled={resendLoading}

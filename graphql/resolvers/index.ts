@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { GraphQLError } from "graphql";
 import { randomBytes, createHash } from "crypto";
 import { del } from "@vercel/blob";
 import { Types } from "mongoose";
@@ -38,6 +39,15 @@ import { StreamAssetType } from "@/models/StreamAsset";
 import { listStreamAssets } from "@/lib/streamAssets";
 import { formatEventNumber } from "@/lib/eventId";
 import { NextRequest } from "next/server";
+
+// Tags rate-limit rejections with a structured extensions.code instead of a
+// plain Error -- lets client-side error handling reliably distinguish "you're
+// being throttled" from a genuine backend error by checking the code rather
+// than fragile-to-rewording message-text matching (see the "generic error
+// masks real causes" bug this fixes).
+function rateLimitedError(message: string) {
+  return new GraphQLError(message, { extensions: { code: "RATE_LIMITED" } });
+}
 
 const JWT_SECRET = process.env.NEXTAUTH_SECRET || "dev-secret";
 
@@ -540,7 +550,7 @@ export const resolvers = {
       if (!captchaValid) throw new Error("CAPTCHA verification failed. Please complete the challenge and try again.");
 
       const { success } = await registerRateLimit.limit(ip);
-      if (!success) throw new Error("Too many accounts created from this IP. Please try again later.");
+      if (!success) throw rateLimitedError("Too many accounts created from this IP. Please try again later.");
 
       await connectToDatabase();
       const passwordHash = await bcrypt.hash(password, 10);
@@ -610,7 +620,7 @@ export const resolvers = {
     ) => {
       const ip = getClientIp(req);
       const { success } = await loginRateLimit.limit(ip);
-      if (!success) throw new Error("Too many login attempts. Please try again later.");
+      if (!success) throw rateLimitedError("Too many login attempts. Please try again later.");
 
       await connectToDatabase();
       const user = await User.findOne({ email });
@@ -633,7 +643,7 @@ export const resolvers = {
     ) => {
       const ip = getClientIp(req);
       const { success } = await passwordResetRateLimit.limit(ip);
-      if (!success) throw new Error("Too many requests. Please try again later.");
+      if (!success) throw rateLimitedError("Too many requests. Please try again later.");
 
       await connectToDatabase();
       const user = await User.findOne({ email });
@@ -697,7 +707,7 @@ export const resolvers = {
     ) => {
       const ip = getClientIp(req);
       const { success } = await resendVerificationRateLimit.limit(ip);
-      if (!success) throw new Error("Too many requests. Please try again later.");
+      if (!success) throw rateLimitedError("Too many requests. Please try again later.");
 
       await connectToDatabase();
       const user = await User.findOne({ email });
@@ -738,7 +748,7 @@ export const resolvers = {
 
       const ip = getClientIp(req);
       const { success } = await deleteAccountRequestRateLimit.limit(ip);
-      if (!success) throw new Error("Too many requests. Please try again later.");
+      if (!success) throw rateLimitedError("Too many requests. Please try again later.");
 
       await connectToDatabase();
       const player = await Player.findById(playerId);
@@ -1043,7 +1053,7 @@ export const resolvers = {
 
       // Keyed by playerId (authenticated action), not IP.
       const { success } = await createTournamentRateLimit.limit(playerId);
-      if (!success) throw new Error("You've created too many tournaments today. Please try again tomorrow.");
+      if (!success) throw rateLimitedError("You've created too many tournaments today. Please try again tomorrow.");
 
       await connectToDatabase();
 
