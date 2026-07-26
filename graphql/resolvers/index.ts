@@ -683,35 +683,6 @@ export const resolvers = {
       return true;
     },
 
-    // Self-service password change — for an already-logged-in player who
-    // still remembers their current password (distinct from the token-based
-    // requestPasswordReset/resetPassword flow above, which is for locked-out
-    // users). Re-verifies currentPassword before applying newPassword so a
-    // hijacked-but-still-logged-in session can't silently take over the
-    // account out from under the real owner.
-    changePassword: async (
-      _: unknown,
-      { currentPassword, newPassword }: { currentPassword: string; newPassword: string },
-      { userId }: { userId?: string }
-    ) => {
-      if (!userId) throw new Error("Not authorized");
-      // Same minimum the register/reset-password forms already enforce
-      // client-side (minLength=8) — enforced here too since this mutation
-      // can be called directly, bypassing the form.
-      if (newPassword.length < 8) throw new Error("New password must be at least 8 characters");
-
-      await connectToDatabase();
-      const user = await User.findById(userId);
-      if (!user) throw new Error("Account not found");
-
-      const valid = await bcrypt.compare(currentPassword, user.passwordHash);
-      if (!valid) throw new Error("Current password is incorrect");
-
-      const passwordHash = await bcrypt.hash(newPassword, 10);
-      await User.findByIdAndUpdate(user._id, { passwordHash });
-      return true;
-    },
-
     verifyEmail: async (_: unknown, { token }: { token: string }) => {
       await connectToDatabase();
       const emailVerificationTokenHash = createHash("sha256").update(token).digest("hex");
