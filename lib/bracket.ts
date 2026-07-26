@@ -1441,8 +1441,15 @@ export async function computeAndApplyBracketPlacements(tournamentId: any, bracke
 // Grand Final or Grand Final Reset, un-applies whatever automatic placement
 // it triggered. No-ops for a match that was never actually decided (and, by
 // extension, for a freeform pre-bracket-era match with no bracketSide at
-// all — the placement branch below just never matches).
-async function undoMatchEffects(match: any) {
+// all — the placement branch below just never matches). Exported for
+// undoMatchResult (graphql/resolvers/index.ts) — the narrower, non-cascading
+// replacement for the old deleteMatchWithCascade (removed; see this file's
+// git history) which was found to be silently breaking live brackets in
+// production. A terminal match (nothing downstream played yet, the only
+// case undoMatchResult ever calls this for) needs exactly this single
+// match's own effects reversed — no cascade, since by definition there's
+// nothing downstream to cascade into.
+export async function undoMatchEffects(match: any) {
   if (match.status !== "COMPLETED" || !match.winnerId) return;
 
   const loserId = match.winnerId.toString() === match.player1Id.toString() ? match.player2Id : match.player1Id;
@@ -1463,82 +1470,15 @@ async function undoMatchEffects(match: any) {
   }
 }
 
-// A completed Grand Final can spawn a Grand Final Reset (see
-// advanceBracketMatch above) -- that match is never wired into any other
-// match's nextMatchId chain, so it has to be cleaned up as a special case
-// whenever the Grand Final it depends on is deleted or cascade-invalidated.
-// Reverses its own effects first if it had already been played.
-async function removeGrandFinalReset(bracketId: any) {
-  const reset = await Match.findOne({ bracketId, bracketSide: "GRAND_FINAL_RESET" });
-  if (!reset) return;
-  await undoMatchEffects(reset);
-  await Match.findByIdAndDelete(reset._id);
-}
-
-// Recursively invalidates one player slot on a downstream match reached via
-// an upstream deletion/reset. If that match had already been played using
-// the now-invalid player, its own result is undone (stats, placement) and
-// the exact same treatment cascades into whatever ITS winner/loser had
-// already advanced to. If it hadn't been played yet, clearing the slot is
-// all there is to do -- the recursion simply stops.
-async function cascadeResetSlot(matchId: any, slotField: "player1Id" | "player2Id") {
-  const match = await Match.findById(matchId);
-  if (!match) return; // a dangling pointer here isn't fatal, just nothing to do
-
-  const wasDecided = match.status === "COMPLETED" && !!match.winnerId;
-
-  if (wasDecided) {
-    await undoMatchEffects(match);
-
-    if (match.nextMatchId) {
-      const field = match.nextMatchSlot === 1 ? "player1Id" : "player2Id";
-      await cascadeResetSlot(match.nextMatchId, field);
-    }
-    if (match.nextLoserMatchId) {
-      const field = match.nextLoserMatchSlot === 1 ? "player1Id" : "player2Id";
-      await cascadeResetSlot(match.nextLoserMatchId, field);
-    }
-    if (match.bracketSide === "GRAND_FINAL") {
-      await removeGrandFinalReset(match.bracketId);
-    }
-  }
-
-  await Match.findByIdAndUpdate(matchId, {
-    [slotField]: null,
-    winnerId: null,
-    isForfeit: false,
-    player1Score: 0,
-    player2Score: 0,
-    status: "PENDING",
-  });
-}
-
-// Deletes one match and cascades every consequence of that: undoes its own
-// result (if it had one), invalidates whatever it had already fed
-// downstream (however deep that chain goes), cleans up a Grand Final Reset
-// it may have spawned, and clears any OTHER match's now-dangling pointer at
-// this one -- so the bracket is left structurally valid, just with this
-// match's own position left empty. Works unchanged for a freeform (no
-// bracketId) match too -- every branch below is naturally a no-op when the
-// relevant field is unset, so it just falls through to a plain delete.
-export async function deleteMatchWithCascade(match: any) {
-  await undoMatchEffects(match);
-
-  if (match.nextMatchId) {
-    const field = match.nextMatchSlot === 1 ? "player1Id" : "player2Id";
-    await cascadeResetSlot(match.nextMatchId, field);
-  }
-  if (match.nextLoserMatchId) {
-    const field = match.nextLoserMatchSlot === 1 ? "player1Id" : "player2Id";
-    await cascadeResetSlot(match.nextLoserMatchId, field);
-  }
-  if (match.bracketSide === "GRAND_FINAL") {
-    await removeGrandFinalReset(match.bracketId);
-  }
-
-  // No other match should end up pointing at an ID that no longer exists.
-  await Match.updateMany({ nextMatchId: match._id }, { nextMatchId: null, nextMatchSlot: null });
-  await Match.updateMany({ nextLoserMatchId: match._id }, { nextLoserMatchId: null, nextLoserMatchSlot: null });
-
-  await Match.findByIdAndDelete(match._id);
-}
+// deleteMatchWithCascade (and its private helpers removeGrandFinalReset/
+// cascadeResetSlot) used to live here -- removed. It cascaded a delete
+// however deep a bracket's nextMatchId/nextLoserMatchId chain went, which
+// was found to be silently breaking live brackets in production (see the
+// Notion "Delete match is breaking brackets" writeup). Replaced entirely by
+// the narrower undoMatchResult mutation (graphql/resolvers/index.ts), which
+// only ever acts on a bracket's current terminal match (nothing downstream
+// played yet) and never deletes a Match document or touches any other
+// match's slots -- so there's no cascade left to have a bug in. Confirmed
+// nothing else in the codebase depended on the removed functions:
+// deletePools/deleteMainBracket/deleteBracket each do their own bulk
+// Match.deleteMany()-based cleanup, never this file's per-match cascade.

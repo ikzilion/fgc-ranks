@@ -38,6 +38,7 @@ const MATCH_FIELDS = `
   winner { id tag }
   nextMatch { id }
   nextLoserMatch { id }
+  canUndo
 `;
 
 const GET_TOURNAMENT = `

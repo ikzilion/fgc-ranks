@@ -268,6 +268,13 @@ export const typeDefs = `#graphql
     bracketPosition: Int
     nextMatch: Match
     nextLoserMatch: Match
+    # True only for a bracket's current terminal/last-played match: this
+    # match is COMPLETED and nothing it feeds (nextMatch/nextLoserMatch, or
+    # a Grand Final Reset it may have spawned) has itself been played yet.
+    # Gates the Undo button (undoMatchResult) — replaces the old per-match
+    # Delete action, which cascaded arbitrarily deep and was found to be
+    # breaking live brackets in production.
+    canUndo: Boolean!
   }
 
   type Bracket {
@@ -497,6 +504,12 @@ export const typeDefs = `#graphql
 
     reportResult(matchId: ID!, player1Score: Int, player2Score: Int, isForfeit: Boolean, forfeitingPlayerId: ID): Match!
     editMatchResult(matchId: ID!, player1Score: Int, player2Score: Int, isForfeit: Boolean, forfeitingPlayerId: ID): Match!
+    # Replaces the old deleteMatch — only ever valid on a bracket's current
+    # terminal match (Match.canUndo), so there's never anything to cascade.
+    # Clears this one match's own score/winner back to PENDING, reverses its
+    # win/loss stat effects, and un-applies any automatic placement it
+    # triggered (Grand Final/Reset) — a manually-set placement is untouched.
+    undoMatchResult(matchId: ID!): Match!
 
     # manualSeedOrder: MANUAL only — a ranked list (every entrant, no gaps).
     # manualSlotAssignment: MANUAL_BRACKET only — a literal Round-1 slot
@@ -550,7 +563,6 @@ export const typeDefs = `#graphql
     # Tournament.mainBracketId, without touching the pools themselves.
     deleteMainBracket(tournamentId: ID!): Boolean!
 
-    deleteMatch(id: ID!): Boolean!
     deleteTournament(id: ID!): Boolean!
     leaveTournament(entrantId: ID!): Boolean!
 

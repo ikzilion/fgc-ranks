@@ -19,6 +19,7 @@ interface BracketMatch {
   winner?: { id: string; tag: string } | null;
   nextMatch?: { id: string } | null;
   nextLoserMatch?: { id: string } | null;
+  canUndo?: boolean;
 }
 
 const SEEDING_LABELS: Record<string, string> = {

@@ -14,6 +14,10 @@ interface Match {
   player2Score: number;
   isForfeit?: boolean;
   winner?: { id: string; tag: string };
+  // True only for a bracket's current terminal match (nothing downstream
+  // played yet) — gates the Undo button below. See the schema/resolver
+  // comment on Match.canUndo for the full definition.
+  canUndo?: boolean;
 }
 
 export function ReportMatchButton({ match, canManage }: { match: Match; canManage: boolean }) {
@@ -98,21 +102,21 @@ export function ReportMatchButton({ match, canManage }: { match: Match; canManag
     setLoading(false);
   }
 
-  async function handleDelete() {
-    if (!confirm("Delete this match? This cannot be undone.")) return;
+  async function handleUndo() {
+    if (!confirm(`Undo this result? "${match.round}" will go back to unplayed, and its win/loss (and any placement it set) will be reversed.`)) return;
 
     try {
       const res = await fetch("/api/graphql", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          query: `mutation DeleteMatch($id: ID!) { deleteMatch(id: $id) }`,
-          variables: { id: match.id },
+          query: `mutation UndoMatchResult($matchId: ID!) { undoMatchResult(matchId: $matchId) { id status } }`,
+          variables: { matchId: match.id },
         }),
       });
       const json = await res.json();
       if (json.errors) {
-        alert(json.errors[0]?.message ?? "Failed to delete match");
+        alert(json.errors[0]?.message ?? "Failed to undo this result");
       } else {
         router.refresh();
       }
@@ -131,13 +135,15 @@ export function ReportMatchButton({ match, canManage }: { match: Match; canManag
         >
           {isEditing ? "Edit result" : "Report result"}
         </button>
-        <button
-          onClick={handleDelete}
-          className="text-[11px] font-semibold px-2 py-1 rounded"
-          style={{ background: "var(--coral-dim)", color: "var(--coral)", border: "1px solid rgba(255,77,77,0.2)", cursor: "pointer" }}
-        >
-          Delete
-        </button>
+        {match.canUndo && (
+          <button
+            onClick={handleUndo}
+            className="text-[11px] font-semibold px-2 py-1 rounded"
+            style={{ background: "var(--coral-dim)", color: "var(--coral)", border: "1px solid rgba(255,77,77,0.2)", cursor: "pointer" }}
+          >
+            Undo
+          </button>
+        )}
       </div>
 
       {open && (

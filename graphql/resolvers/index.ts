@@ -28,7 +28,7 @@ import {
 } from "@/lib/rateLimit";
 import { sendPasswordResetEmail, sendVerificationEmail, sendAccountDeletionEmail } from "@/lib/email";
 import { verifyTurnstileToken } from "@/lib/turnstile";
-import { buildDoubleEliminationBracket, resolveSeedOrder, validateManualSlotAssignment, advanceBracketMatch, nextPowerOfTwo, computeMainBracketSeedOrder, shuffle, SeedingMethod, deleteMatchWithCascade, MODEL_B_MIN_ENTRANTS, computeModelBInitialPoolCount, computeNextRepooledRound, buildFinalsCutoffBracket, extractPoolSurvivors, PoolSurvivors } from "@/lib/bracket";
+import { buildDoubleEliminationBracket, resolveSeedOrder, validateManualSlotAssignment, advanceBracketMatch, nextPowerOfTwo, computeMainBracketSeedOrder, shuffle, SeedingMethod, undoMatchEffects, MODEL_B_MIN_ENTRANTS, computeModelBInitialPoolCount, computeNextRepooledRound, buildFinalsCutoffBracket, extractPoolSurvivors, PoolSurvivors } from "@/lib/bracket";
 import { buildRoundRobinMatches, computeRoundRobinStandings } from "@/lib/roundRobin";
 import { getNextSequence } from "@/lib/counter";
 import { computeRankingPoints, computeRankingPointsForPlayers, computeGameRankingsForPlayer } from "@/lib/ranking";
@@ -2192,24 +2192,41 @@ export const resolvers = {
       return updated;
     },
 
-    // Deletes any single match -- including a bracket-linked one -- and
-    // cascades every consequence of that (undoing its own result, resetting
-    // whatever it had already fed downstream however deep that goes,
-    // cleaning up a Grand Final Reset it may have spawned, un-applying any
-    // automatic placement without touching a manual override). See
-    // lib/bracket.ts's deleteMatchWithCascade for the full reasoning; this
-    // used to hard-block any bracket match and point at deleteBracket
-    // instead, which is now only needed to wipe the whole bracket at once.
-    deleteMatch: async (_: unknown, { id }: { id: string }, { playerId, role }: { playerId?: string; role?: string }) => {
+    // Replaces the old deleteMatch/deleteMatchWithCascade (removed — its
+    // arbitrary-depth cascade was found to be silently breaking live
+    // brackets in production). Only ever valid on a bracket's current
+    // terminal match (see isMatchUndoable/Match.canUndo below) — nothing
+    // downstream has been played yet, so there's no cascade needed: just
+    // this one match's own score/winner back to PENDING, its win/loss
+    // effects reversed (undoMatchEffects, reused from lib/bracket.ts
+    // unchanged), and any automatic placement it triggered un-applied
+    // (also inside undoMatchEffects) without touching a manual override.
+    undoMatchResult: async (_: unknown, { matchId }: { matchId: string }, { playerId, role }: { playerId?: string; role?: string }) => {
       await connectToDatabase();
-      const match = await Match.findById(id);
-      if (!match) return false;
+      const match = await Match.findById(matchId);
+      if (!match) throw new Error("Match not found");
 
       const tournament = await Tournament.findById(match.tournamentId);
       if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
 
-      await deleteMatchWithCascade(match);
-      return true;
+      if (!match.bracketId) {
+        throw new Error("Undo is only available for bracket matches.");
+      }
+      if (match.status !== MatchStatus.COMPLETED) {
+        throw new Error("This match hasn't been reported yet — nothing to undo.");
+      }
+      // Same "nothing downstream played" gate editMatchResult already uses
+      // — throws with a specific reason if this isn't actually the
+      // bracket's current terminal match.
+      await assertBracketMatchEditable(match);
+
+      await undoMatchEffects(match);
+
+      return await Match.findByIdAndUpdate(
+        matchId,
+        { winnerId: null, isForfeit: false, player1Score: 0, player2Score: 0, status: MatchStatus.PENDING },
+        { new: true }
+      );
     },
 
     deleteTournament: async (
@@ -2776,6 +2793,21 @@ export const resolvers = {
       parent.nextMatchId ? await loaders.matchLoader.load(parent.nextMatchId.toString()) : null,
     nextLoserMatch: async (parent: { nextLoserMatchId?: string }, _args: unknown, { loaders }: { loaders: Loaders }) =>
       parent.nextLoserMatchId ? await loaders.matchLoader.load(parent.nextLoserMatchId.toString()) : null,
+    // Gates the Undo button — true only for a bracket match that's COMPLETED
+    // with nothing downstream played yet. Reuses assertBracketMatchEditable
+    // (the exact same "nothing downstream played" gate editMatchResult
+    // already enforces) rather than a second, possibly-drifting definition
+    // of the same structural check.
+    canUndo: async (parent: { bracketId?: string; status?: string }) => {
+      if (!parent.bracketId) return false;
+      if (parent.status !== MatchStatus.COMPLETED) return false;
+      try {
+        await assertBracketMatchEditable(parent);
+        return true;
+      } catch {
+        return false;
+      }
+    },
   },
 
   NewsPost: {

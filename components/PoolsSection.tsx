@@ -26,6 +26,7 @@ interface PoolBracketMatch {
   winner?: { id: string; tag: string } | null;
   nextMatch?: { id: string } | null;
   nextLoserMatch?: { id: string } | null;
+  canUndo?: boolean;
 }
 
 interface PoolEntrant {
