@@ -15,7 +15,6 @@ import { GenerateBracketButton } from "@/components/GenerateBracketButton";
 import { BracketView } from "@/components/BracketView";
 import { PoolsSection } from "@/components/PoolsSection";
 import { StreamAssetsButton } from "@/components/StreamAssetsButton";
-import { ScanToAddPlayerButton } from "@/components/ScanToAddPlayerButton";
 import { TabletModeButton } from "@/components/TabletModeButton";
 import { EditTournamentDetailsButton } from "@/components/EditTournamentDetailsButton";
 
@@ -397,15 +396,6 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                   canManage={canManage}
                   isRestricted={tournament.isRestricted}
                 />
-                <ScanToAddPlayerButton
-                  tournamentId={tournament.id}
-                  canManage={canManage}
-                  status={tournament.status}
-                />
-                <TabletModeButton
-                  tournamentId={tournament.id}
-                  canManage={canManage}
-                />
                 <StreamAssetsButton
                   tournamentId={tournament.id}
                   streamBackgroundUrl={tournament.streamBackgroundUrl}
@@ -436,6 +426,14 @@ export default async function TournamentDetailPage({ params }: { params: Promise
             <span className="font-rajdhani text-lg font-bold text-[var(--text-primary)]">Streamer Mode</span>
             <span className="text-[11px] text-[var(--text-secondary)]">Open the OBS broadcast view</span>
           </Link>
+
+          {/* Tablet/Phone Mode — same big-card treatment as Streamer Mode
+              right above, for matching visual prominence. Organizer/admin
+              only (unlike Streamer Mode's public broadcast view, this is a
+              real management surface — match reporting + adding entrants). */}
+          {canManage && (
+            <TabletModeButton tournamentId={tournament.id} canManage={canManage} />
+          )}
         </div>
       </div>
 

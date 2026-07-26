@@ -1,27 +1,47 @@
 // components/TabletModeButton.tsx
-// "Tablet Mode" — a touch-optimized match-reporting view for TOs running a
-// live event, especially the many-matches-at-once Pool play + top-cut
-// format. A toggleable full-screen overlay on the EXISTING tournament page
-// (not a separate route). Core flow: scan both players' Player ID QR codes
-// (the exact same html5-qrcode approach ScanToAddPlayerButton/QR-based
-// check-in already uses — same config, same pause/resume pattern,
-// deliberately not extracted into a shared component since the two flows
-// diverge enough downstream) to find their real PENDING match, then report
-// it via large touch targets. No new backend logic: match-finding and the
-// "ready to play" queue are pure client-side filters over the EXISTING
-// matches(tournamentId) query (already returns every match for a
-// tournament — standard bracket, pool matches, and pool-format main
-// bracket alike, all keyed by the same tournamentId, so no per-format
-// branching is needed here), and reporting reuses reportResult verbatim —
-// same mutation ReportMatchButton already calls. That component and the
-// rest of the normal (non-tablet) reporting UI are completely untouched.
+// "Tablet/Phone Mode" — a touch-optimized live-event view for TOs, with two
+// modes: Report match (scan both players' Player ID QR codes to find their
+// real PENDING match, then report it via large touch targets — optionally
+// through a Queue mode showing every ready-to-play match instead of
+// scanning) and Add player (the former standalone ScanToAddPlayerButton,
+// folded in here so a TO never has to leave the mode to seat a late
+// walk-up entrant — see the removal note below). Both share ONE QR-camera
+// implementation via lib/useQrScanner.ts instead of each rolling their own.
+//
+// No new backend logic anywhere: match-finding and the ready-to-play queue
+// are pure client-side filters over the EXISTING matches(tournamentId)
+// query (already returns every match for a tournament — standard bracket,
+// pool matches, and pool-format main bracket alike, all keyed by the same
+// tournamentId, no per-format branching needed); match-reporting reuses
+// reportResult verbatim (same mutation ReportMatchButton calls); adding a
+// player reuses addEntrantByOrganizer verbatim (same mutation the removed
+// ScanToAddPlayerButton called). ReportMatchButton.tsx and the rest of the
+// non-tablet UI are completely untouched.
+//
+// ScanToAddPlayerButton.tsx removed (not just superseded) now that its
+// exact capability lives inside Tablet/Phone Mode: keeping both would mean
+// two maintained UI entry points for the identical mutation and near-
+// identical scan UX, in an already-crowded organizer button row, with the
+// new in-overlay version being the more discoverable one anyway (it's part
+// of the same "run your live event from here" surface as match-reporting).
+//
+// The scanner container below is rendered in exactly ONE place, shared by
+// BOTH modes and both scan steps within Report mode — never two separate
+// JSX copies of it, even ones sharing the same id string. html5-qrcode
+// injects a live <video> into that exact DOM node; if two different JSX
+// locations each rendered their own copy (e.g. one per mode), React would
+// unmount/remount a brand-new node the instant `mode` (or the report
+// scan-p1/scan-p2 step) changes while the camera session's `active` flag
+// stays true across that change — silently killing the running camera,
+// since useQrScanner's effect has no reason to rerun when its own
+// dependencies haven't changed.
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Html5Qrcode } from "html5-qrcode";
+import { useQrScanner } from "@/lib/useQrScanner";
 
-const SCANNER_ELEMENT_ID = "tablet-mode-scanner";
+const SCANNER_ELEMENT_ID = "tablet-phone-mode-scanner";
 const RESULT_DISPLAY_MS = 2200;
 
 interface MatchSummary {
@@ -34,12 +54,20 @@ interface MatchSummary {
   player2: { id: string; tag: string } | null;
 }
 
-type Screen =
+type OverlayMode = "report" | "add-player";
+
+type ReportScreen =
   | { kind: "idle" } // shown content depends on queueModeOn: queue list, or the scan-player-1 prompt
   | { kind: "scan-p2"; player1: { id: string; tag: string } }
   | { kind: "match-not-found"; tagA: string; tagB: string }
   | { kind: "report"; match: MatchSummary }
   | { kind: "reported"; text: string };
+
+type AddPlayerScreen =
+  | { kind: "scanning" }
+  | { kind: "looking-up" }
+  | { kind: "success"; tag: string; alreadyEntered: boolean }
+  | { kind: "error"; message: string };
 
 const MATCHES_QUERY = `
   query TabletModeMatches($tournamentId: ID!) {
@@ -58,30 +86,49 @@ const MATCHES_QUERY = `
 export function TabletModeButton({ tournamentId, canManage }: { tournamentId: string; canManage: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<OverlayMode>("report");
   const [queueModeOn, setQueueModeOn] = useState(false);
-  const [screen, setScreen] = useState<Screen>({ kind: "idle" });
+  const [reportScreen, setReportScreen] = useState<ReportScreen>({ kind: "idle" });
+  const [addPlayerScreen, setAddPlayerScreen] = useState<AddPlayerScreen>({ kind: "scanning" });
   const [matches, setMatches] = useState<MatchSummary[]>([]);
   const [loadingMatches, setLoadingMatches] = useState(false);
   const [scanError, setScanError] = useState("");
 
-  // Read inside the QR decode callback via refs (not the `screen`/`matches`
-  // state directly) so the callback — created once per camera session by
-  // the effect below, which only reruns on open/scanningActive changes, not
-  // on every render — always sees the current step and the latest fetched
-  // matches instead of a stale closure from whenever the effect first ran
-  // (matters concretely: fetchMatches() resolves asynchronously right after
-  // the camera session starts).
-  const screenRef = useRef(screen);
-  screenRef.current = screen;
+  // Read inside the QR decode callback via refs (not the state directly) —
+  // the callback is created once per camera session by useQrScanner's
+  // effect, which only reruns when `cameraActive` flips, not on every
+  // render, so it needs a way to see the LATEST mode/screen/matches instead
+  // of whatever they were when that camera session started (matters
+  // concretely: fetchMatches() resolves asynchronously right after the
+  // session starts, and mode/reportScreen change between scans).
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const reportScreenRef = useRef(reportScreen);
+  reportScreenRef.current = reportScreen;
   const matchesRef = useRef(matches);
   matchesRef.current = matches;
 
-  const scannerRef = useRef<Html5Qrcode | null>(null);
-  const processingRef = useRef(false);
+  const readyMatches = matches.filter(m => m.status === "PENDING" && m.player1 && m.player2);
+
+  // Report mode only needs the camera during its two scan steps (idle
+  // without Queue mode, or scan-p2) — once it reaches match-not-found/
+  // report/reported it tears down, same as before. Add player mode keeps
+  // the camera running for its ENTIRE duration (matching the removed
+  // ScanToAddPlayerButton's own scoping exactly) — pause()/resume() alone
+  // handles "don't decode again while showing a result", no teardown
+  // between scans, so the camera box stays visibly live with just a result
+  // overlay on top for fast repeated walk-up check-ins.
+  const cameraActive = mode === "report" ? !queueModeOn && (reportScreen.kind === "idle" || reportScreen.kind === "scan-p2") : true;
+
+  const scanner = useQrScanner(
+    SCANNER_ELEMENT_ID,
+    open && cameraActive,
+    text => handleScanned(text),
+    () => setScanError("Couldn't access the camera. Check permissions and try again."),
+    mode // force a fresh session when switching Report match <-> Add player, even though cameraActive stays true across that switch
+  );
 
   if (!canManage) return null;
-
-  const readyMatches = matches.filter(m => m.status === "PENDING" && m.player1 && m.player2);
 
   async function fetchMatches() {
     setLoadingMatches(true);
@@ -101,66 +148,21 @@ export function TabletModeButton({ tournamentId, canManage }: { tournamentId: st
   }
 
   function openTabletMode() {
+    setMode("report");
     setQueueModeOn(false);
-    setScreen({ kind: "idle" });
+    setReportScreen({ kind: "idle" });
+    setAddPlayerScreen({ kind: "scanning" });
     setScanError("");
     setOpen(true);
     fetchMatches();
   }
 
-  function closeTabletMode() {
-    setOpen(false);
+  function switchMode(next: OverlayMode) {
+    setMode(next);
+    setScanError("");
+    setReportScreen({ kind: "idle" });
+    setAddPlayerScreen({ kind: "scanning" });
   }
-
-  // --- Camera: one continuous session across both scan steps -----------
-  const scanningActive = screen.kind === "idle" && !queueModeOn ? true : screen.kind === "scan-p2";
-
-  useEffect(() => {
-    if (!open || !scanningActive) return;
-
-    let cancelled = false;
-    const scanner = new Html5Qrcode(SCANNER_ELEMENT_ID);
-    scannerRef.current = scanner;
-
-    scanner
-      .start(
-        { facingMode: "environment" },
-        { fps: 10, qrbox: 250 },
-        decodedText => {
-          if (cancelled || processingRef.current) return;
-          processingRef.current = true;
-          scanner.pause(true);
-          handleScanned(decodedText.trim()).finally(() => {
-            processingRef.current = false;
-          });
-        },
-        () => {} // per-frame "nothing found" — expected, not an error
-      )
-      .catch(() => setScanError("Couldn't access the camera. Check permissions and try again."));
-
-    return () => {
-      cancelled = true;
-      const s = scannerRef.current;
-      scannerRef.current = null;
-      if (!s) return;
-      // clear() throws SYNCHRONOUSLY (not a rejected promise) if html5-qrcode's
-      // internal state doesn't agree this scanner has actually stopped yet —
-      // can happen here specifically because this component transitions
-      // screens (and so tears the camera down) immediately on a decode, right
-      // after pause(), a tighter race than a modal-close-driven teardown ever
-      // hits. Both stop() and clear() are wrapped so neither can ever throw
-      // uncaught into this effect's cleanup regardless of internal state.
-      const stopPromise = s.isScanning ? s.stop().catch(() => {}) : Promise.resolve();
-      stopPromise.then(() => {
-        try {
-          s.clear();
-        } catch {
-          // Already cleared, or never fully initialized -- fine either way.
-        }
-      });
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, scanningActive]);
 
   async function lookupPlayer(displayId: string): Promise<{ id: string; tag: string } | null> {
     const res = await fetch("/api/graphql", {
@@ -175,21 +177,33 @@ export function TabletModeButton({ tournamentId, canManage }: { tournamentId: st
     return json.data?.playerByDisplayId ?? null;
   }
 
-  async function handleScanned(decodedText: string) {
-    const currentScreen = screenRef.current;
+  // Returns the underlying promise (not fire-and-forget) — useQrScanner
+  // holds its re-entrancy guard until this actually settles, not just until
+  // this function returns, so a near-simultaneous decode of the same
+  // still-in-frame code can't slip through as a second "scan" before the
+  // lookup/processing for the first one has even finished.
+  function handleScanned(decodedText: string) {
+    if (modeRef.current === "add-player") {
+      return handleAddPlayerScanned(decodedText);
+    }
+    return handleReportScanned(decodedText);
+  }
+
+  async function handleReportScanned(decodedText: string) {
+    const currentScreen = reportScreenRef.current;
     const player = await lookupPlayer(decodedText);
     if (!player) {
       setScanError("QR code not recognized as a valid Player ID.");
       setTimeout(() => setScanError(""), RESULT_DISPLAY_MS);
-      scannerRef.current?.resume();
+      scanner.resume();
       return;
     }
 
     if (currentScreen.kind === "idle") {
       // First scan
       setScanError("");
-      setScreen({ kind: "scan-p2", player1: player });
-      scannerRef.current?.resume();
+      setReportScreen({ kind: "scan-p2", player1: player });
+      scanner.resume();
       return;
     }
 
@@ -202,10 +216,10 @@ export function TabletModeButton({ tournamentId, canManage }: { tournamentId: st
           (m.player1!.id === player.id && m.player2!.id === p1.id)
       );
       if (!match) {
-        setScreen({ kind: "match-not-found", tagA: p1.tag, tagB: player.tag });
+        setReportScreen({ kind: "match-not-found", tagA: p1.tag, tagB: player.tag });
         return;
       }
-      setScreen({ kind: "report", match });
+      setReportScreen({ kind: "report", match });
     }
   }
 
@@ -228,45 +242,133 @@ export function TabletModeButton({ tournamentId, canManage }: { tournamentId: st
       });
       const json = await res.json();
       if (json.errors) {
-        setScreen({ kind: "reported", text: json.errors[0]?.message ?? "Failed to report result." });
+        setReportScreen({ kind: "reported", text: json.errors[0]?.message ?? "Failed to report result." });
       } else {
         const winnerTag = json.data.reportResult.winner?.tag ?? "Winner";
         const loserTag = winnerId === match.player1!.id ? match.player2!.tag : match.player1!.tag;
         const [winScore, loseScore] = winnerId === match.player1!.id ? [p1Score, p2Score] : [p2Score, p1Score];
-        setScreen({ kind: "reported", text: `✓ ${winnerTag} defeats ${loserTag} (${winScore}-${loseScore})` });
+        setReportScreen({ kind: "reported", text: `✓ ${winnerTag} defeats ${loserTag} (${winScore}-${loseScore})` });
       }
     } catch {
-      setScreen({ kind: "reported", text: "Something went wrong. Try again." });
+      setReportScreen({ kind: "reported", text: "Something went wrong. Try again." });
     }
 
     router.refresh();
     await fetchMatches();
     setTimeout(() => {
-      setScreen({ kind: "idle" });
-      if (!queueModeOn) scannerRef.current?.resume();
+      setReportScreen({ kind: "idle" });
+    }, RESULT_DISPLAY_MS);
+  }
+
+  async function handleAddPlayerScanned(decodedText: string) {
+    setAddPlayerScreen({ kind: "looking-up" });
+
+    try {
+      const player = await lookupPlayer(decodedText);
+      if (!player) {
+        finishAddPlayer({ kind: "error", message: "QR code not recognized as a valid Player ID." });
+        return;
+      }
+
+      const res = await fetch("/api/graphql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: `
+            mutation AddEntrantByOrganizer($tournamentId: ID!, $playerId: ID!) {
+              addEntrantByOrganizer(tournamentId: $tournamentId, playerId: $playerId) {
+                alreadyEntered
+                entrant { id }
+              }
+            }
+          `,
+          variables: { tournamentId, playerId: player.id },
+        }),
+      });
+      const json = await res.json();
+      if (json.errors) {
+        finishAddPlayer({ kind: "error", message: json.errors[0]?.message ?? "Failed to add player." });
+        return;
+      }
+
+      finishAddPlayer({ kind: "success", tag: player.tag, alreadyEntered: json.data.addEntrantByOrganizer.alreadyEntered });
+    } catch {
+      finishAddPlayer({ kind: "error", message: "Something went wrong. Try again." });
+    }
+  }
+
+  function finishAddPlayer(result: AddPlayerScreen) {
+    setAddPlayerScreen(result);
+    router.refresh();
+    setTimeout(() => {
+      setAddPlayerScreen({ kind: "scanning" });
+      scanner.resume();
     }, RESULT_DISPLAY_MS);
   }
 
   return (
     <>
+      {/* Big/prominent entry point — same card pattern as the Streamer Mode
+          button next to it in the tournament header, not a small inline
+          button, so the two have matching visual weight. */}
       <button
         onClick={openTabletMode}
-        className="font-rajdhani text-[13px] font-bold tracking-wide px-3 py-1.5 rounded"
-        style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)", cursor: "pointer" }}
+        className="fgc-card p-6 sm:w-56 flex-shrink-0 flex flex-col items-center justify-center gap-2 text-center hover:bg-[var(--navy-3)] transition-colors"
+        style={{ cursor: "pointer" }}
       >
-        📱 Tablet Mode
+        <span className="text-4xl">📱</span>
+        <span className="font-rajdhani text-lg font-bold text-[var(--text-primary)]">Tablet/Phone Mode</span>
+        <span className="text-[11px] text-[var(--text-secondary)]">Report matches &amp; add players, touch-optimized</span>
       </button>
 
       {open && (
         <div className="fixed inset-0 z-[9999] flex flex-col" style={{ background: "var(--navy)" }}>
-          {/* Header — big, thumb-reachable controls: exit + the queue toggle */}
+          {/* Header row 1 — title + exit */}
+          <div className="flex items-center justify-between gap-3 px-4 pt-4 flex-shrink-0">
+            <h1 className="font-rajdhani text-2xl font-bold text-[var(--text-primary)]">📱 Tablet/Phone Mode</h1>
+            <button
+              onClick={() => setOpen(false)}
+              className="font-rajdhani text-[16px] font-bold px-4 py-3 rounded-lg"
+              style={{ background: "var(--coral-dim)", color: "var(--coral)", border: "1px solid rgba(255,77,77,0.3)", cursor: "pointer" }}
+            >
+              Exit
+            </button>
+          </div>
+
+          {/* Header row 2 — mode tabs + (Report mode only) Queue mode toggle */}
           <div className="flex items-center justify-between gap-3 p-4 flex-shrink-0" style={{ borderBottom: "1px solid var(--border-strong)" }}>
-            <h1 className="font-rajdhani text-2xl font-bold text-[var(--text-primary)]">📱 Tablet Mode</h1>
             <div className="flex items-center gap-3">
+              <button
+                onClick={() => switchMode("report")}
+                className="font-rajdhani text-[16px] font-bold px-4 py-3 rounded-lg"
+                style={{
+                  background: mode === "report" ? "var(--blue)" : "var(--navy-4)",
+                  color: mode === "report" ? "white" : "var(--text-secondary)",
+                  border: "1px solid var(--border-strong)",
+                  cursor: "pointer",
+                }}
+              >
+                🎮 Report match
+              </button>
+              <button
+                onClick={() => switchMode("add-player")}
+                className="font-rajdhani text-[16px] font-bold px-4 py-3 rounded-lg"
+                style={{
+                  background: mode === "add-player" ? "var(--blue)" : "var(--navy-4)",
+                  color: mode === "add-player" ? "white" : "var(--text-secondary)",
+                  border: "1px solid var(--border-strong)",
+                  cursor: "pointer",
+                }}
+              >
+                ➕ Add player
+              </button>
+            </div>
+
+            {mode === "report" && (
               <button
                 onClick={() => {
                   setQueueModeOn(v => !v);
-                  setScreen({ kind: "idle" });
+                  setReportScreen({ kind: "idle" });
                 }}
                 className="font-rajdhani text-[16px] font-bold px-4 py-3 rounded-lg"
                 style={{
@@ -278,38 +380,31 @@ export function TabletModeButton({ tournamentId, canManage }: { tournamentId: st
               >
                 Queue mode: {queueModeOn ? "ON" : "OFF"}
               </button>
-              <button
-                onClick={closeTabletMode}
-                className="font-rajdhani text-[16px] font-bold px-4 py-3 rounded-lg"
-                style={{ background: "var(--coral-dim)", color: "var(--coral)", border: "1px solid rgba(255,77,77,0.3)", cursor: "pointer" }}
-              >
-                Exit
-              </button>
-            </div>
+            )}
           </div>
 
           {/* Body */}
           <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center">
-            {screen.kind === "reported" && (
+            {/* Non-camera content — mutually exclusive with the shared
+                camera block below (cameraActive is false whenever one of
+                these is showing). */}
+            {mode === "report" && reportScreen.kind === "reported" && (
               <div className="flex-1 flex items-center justify-center w-full">
-                <p className="text-center font-rajdhani text-3xl font-bold" style={{ color: "var(--green)" }}>{screen.text}</p>
+                <p className="text-center font-rajdhani text-3xl font-bold" style={{ color: "var(--green)" }}>{reportScreen.text}</p>
               </div>
             )}
 
-            {screen.kind === "report" && (
-              <ReportScreen match={screen.match} onSubmit={submitResult} onCancel={() => setScreen({ kind: "idle" })} />
+            {mode === "report" && reportScreen.kind === "report" && (
+              <ReportScreenBody match={reportScreen.match} onSubmit={submitResult} onCancel={() => setReportScreen({ kind: "idle" })} />
             )}
 
-            {screen.kind === "match-not-found" && (
+            {mode === "report" && reportScreen.kind === "match-not-found" && (
               <div className="flex-1 flex flex-col items-center justify-center gap-6 w-full text-center">
                 <p className="font-rajdhani text-2xl font-bold" style={{ color: "var(--coral)" }}>
-                  No pending match found between {screen.tagA} and {screen.tagB}.
+                  No pending match found between {reportScreen.tagA} and {reportScreen.tagB}.
                 </p>
                 <button
-                  onClick={() => {
-                    setScreen({ kind: "idle" });
-                    scannerRef.current?.resume();
-                  }}
+                  onClick={() => setReportScreen({ kind: "idle" })}
                   className="font-rajdhani text-xl font-bold px-8 py-4 rounded-lg"
                   style={{ background: "var(--blue)", color: "white", border: "none", cursor: "pointer" }}
                 >
@@ -318,35 +413,59 @@ export function TabletModeButton({ tournamentId, canManage }: { tournamentId: st
               </div>
             )}
 
-            {screen.kind === "idle" && queueModeOn && (
-              <QueueScreen matches={readyMatches} loading={loadingMatches} onPick={m => setScreen({ kind: "report", match: m })} />
+            {mode === "report" && reportScreen.kind === "idle" && queueModeOn && (
+              <QueueScreen matches={readyMatches} loading={loadingMatches} onPick={m => setReportScreen({ kind: "report", match: m })} />
             )}
 
-            {/* One persistent container for both scan steps — NOT two
-                separate JSX blocks sharing the same id. html5-qrcode injects
-                a live <video> into this exact DOM node; if scan-p1 and
-                scan-p2 each rendered their own copy (even with the same id
-                string), React would unmount/remount a brand-new node on the
-                idle -> scan-p2 transition and silently kill the running
-                camera, since the session effect below has no reason to
-                rerun (scanningActive stays true across that transition). */}
-            {(screen.kind === "idle" && !queueModeOn) || screen.kind === "scan-p2" ? (
+            {/* THE one shared scanner block — see the file-level comment for
+                why this must never be duplicated across mode/screen JSX
+                branches. Label text and (add-player mode only) the result
+                overlay vary by mode/screen; the container itself doesn't. */}
+            {cameraActive && (
               <div className="w-full max-w-sm text-center">
-                {screen.kind === "scan-p2" ? (
-                  <>
-                    <p className="font-rajdhani text-2xl font-bold text-[var(--text-primary)] mb-1">✓ {screen.player1.tag}</p>
-                    <p className="font-rajdhani text-xl font-bold text-[var(--text-secondary)] mb-4">Now scan Player 2's QR code</p>
-                  </>
+                {mode === "report" ? (
+                  reportScreen.kind === "scan-p2" ? (
+                    <>
+                      <p className="font-rajdhani text-2xl font-bold text-[var(--text-primary)] mb-1">✓ {reportScreen.player1.tag}</p>
+                      <p className="font-rajdhani text-xl font-bold text-[var(--text-secondary)] mb-4">Now scan Player 2's QR code</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-rajdhani text-2xl font-bold text-[var(--text-primary)] mb-2">Scan Player 1's QR code</p>
+                      <p className="text-[13px] text-[var(--text-secondary)] mb-4">Then Player 2's — the match between them will be found automatically.</p>
+                    </>
+                  )
                 ) : (
                   <>
-                    <p className="font-rajdhani text-2xl font-bold text-[var(--text-primary)] mb-2">Scan Player 1's QR code</p>
-                    <p className="text-[13px] text-[var(--text-secondary)] mb-4">Then Player 2's — the match between them will be found automatically.</p>
+                    <p className="font-rajdhani text-2xl font-bold text-[var(--text-primary)] mb-2">Scan a player's QR code</p>
+                    <p className="text-[13px] text-[var(--text-secondary)] mb-4">
+                      Point the camera at a player's Player ID QR code (from their profile page) to add them to this tournament.
+                    </p>
                   </>
                 )}
-                <div id={SCANNER_ELEMENT_ID} className="rounded-lg overflow-hidden" style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)", minHeight: 280 }} />
+
+                <div className="relative rounded-lg overflow-hidden" style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)", minHeight: 280 }}>
+                  <div id={SCANNER_ELEMENT_ID} />
+
+                  {/* Add player mode keeps the camera box visible with a
+                      result overlay on top (matching the removed
+                      ScanToAddPlayerButton's exact UX) instead of leaving
+                      the screen entirely, for fast repeated check-ins. */}
+                  {mode === "add-player" && addPlayerScreen.kind !== "scanning" && (
+                    <div className="absolute inset-0 flex items-center justify-center text-center p-4" style={{ background: "rgba(10,14,26,0.92)" }}>
+                      {addPlayerScreen.kind === "looking-up" && <p className="text-[14px] text-[var(--text-secondary)]">Looking up player...</p>}
+                      {addPlayerScreen.kind === "success" && (
+                        <p className="font-rajdhani text-xl font-bold" style={{ color: addPlayerScreen.alreadyEntered ? "var(--gold)" : "var(--green)" }}>
+                          {addPlayerScreen.alreadyEntered ? `${addPlayerScreen.tag} is already entered.` : `✓ Added ${addPlayerScreen.tag}`}
+                        </p>
+                      )}
+                      {addPlayerScreen.kind === "error" && <p className="text-[14px]" style={{ color: "var(--coral)" }}>{addPlayerScreen.message}</p>}
+                    </div>
+                  )}
+                </div>
                 {scanError && <p className="mt-4 text-[14px] font-semibold" style={{ color: "var(--coral)" }}>{scanError}</p>}
               </div>
-            ) : null}
+            )}
           </div>
         </div>
       )}
@@ -392,7 +511,7 @@ function QueueScreen({ matches, loading, onPick }: { matches: MatchSummary[]; lo
 // is intentionally NOT duplicated here — the settled design describes
 // "pick winner, enter score" only; the normal ReportMatchButton flow still
 // covers the forfeit edge case if ever needed mid-event.
-function ReportScreen({
+function ReportScreenBody({
   match,
   onSubmit,
   onCancel,
