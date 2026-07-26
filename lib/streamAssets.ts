@@ -40,9 +40,10 @@ const RETENTION_CAP = 10;
 export async function recordStreamAssetUpload(
   organizerId: string,
   type: StreamAssetType,
-  url: string
+  url: string,
+  filename?: string | null
 ): Promise<void> {
-  await StreamAsset.create({ organizerId, type, url });
+  await StreamAsset.create({ organizerId, type, url, filename: filename ?? null });
 
   const all = await StreamAsset.find({ organizerId, type }).sort({ createdAt: -1 });
   if (all.length <= RETENTION_CAP) return;

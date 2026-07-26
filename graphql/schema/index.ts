@@ -293,6 +293,10 @@ export const typeDefs = `#graphql
     id: ID!
     type: String!
     url: String!
+    # The original filename the TO uploaded (e.g. "channels4_banner.jpg") --
+    # null for the handful of assets uploaded before this field existed,
+    # which have no way to recover their original name retroactively.
+    filename: String
     createdAt: Date!
   }
 

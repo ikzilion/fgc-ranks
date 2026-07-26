@@ -13,6 +13,7 @@ const DEFAULT_FONT_COLOR = "#f0f2ff"; // matches BracketView's player-tag text (
 interface StreamAssetOption {
   id: string;
   url: string;
+  filename: string | null;
   createdAt: string;
 }
 
@@ -22,7 +23,7 @@ async function fetchStreamAssets(type: "stream-bg" | "sponsor-banner"): Promise<
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        query: `query MyStreamAssets($type: String!) { myStreamAssets(type: $type) { id url createdAt } }`,
+        query: `query MyStreamAssets($type: String!) { myStreamAssets(type: $type) { id url filename createdAt } }`,
         variables: { type },
       }),
     });
@@ -37,13 +38,21 @@ async function fetchStreamAssets(type: "stream-bg" | "sponsor-banner"): Promise<
 // Upload/Change button (additive, doesn't replace it). Selecting a past
 // upload just sets the same confirmedUrl state a fresh upload would, so
 // everything downstream (preview thumbnail, Save) is identical either way.
+//
+// Label is the real uploaded filename when one was captured (every upload
+// going forward) — a handful of assets uploaded before that field existed
+// have no way to recover their original name retroactively, so those fall
+// back to a generic "{noun} N" label (most recent = 1) rather than the
+// unhelpful raw blob path or a date-only label.
 function AssetPickerDropdown({
   assets,
   currentUrl,
+  assetNoun,
   onPick,
 }: {
   assets: StreamAssetOption[];
   currentUrl: string;
+  assetNoun: string;
   onPick: (url: string) => void;
 }) {
   if (assets.length === 0) return null;
@@ -66,7 +75,7 @@ function AssetPickerDropdown({
       </option>
       {assets.map((a, i) => (
         <option key={a.id} value={a.url}>
-          {i === 0 ? "Most recent" : `Uploaded ${new Date(a.createdAt).toLocaleDateString()}`}
+          {a.filename ?? `${assetNoun} ${i + 1} (uploaded ${new Date(a.createdAt).toLocaleDateString()})`}
         </option>
       ))}
     </select>
@@ -462,7 +471,7 @@ export function StreamAssetsButton({
                       </button>
                     )}
                   </div>
-                  <AssetPickerDropdown assets={bgAssets} currentUrl={backgroundUrl} onPick={setBackgroundUrl} />
+                  <AssetPickerDropdown assets={bgAssets} currentUrl={backgroundUrl} assetNoun="Background" onPick={setBackgroundUrl} />
                 </div>
 
                 <div>
@@ -490,7 +499,7 @@ export function StreamAssetsButton({
                       </button>
                     )}
                   </div>
-                  <AssetPickerDropdown assets={bannerAssets} currentUrl={bannerUrl} onPick={setBannerUrl} />
+                  <AssetPickerDropdown assets={bannerAssets} currentUrl={bannerUrl} assetNoun="Banner" onPick={setBannerUrl} />
                 </div>
               </div>
               )}

@@ -21,6 +21,14 @@ const StreamAssetSchema = new Schema(
     organizerId: { type: Schema.Types.ObjectId, ref: "Player", required: true },
     type: { type: String, enum: Object.values(StreamAssetType), required: true },
     url: { type: String, required: true },
+    // The original filename the TO uploaded (e.g. "channels4_banner.jpg"),
+    // captured at upload time from the file input -- NOT the generated
+    // Vercel Blob pathname (which is Date.now()-prefixed and not meant to
+    // be human-readable). Optional since the 4 real assets that existed
+    // before this field was added have no way to recover their original
+    // name retroactively -- the picker dropdown falls back to a generic
+    // label for those (see components/StreamAssetsButton.tsx).
+    filename: { type: String, default: null },
   },
   { timestamps: true }
 );

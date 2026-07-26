@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     const organizerId = (session.user as any).playerId;
     if (organizerId) {
       await connectToDatabase();
-      await recordStreamAssetUpload(organizerId, type as StreamAssetType, blob.url);
+      await recordStreamAssetUpload(organizerId, type as StreamAssetType, blob.url, file.name);
     }
   }
 
