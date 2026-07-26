@@ -31,7 +31,7 @@ import { verifyTurnstileToken } from "@/lib/turnstile";
 import { buildDoubleEliminationBracket, resolveSeedOrder, validateManualSlotAssignment, advanceBracketMatch, nextPowerOfTwo, computeMainBracketSeedOrder, shuffle, SeedingMethod, undoMatchEffects, MODEL_B_MIN_ENTRANTS, computeModelBInitialPoolCount, computeNextRepooledRound, buildFinalsCutoffBracket, extractPoolSurvivors, PoolSurvivors } from "@/lib/bracket";
 import { buildRoundRobinMatches, computeRoundRobinStandings } from "@/lib/roundRobin";
 import { getNextSequence } from "@/lib/counter";
-import { computeRankingPoints, computeRankingPointsForPlayers, computeGameRankingsForPlayer } from "@/lib/ranking";
+import { computeRankingPoints, computeRankingPointsForPlayers, computeGameRankingsForPlayer, computeGameLeaderboard } from "@/lib/ranking";
 import { formatPlayerNumber } from "@/lib/playerId";
 import { Loaders } from "@/graphql/loaders";
 import { StreamAssetType } from "@/models/StreamAsset";
@@ -340,6 +340,25 @@ export const resolvers = {
       if (!playerId) return [];
       await connectToDatabase();
       return listStreamAssets(playerId, type as StreamAssetType);
+    },
+
+    // The full ranked leaderboard for one game (/games/[game]) — every
+    // player with an in-window result, not a top-N slice. Excludes
+    // soft-deleted players the same way Query.players does, BEFORE
+    // assigning rank, so rank stays contiguous (no gaps for a deleted
+    // player's old slot) rather than preserving gaps from the raw
+    // computation.
+    gameLeaderboard: async (_: unknown, { game }: { game: string }) => {
+      await connectToDatabase();
+      const leaderboard = await computeGameLeaderboard(game);
+      if (leaderboard.length === 0) return [];
+
+      const players = await Player.find({ _id: { $in: leaderboard.map(e => e.playerId) }, isDeleted: { $ne: true } });
+      const playerById = new Map(players.map((p: any) => [p._id.toString(), p]));
+
+      return leaderboard
+        .filter(e => playerById.has(e.playerId))
+        .map((e, i) => ({ player: playerById.get(e.playerId), points: e.points, rank: i + 1 }));
     },
 
     // Players

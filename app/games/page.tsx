@@ -1,7 +1,10 @@
 // app/games/page.tsx
 // Games browse page — curated games (plus any un-curated drift, see the
-// `games` resolver), each linking to the Tournaments list pre-filtered to
-// that game via TournamentSearchFilter's existing name/game/address search.
+// `games` resolver), each linking to its own dedicated /games/[game] page
+// (full ranked leaderboard + that game's live/upcoming tournaments). The
+// Tournaments list pre-filtered to a game via TournamentSearchFilter's
+// existing name/game/address search is untouched and still reachable —
+// /games/[game] itself links out to it ("Search {game} tournaments").
 
 import Link from "next/link";
 
@@ -58,7 +61,7 @@ export default async function GamesPage() {
           {games.map((game: any) => (
             <Link
               key={game.id}
-              href={`/tournaments?game=${encodeURIComponent(game.name)}`}
+              href={`/games/${encodeURIComponent(game.name)}`}
               className="fgc-card p-5 flex flex-col items-center gap-3 text-center hover:bg-[var(--navy-3)] transition-colors"
             >
               <div

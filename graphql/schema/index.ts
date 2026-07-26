@@ -103,6 +103,15 @@ export const typeDefs = `#graphql
     rank: Int!
   }
 
+  # One row of a specific game's full leaderboard (Query.gameLeaderboard) —
+  # rank is 1-indexed and contiguous among visible (non-soft-deleted)
+  # players only, same convention Query.players already uses.
+  type GameLeaderboardEntry {
+    player: Player!
+    points: Int!
+    rank: Int!
+  }
+
   type HeadToHead {
     opponent: Player!
     wins: Int!
@@ -337,6 +346,11 @@ export const typeDefs = `#graphql
     # Settings' picker dropdown) — type is "stream-bg" or "sponsor-banner".
     # Empty for a signed-out caller, same convention as myNotifications.
     myStreamAssets(type: String!): [StreamAsset!]!
+    # The FULL ranked leaderboard for one specific game — every player with
+    # an in-window result in that game (same 52-week window/best-10 cap as
+    # the combined system, see lib/ranking.ts's computeGameLeaderboard), not
+    # just a top-N slice. Powers /games/[game].
+    gameLeaderboard(game: String!): [GameLeaderboardEntry!]!
 
     players(limit: Int, offset: Int): [Player!]!
     player(id: ID!): Player

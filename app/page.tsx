@@ -2,11 +2,11 @@
 // Phase 2: full 3-column layout. Left = signed-in player's card (or a
 // sign-in prompt when logged out), center = the Phase 1 news feed
 // (unchanged, just repositioned), right = live/upcoming tournaments.
-import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { NewsPostForm } from "@/components/NewsPostForm";
 import { DeleteNewsPostButton } from "@/components/DeleteNewsPostButton";
 import { PlayerCard } from "@/components/PlayerCard";
+import { LiveUpcomingTournaments } from "@/components/LiveUpcomingTournaments";
 
 export const dynamic = "force-dynamic";
 
@@ -85,47 +85,10 @@ async function getHomeData(playerId?: string) {
   }
 }
 
-function compactBadge(status: string) {
-  if (status === "LIVE")
-    return (
-      <span className="badge-live text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0">
-        <span className="live-dot" /> Live
-      </span>
-    );
-  return <span className="badge-upcoming text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded flex-shrink-0">Upcoming</span>;
-}
-
-function TournamentRow({ tournament }: { tournament: any }) {
-  return (
-    <Link
-      href={`/tournaments/${tournament.id}`}
-      className="flex items-center justify-between gap-2 px-3 py-2.5 rounded hover:bg-[var(--navy-3)] transition-colors"
-    >
-      <div className="min-w-0">
-        <p className="font-rajdhani text-[14px] font-bold text-[var(--text-primary)] truncate leading-tight">{tournament.name}</p>
-        <p className="text-[11px] text-[var(--text-secondary)] truncate">{tournament.game} · {tournament.entrantCount} entrants</p>
-      </div>
-      {compactBadge(tournament.status)}
-    </Link>
-  );
-}
-
 export default async function Home() {
   const session = await auth();
   const playerId = (session?.user as any)?.playerId ?? undefined;
   const { newsPosts: posts, tournaments, player } = await getHomeData(playerId);
-
-  const liveTournaments = tournaments.filter((t: any) => t.status === "LIVE").slice(0, 5);
-  // The underlying `tournaments` query sorts startDate descending (most
-  // recently-created-or-dated first) — right for a general listing, but
-  // wrong for "what's coming up": that order surfaces the farthest-out
-  // upcoming tournaments first instead of the soonest one. Re-sort
-  // ascending here before capping to 5, so this section reads
-  // chronologically (soonest first) regardless of the base query's order.
-  const upcomingTournaments = tournaments
-    .filter((t: any) => t.status === "UPCOMING")
-    .sort((a: any, b: any) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
-    .slice(0, 5);
 
   return (
     <main className="max-w-6xl mx-auto px-4 py-8">
@@ -169,38 +132,8 @@ export default async function Home() {
         </div>
 
         {/* RIGHT — live/upcoming tournaments */}
-        <div className="sm:col-span-1 order-3 flex flex-col gap-4">
-          <div>
-            <h2 className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Live now</h2>
-            <div className="fgc-card">
-              {liveTournaments.length === 0 && (
-                <p className="p-4 text-[12px] text-[var(--text-secondary)]">No live tournaments.</p>
-              )}
-              {liveTournaments.map((t: any) => (
-                <TournamentRow key={t.id} tournament={t} />
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <h2 className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Upcoming</h2>
-            <div className="fgc-card">
-              {upcomingTournaments.length === 0 && (
-                <p className="p-4 text-[12px] text-[var(--text-secondary)]">No upcoming tournaments.</p>
-              )}
-              {upcomingTournaments.map((t: any) => (
-                <TournamentRow key={t.id} tournament={t} />
-              ))}
-            </div>
-          </div>
-
-          <Link
-            href="/tournaments"
-            className="block text-center text-[12px] font-semibold py-2 rounded"
-            style={{ background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)" }}
-          >
-            View all tournaments
-          </Link>
+        <div className="sm:col-span-1 order-3">
+          <LiveUpcomingTournaments tournaments={tournaments} viewAllHref="/tournaments" />
         </div>
       </div>
     </main>

@@ -135,6 +135,37 @@ export interface GameRanking {
   rank: number;
 }
 
+// Every player with an in-window, ended, unrestricted entrant in a
+// tournament of the given game, ranked by their game-specific points —
+// the FULL leaderboard for that game (every real player, not just top N;
+// the caller decides if/how to trim it). This is the one place that
+// discovers "who's actually relevant to this game" and scores them
+// (via computeRankingPointsForPlayers's `game` filter) — both the new
+// /games/[game] leaderboard page and computeGameRankingsForPlayer (below,
+// the per-player profile section) call this directly rather than each
+// re-deriving the relevant-player set and re-scoring it their own way.
+export async function computeGameLeaderboard(game: string): Promise<{ playerId: string; points: number }[]> {
+  await connectToDatabase();
+  const now = Date.now();
+
+  const gameTournaments = await Tournament.find({ game, status: "ENDED", isRestricted: { $ne: true } })
+    .select("_id startDate")
+    .lean();
+  const inWindowTournamentIds = (gameTournaments as any[])
+    .filter(t => now - new Date(t.startDate).getTime() <= ROLLING_WINDOW_MS)
+    .map(t => t._id);
+  if (inWindowTournamentIds.length === 0) return [];
+
+  const gameEntrants = await Entrant.find({ tournamentId: { $in: inWindowTournamentIds } }).select("playerId").lean();
+  const relevantPlayerIds = [...new Set((gameEntrants as any[]).map(e => e.playerId.toString()))];
+  if (relevantPlayerIds.length === 0) return [];
+
+  const pointsByPlayer = await computeRankingPointsForPlayers(relevantPlayerIds, game);
+  return relevantPlayerIds
+    .map(playerId => ({ playerId, points: pointsByPlayer.get(playerId) ?? 0 }))
+    .sort((a, b) => b.points - a.points);
+}
+
 // Every game a player has entered — no minimum-tournament threshold, so a
 // game with just 1 counted result still gets a real entry.
 export async function computeGameRankingsForPlayer(playerId: string): Promise<GameRanking[]> {
@@ -157,22 +188,9 @@ export async function computeGameRankingsForPlayer(playerId: string): Promise<Ga
 
   const results: GameRanking[] = [];
   for (const game of gamesEntered) {
-    // Every other player with an in-window, ended, unrestricted entrant in
-    // a tournament of this same game — the pool this player's rank is
-    // computed against.
-    const gameTournaments = await Tournament.find({ game, status: "ENDED", isRestricted: { $ne: true } })
-      .select("_id startDate")
-      .lean();
-    const inWindowTournamentIds = (gameTournaments as any[])
-      .filter(t => now - new Date(t.startDate).getTime() <= ROLLING_WINDOW_MS)
-      .map(t => t._id);
-    const gameEntrants = await Entrant.find({ tournamentId: { $in: inWindowTournamentIds } }).select("playerId").lean();
-    const relevantPlayerIds = [...new Set((gameEntrants as any[]).map(e => e.playerId.toString()))];
-
-    const pointsByPlayer = await computeRankingPointsForPlayers(relevantPlayerIds, game);
-    const sorted = [...relevantPlayerIds].sort((a, b) => (pointsByPlayer.get(b) ?? 0) - (pointsByPlayer.get(a) ?? 0));
-    const rank = sorted.indexOf(playerId) + 1;
-    const points = pointsByPlayer.get(playerId) ?? 0;
+    const leaderboard = await computeGameLeaderboard(game);
+    const rank = leaderboard.findIndex(e => e.playerId === playerId) + 1;
+    const points = leaderboard.find(e => e.playerId === playerId)?.points ?? 0;
     results.push({ game, points, rank });
   }
 

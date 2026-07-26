@@ -21,6 +21,12 @@
 // TEST 4: best-10 cap and 52-week window (unchanged by this task) still
 // work correctly with scaled point values -- an 11th otherwise-countable
 // result doesn't get counted, confirming no regression from this change.
+// TEST 6: computeGameLeaderboard/Query.gameLeaderboard (the /games/[game]
+// full leaderboard) -- 3 real players with different real point totals in
+// a unique test-only game are returned fully ranked and sorted, a
+// soft-deleted player is excluded from the GraphQL resolver's result with
+// rank staying contiguous (no gap) for the ones after them, and a game with
+// zero real players returns an empty list rather than erroring.
 //
 // Run: npx tsx scripts/testRankingPoints.mjs
 
@@ -53,7 +59,8 @@ const { User } = await import("../models/User");
 const { Player } = await import("../models/Player");
 const { Tournament } = await import("../models/Tournament");
 const { Entrant } = await import("../models/Entrant");
-const { pointsForPlacement, scaledPointsForPlacement, computeRankingPoints, computeGameRankingsForPlayer } = await import("../lib/ranking");
+const { pointsForPlacement, scaledPointsForPlacement, computeRankingPoints, computeGameRankingsForPlayer, computeGameLeaderboard } = await import("../lib/ranking");
+const { resolvers } = await import("../graphql/resolvers/index");
 
 let failures = 0;
 function assert(cond, label) {
@@ -263,6 +270,88 @@ async function main() {
     const capTekken = capPlayerGameRankings.find(g => g.game === "RankingTestIsolatedGameTekken");
     assert(capSf6.points === 1000, `SF6-only best-10 cap (11 real SF6 results) -> exactly 1000 independently of Tekken (got ${capSf6?.points})`);
     assert(capTekken.points === 1000, `Tekken-only best-10 cap (11 real Tekken results) -> exactly 1000 independently of SF6 (got ${capTekken?.points})`);
+
+    console.log("\n=== TEST 6: computeGameLeaderboard / Query.gameLeaderboard (/games/[game] full leaderboard) ===");
+
+    // 3 real players, 3 different real point totals, all in one unique
+    // test-only game -- confirms computeGameLeaderboard returns every real
+    // player who entered, fully ranked and sorted by points descending.
+    const lbPlayer1 = await makeTestPlayer("GameLbPlayer1");
+    createdPlayerTags.push("GameLbPlayer1");
+    const lbT1 = await makeEndedTournament(organizer._id, "Ranking Test Leaderboard 1st", 16, "RankingTestIsolatedGameLeaderboard");
+    createdTournamentIds.push(lbT1._id);
+    await Entrant.create({ playerId: lbPlayer1._id, tournamentId: lbT1._id, placement: 1 });
+
+    const lbPlayer2 = await makeTestPlayer("GameLbPlayer2");
+    createdPlayerTags.push("GameLbPlayer2");
+    const lbT2 = await makeEndedTournament(organizer._id, "Ranking Test Leaderboard 2nd", 16, "RankingTestIsolatedGameLeaderboard");
+    createdTournamentIds.push(lbT2._id);
+    await Entrant.create({ playerId: lbPlayer2._id, tournamentId: lbT2._id, placement: 2 });
+
+    const lbPlayer3 = await makeTestPlayer("GameLbPlayer3");
+    createdPlayerTags.push("GameLbPlayer3");
+    const lbT3 = await makeEndedTournament(organizer._id, "Ranking Test Leaderboard 3rd", 16, "RankingTestIsolatedGameLeaderboard");
+    createdTournamentIds.push(lbT3._id);
+    await Entrant.create({ playerId: lbPlayer3._id, tournamentId: lbT3._id, placement: 3 });
+
+    const lbGame = "RankingTestIsolatedGameLeaderboard";
+    const rawLeaderboard = await computeGameLeaderboard(lbGame);
+    assert(rawLeaderboard.length === 3, `computeGameLeaderboard returns exactly the 3 real players who entered (got ${rawLeaderboard.length})`);
+    assert(
+      rawLeaderboard[0].playerId === lbPlayer1._id.toString() && rawLeaderboard[0].points === 100,
+      `Leaderboard[0] is the Winner (100pts) (got ${rawLeaderboard[0]?.points})`
+    );
+    assert(
+      rawLeaderboard[1].playerId === lbPlayer2._id.toString() && rawLeaderboard[1].points === 60,
+      `Leaderboard[1] is the Runner-up (60pts) (got ${rawLeaderboard[1]?.points})`
+    );
+    assert(
+      rawLeaderboard[2].playerId === lbPlayer3._id.toString() && rawLeaderboard[2].points === 35,
+      `Leaderboard[2] is 3rd place (35pts) (got ${rawLeaderboard[2]?.points})`
+    );
+
+    // The GraphQL resolver itself -- real player objects, contiguous 1-indexed
+    // rank, sorted the same way.
+    const resolvedLb = await resolvers.Query.gameLeaderboard(null, { game: lbGame });
+    assert(resolvedLb.length === 3, `Query.gameLeaderboard resolver returns 3 entries (got ${resolvedLb.length})`);
+    assert(
+      resolvedLb[0].rank === 1 && resolvedLb[0].points === 100 && resolvedLb[0].player.tag === "GameLbPlayer1",
+      `Resolver rank #1 is GameLbPlayer1 with 100pts (got rank ${resolvedLb[0]?.rank}, ${resolvedLb[0]?.points}pts, ${resolvedLb[0]?.player?.tag})`
+    );
+    assert(
+      resolvedLb[1].rank === 2 && resolvedLb[1].points === 60 && resolvedLb[1].player.tag === "GameLbPlayer2",
+      `Resolver rank #2 is GameLbPlayer2 with 60pts (got rank ${resolvedLb[1]?.rank}, ${resolvedLb[1]?.points}pts, ${resolvedLb[1]?.player?.tag})`
+    );
+    assert(
+      resolvedLb[2].rank === 3 && resolvedLb[2].points === 35 && resolvedLb[2].player.tag === "GameLbPlayer3",
+      `Resolver rank #3 is GameLbPlayer3 with 35pts (got rank ${resolvedLb[2]?.rank}, ${resolvedLb[2]?.points}pts, ${resolvedLb[2]?.player?.tag})`
+    );
+
+    // Soft-delete the #2 player -- the resolver must exclude them (matching
+    // Query.players' isDeleted convention) AND close the rank gap so #3
+    // becomes #2, not stay #3 with a hole left behind.
+    await Player.findByIdAndUpdate(lbPlayer2._id, { isDeleted: true });
+    const resolvedLbAfterDelete = await resolvers.Query.gameLeaderboard(null, { game: lbGame });
+    assert(resolvedLbAfterDelete.length === 2, `After soft-deleting GameLbPlayer2, resolver returns 2 entries, not 3 (got ${resolvedLbAfterDelete.length})`);
+    assert(
+      !resolvedLbAfterDelete.some(e => e.player.tag === "GameLbPlayer2"),
+      "Soft-deleted GameLbPlayer2 is excluded from the resolver's result"
+    );
+    assert(
+      resolvedLbAfterDelete[0].rank === 1 && resolvedLbAfterDelete[0].player.tag === "GameLbPlayer1",
+      `Rank #1 unaffected by the deletion further down the list (got ${resolvedLbAfterDelete[0]?.rank}, ${resolvedLbAfterDelete[0]?.player?.tag})`
+    );
+    assert(
+      resolvedLbAfterDelete[1].rank === 2 && resolvedLbAfterDelete[1].player.tag === "GameLbPlayer3",
+      `GameLbPlayer3 moved up to contiguous rank #2 (no gap left for the deleted #2) (got ${resolvedLbAfterDelete[1]?.rank}, ${resolvedLbAfterDelete[1]?.player?.tag})`
+    );
+
+    // A game nobody has ever entered -- must return an empty list, not throw.
+    const emptyGame = "RankingTestIsolatedGameEmpty";
+    const emptyRaw = await computeGameLeaderboard(emptyGame);
+    assert(Array.isArray(emptyRaw) && emptyRaw.length === 0, `computeGameLeaderboard for a game with zero real players returns [] (got ${JSON.stringify(emptyRaw)})`);
+    const emptyResolved = await resolvers.Query.gameLeaderboard(null, { game: emptyGame });
+    assert(Array.isArray(emptyResolved) && emptyResolved.length === 0, `Query.gameLeaderboard resolver for a game with zero real players returns [] (got ${JSON.stringify(emptyResolved)})`);
 
     console.log(`\n${failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURE(S)`}`);
   } finally {
