@@ -241,7 +241,7 @@ export function CreateEventButton() {
                 file's top comment) — visible to its creator/managers, but
                 left out of /events and Event-ID lookup until an admin
                 approves it via the review queue. */}
-            <p className="text-[11px] text-[var(--text-muted)] mb-4">
+            <p className="text-[13px] font-bold text-[var(--text-muted)] mb-4">
               Your event will need admin approval before it's posted publicly.
             </p>
 
