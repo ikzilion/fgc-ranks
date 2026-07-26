@@ -341,6 +341,21 @@ export default async function TournamentDetailPage({ params }: { params: Promise
               <div className="flex items-center gap-3">
                 {statusBadge(tournament.status)}
                 <TournamentStatusButton tournamentId={tournament.id} status={tournament.status} canManage={canManage} />
+                {/* Post-tournament results screen — distinct from the
+                    in-progress Top 24/Top 8 filtered bracket-view tabs
+                    (those apply DURING a Model A/C main bracket while it's
+                    still narrowing). Only shown once the tournament has
+                    actually ended, since that's when real final placements
+                    exist to show. */}
+                {tournament.status === "ENDED" && (
+                  <Link
+                    href={`/tournaments/${tournament.id}/results`}
+                    className="text-[11px] font-semibold px-3 py-1.5 rounded"
+                    style={{ background: "var(--gold-dim)", color: "var(--gold)", border: "1px solid rgba(240,180,41,0.25)" }}
+                  >
+                    🏆 Top 8 Results
+                  </Link>
+                )}
                 <JoinTournamentButton
                   tournamentId={tournament.id}
                   isEntered={tournament.isEntered}
