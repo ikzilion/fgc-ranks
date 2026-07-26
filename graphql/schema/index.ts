@@ -402,6 +402,11 @@ export const typeDefs = `#graphql
     login(email: String!, password: String!): AuthPayload!
     requestPasswordReset(email: String!): Boolean!
     resetPassword(token: String!, newPassword: String!): Boolean!
+    # Self-service password change for an already-logged-in player who still
+    # remembers their current password — distinct from the token-based
+    # requestPasswordReset/resetPassword flow above (that one's for locked-out
+    # users). Re-verifies currentPassword before applying newPassword.
+    changePassword(currentPassword: String!, newPassword: String!): Boolean!
     verifyEmail(token: String!): Boolean!
     # Same anti-enumeration convention as requestPasswordReset — always
     # returns true regardless of whether the email exists or is already verified.

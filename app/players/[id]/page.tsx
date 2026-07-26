@@ -8,6 +8,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { auth } from "@/lib/auth";
 import { isAdminOrAbove } from "@/lib/roles";
 import { EditProfileButton } from "@/components/EditProfileButton";
+import { ChangePasswordButton } from "@/components/ChangePasswordButton";
 import { DeletePlayerButton } from "@/components/DeletePlayerButton";
 import { DeleteAccountButton } from "@/components/DeleteAccountButton";
 import { HeadToHeadSection } from "@/components/HeadToHeadSection";
@@ -187,6 +188,7 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
                     currentAvatarUrl={player.avatarUrl}
                     currentTeam={player.team}
                   />
+                  <ChangePasswordButton playerId={player.id} />
                   <DeleteAccountButton playerId={player.id} />
                 </>
               )}
