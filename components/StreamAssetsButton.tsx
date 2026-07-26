@@ -10,6 +10,69 @@ const DEFAULT_LINE_COLOR = "#3a4066"; // matches BracketView's var(--border-stro
 const DEFAULT_BOX_COLOR = "#13162a"; // matches BracketView's .fgc-card background (var(--navy-2))
 const DEFAULT_FONT_COLOR = "#f0f2ff"; // matches BracketView's player-tag text (var(--text-primary))
 
+interface StreamAssetOption {
+  id: string;
+  url: string;
+  createdAt: string;
+}
+
+async function fetchStreamAssets(type: "stream-bg" | "sponsor-banner"): Promise<StreamAssetOption[]> {
+  try {
+    const res = await fetch("/api/graphql", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: `query MyStreamAssets($type: String!) { myStreamAssets(type: $type) { id url createdAt } }`,
+        variables: { type },
+      }),
+    });
+    const json = await res.json();
+    return json.data?.myStreamAssets ?? [];
+  } catch {
+    return [];
+  }
+}
+
+// The reusable-library picker dropdown — sits alongside the existing
+// Upload/Change button (additive, doesn't replace it). Selecting a past
+// upload just sets the same confirmedUrl state a fresh upload would, so
+// everything downstream (preview thumbnail, Save) is identical either way.
+function AssetPickerDropdown({
+  assets,
+  currentUrl,
+  onPick,
+}: {
+  assets: StreamAssetOption[];
+  currentUrl: string;
+  onPick: (url: string) => void;
+}) {
+  if (assets.length === 0) return null;
+  // The currently-applied URL might not be one of the listed past uploads
+  // (e.g. still the placeholder empty string, or a fresh upload not yet
+  // reflected in the fetched list) — in that case nothing should appear
+  // pre-selected, so the dropdown doesn't silently relabel an unrelated URL.
+  const matchesCurrent = assets.some(a => a.url === currentUrl);
+  return (
+    <select
+      value={matchesCurrent ? currentUrl : ""}
+      onChange={e => {
+        if (e.target.value) onPick(e.target.value);
+      }}
+      className="text-[12px] px-2 py-2 rounded w-full mt-2"
+      style={{ background: "var(--navy-3)", color: "var(--text-primary)", border: "1px solid var(--border-strong)" }}
+    >
+      <option value="" disabled>
+        Pick from previous uploads ({assets.length})
+      </option>
+      {assets.map((a, i) => (
+        <option key={a.id} value={a.url}>
+          {i === 0 ? "Most recent" : `Uploaded ${new Date(a.createdAt).toLocaleDateString()}`}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 // One react-colorful picker + draft-state-until-Save + OK/Cancel-per-picker
 // widget, shared by all three bracket color pickers below so their behavior
 // can't drift from each other — see the "Bracket connector line color"
@@ -145,6 +208,12 @@ export function StreamAssetsButton({
   const [uploadingBanner, setUploadingBanner] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // The TO's reusable library (models/StreamAsset.ts) for each asset type —
+  // fetched fresh every time the modal opens, and re-fetched after a new
+  // upload succeeds so a just-uploaded image shows up in its own dropdown
+  // immediately, without needing to close and reopen the modal.
+  const [bgAssets, setBgAssets] = useState<StreamAssetOption[]>([]);
+  const [bannerAssets, setBannerAssets] = useState<StreamAssetOption[]>([]);
 
   if (!canManage) return null;
 
@@ -159,6 +228,10 @@ export function StreamAssetsButton({
     setDraftFontColor(bracketFontColor || DEFAULT_FONT_COLOR);
     setError("");
     setOpen(true);
+    if (!isRestricted) {
+      fetchStreamAssets("stream-bg").then(setBgAssets);
+      fetchStreamAssets("sponsor-banner").then(setBannerAssets);
+    }
   }
 
   // Explicitly discard any in-progress edits (background/banner/colors) back
@@ -210,7 +283,12 @@ export function StreamAssetsButton({
     }
     setUploadingBg(true);
     const url = await uploadImage(file, "stream-bg");
-    if (url) setBackgroundUrl(url);
+    if (url) {
+      setBackgroundUrl(url);
+      // The upload route already recorded this into the library server-side
+      // (lib/streamAssets.ts) — refetch so the dropdown includes it right away.
+      fetchStreamAssets("stream-bg").then(setBgAssets);
+    }
     setUploadingBg(false);
   }
 
@@ -225,7 +303,10 @@ export function StreamAssetsButton({
     }
     setUploadingBanner(true);
     const url = await uploadImage(file, "sponsor-banner");
-    if (url) setBannerUrl(url);
+    if (url) {
+      setBannerUrl(url);
+      fetchStreamAssets("sponsor-banner").then(setBannerAssets);
+    }
     setUploadingBanner(false);
   }
 
@@ -381,6 +462,7 @@ export function StreamAssetsButton({
                       </button>
                     )}
                   </div>
+                  <AssetPickerDropdown assets={bgAssets} currentUrl={backgroundUrl} onPick={setBackgroundUrl} />
                 </div>
 
                 <div>
@@ -408,6 +490,7 @@ export function StreamAssetsButton({
                       </button>
                     )}
                   </div>
+                  <AssetPickerDropdown assets={bannerAssets} currentUrl={bannerUrl} onPick={setBannerUrl} />
                 </div>
               </div>
               )}

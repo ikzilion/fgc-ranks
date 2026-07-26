@@ -4,6 +4,9 @@ import { put } from "@vercel/blob";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { maxUploadBytes, formatMaxSizeLabel } from "@/lib/uploadLimits";
+import { connectToDatabase } from "@/lib/db";
+import { StreamAssetType } from "@/models/StreamAsset";
+import { recordStreamAssetUpload } from "@/lib/streamAssets";
 
 // SVG is deliberately excluded — it can embed <script> and would execute if
 // the blob URL is ever opened directly rather than used as an <img> source.
@@ -60,6 +63,22 @@ export async function POST(request: NextRequest) {
   const blob = await put(filename, file, {
     access: "public",
   });
+
+  // Stream backgrounds/sponsor banners: record every upload into the
+  // uploading TO's reusable library (models/StreamAsset.ts), regardless of
+  // whether they end up actually applying it this session -- the whole
+  // point is "uploaded once, reusable later" (see lib/streamAssets.ts).
+  // This is also the ONLY place a blob of these two types ever gets
+  // deleted going forward (the retention-cap eviction inside
+  // recordStreamAssetUpload) -- scoped to just these two types per this
+  // task; avatar/logo/icon uploads are a separate, out-of-scope flow.
+  if (type === "stream-bg" || type === "sponsor-banner") {
+    const organizerId = (session.user as any).playerId;
+    if (organizerId) {
+      await connectToDatabase();
+      await recordStreamAssetUpload(organizerId, type as StreamAssetType, blob.url);
+    }
+  }
 
   return NextResponse.json({ url: blob.url });
 }

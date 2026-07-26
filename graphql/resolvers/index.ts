@@ -34,6 +34,8 @@ import { getNextSequence } from "@/lib/counter";
 import { computeRankingPoints, computeRankingPointsForPlayers } from "@/lib/ranking";
 import { formatPlayerNumber } from "@/lib/playerId";
 import { Loaders } from "@/graphql/loaders";
+import { StreamAssetType } from "@/models/StreamAsset";
+import { listStreamAssets } from "@/lib/streamAssets";
 import { formatEventNumber } from "@/lib/eventId";
 import { NextRequest } from "next/server";
 
@@ -332,6 +334,12 @@ export const resolvers = {
       if (!playerId) return 0;
       await connectToDatabase();
       return Notification.countDocuments({ playerId, read: false });
+    },
+
+    myStreamAssets: async (_: unknown, { type }: { type: string }, { playerId }: { playerId?: string }) => {
+      if (!playerId) return [];
+      await connectToDatabase();
+      return listStreamAssets(playerId, type as StreamAssetType);
     },
 
     // Players

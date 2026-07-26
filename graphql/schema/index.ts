@@ -284,6 +284,18 @@ export const typeDefs = `#graphql
     createdAt: Date!
   }
 
+  # A TO's reusable stream-background/sponsor-banner library (see
+  # models/StreamAsset.ts) — shared across every tournament they organize,
+  # not per-tournament. type is "stream-bg" or "sponsor-banner", matching
+  # the existing /api/upload route's own type values exactly (no separate
+  # enum to keep in sync between two parallel naming schemes).
+  type StreamAsset {
+    id: ID!
+    type: String!
+    url: String!
+    createdAt: Date!
+  }
+
   type NewsPost {
     id: ID!
     title: String!
@@ -296,6 +308,10 @@ export const typeDefs = `#graphql
   type Query {
     myNotifications: [Notification!]!
     unreadNotificationCount: Int!
+    # The calling player's own reusable stream-asset library (Stream
+    # Settings' picker dropdown) — type is "stream-bg" or "sponsor-banner".
+    # Empty for a signed-out caller, same convention as myNotifications.
+    myStreamAssets(type: String!): [StreamAsset!]!
 
     players(limit: Int, offset: Int): [Player!]!
     player(id: ID!): Player
