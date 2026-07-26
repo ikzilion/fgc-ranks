@@ -34,6 +34,9 @@ const GET_GAME_PAGE = `
       entrantCount
       startDate
     }
+    games {
+      name
+    }
   }
 `;
 
@@ -49,22 +52,36 @@ async function getGamePageData(game: string) {
     const json = await res.json();
     if (json.errors) {
       console.error("[games/[game]] GraphQL errors:", json.errors);
-      return { leaderboard: [], tournaments: [] };
+      return { leaderboard: [], tournaments: [], games: [] };
     }
-    return { leaderboard: json.data?.gameLeaderboard ?? [], tournaments: json.data?.tournaments ?? [] };
+    return {
+      leaderboard: json.data?.gameLeaderboard ?? [],
+      tournaments: json.data?.tournaments ?? [],
+      games: json.data?.games ?? [],
+    };
   } catch (err) {
     console.error("[games/[game]] Fetch error:", err);
-    return { leaderboard: [], tournaments: [] };
+    return { leaderboard: [], tournaments: [], games: [] };
   }
 }
 
 export default async function GamePage({ params }: { params: Promise<{ game: string }> }) {
   const { game: rawGame } = await params;
   const game = decodeURIComponent(rawGame);
-  const { leaderboard, tournaments } = await getGamePageData(game);
+  const { leaderboard, tournaments, games } = await getGamePageData(game);
   const gameTournaments = tournaments.filter((t: any) => t.game === game);
 
-  if (leaderboard.length === 0 && gameTournaments.length === 0) notFound();
+  // A real game (curated, or an un-curated "orphan" that at least one real
+  // Tournament.game value matches — see the `games` resolver) can
+  // legitimately have zero ranked players and zero VISIBLE tournaments right
+  // now (e.g. its only tournament is a stale zero-entrant UPCOMING one,
+  // excluded from Query.tournaments' general browse list but still counted
+  // in Game.tournamentCount on the /games grid tile that links here) — that's
+  // an empty state, not a 404. Only 404 when the name matches no real game
+  // at all, which is what actually distinguishes a real-but-empty game page
+  // from a typo'd/guessed URL.
+  const gameExists = games.some((g: any) => g.name === game);
+  if (!gameExists) notFound();
 
   return (
     <main className="max-w-6xl mx-auto px-4 py-8">
