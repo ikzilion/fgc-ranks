@@ -16,6 +16,11 @@ const EntrantSchema = new Schema(
     // it re-runs later (e.g. an editMatchResult correction on the Grand
     // Final re-triggers advancement).
     placementSetManually: { type: Boolean, default: false },
+    // Day-of attendance confirmation, distinct from joining — set once by
+    // checkInEntrant (self or TO/admin), never cleared. A timestamp rather
+    // than a plain boolean since arrival order is useful to a TO reviewing
+    // who's actually shown up, not just a yes/no.
+    checkedInAt: { type: Date },
   },
   { timestamps: true }
 );

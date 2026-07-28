@@ -258,6 +258,12 @@ export const typeDefs = `#graphql
     tournament: Tournament!
     seed: Int
     placement: Int
+    # Day-of attendance confirmation — set by checkInEntrant (self or TO/
+    # admin), null until then. Distinct from having joined at all
+    # (Tournament.entrants already includes everyone who's joined,
+    # checked in or not); a TO reviews who's missing before generating the
+    # bracket, see Query behavior around bracket generation on the client.
+    checkedInAt: Date
   }
 
   # addEntrantByOrganizer's return shape — distinct from Entrant! (what
@@ -268,6 +274,14 @@ export const typeDefs = `#graphql
   type AddEntrantResult {
     entrant: Entrant!
     alreadyEntered: Boolean!
+  }
+
+  # checkInEntrant's return shape — same "tell a no-op apart from a real
+  # change" reasoning as AddEntrantResult, so the QR-scan check-in flow can
+  # show "already checked in" instead of a misleading fresh-success message.
+  type CheckInResult {
+    entrant: Entrant!
+    alreadyCheckedIn: Boolean!
   }
 
   type Match {
@@ -554,6 +568,15 @@ export const typeDefs = `#graphql
     # PRIVATE-tournament invite check — an organizer manually adding someone
     # is already the authority over their own roster, invite or not.
     addEntrantByOrganizer(tournamentId: ID!, playerId: ID!): AddEntrantResult!
+    # Day-of attendance confirmation, before bracket seeding — distinct from
+    # joining. Self check-in (playerId must match the caller) or TO/admin
+    # check-in on an entrant's behalf (manual toggle in the entrant list, or
+    # the QR-scan "Check in" mode in Tablet/Phone Mode — both reuse this
+    # same mutation, no separate self/TO variants). No-shows are never
+    # auto-removed; generateBracket still runs regardless of who has or
+    # hasn't checked in — the client-side warning list before generating is
+    # purely advisory, the TO decides case-by-case via removeEntrant.
+    checkInEntrant(tournamentId: ID!, playerId: ID!): CheckInResult!
     setPlacement(entrantId: ID!, placement: Int!): Entrant!
     # Resets placement back to fully unset AND clears placementSetManually —
     # see clearPlacement's resolver comment for why the flag is reset too,

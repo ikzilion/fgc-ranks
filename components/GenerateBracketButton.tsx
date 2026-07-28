@@ -8,6 +8,7 @@ import { ManualBracketSlotSeeder } from "@/components/ManualBracketSlotSeeder";
 interface EntrantOption {
   id: string;
   player: { id: string; tag: string };
+  checkedInAt?: string | null;
 }
 
 // MANUAL_BRACKET is intentionally distinct from MANUAL — MANUAL is a
@@ -55,6 +56,11 @@ export function GenerateBracketButton({
   if (!canManage) return null;
 
   const unplacedCount = entrants.length - manualSlots.filter(Boolean).length;
+  // Purely advisory, never blocks Generate — see the checkInEntrant schema
+  // comment. The TO decides case-by-case whether to remove a no-show
+  // (RemoveEntrantButton, in the entrant list) before generating; this
+  // component doesn't filter or auto-exclude anyone on its own.
+  const notCheckedIn = entrants.filter(e => !e.checkedInAt);
 
   function openModal() {
     setManualOrder(entrants);
@@ -177,6 +183,21 @@ export function GenerateBracketButton({
           >
             <h2 className="font-rajdhani text-xl font-bold text-[var(--text-primary)] mb-1">Generate bracket</h2>
             <p className="text-[12px] text-[var(--text-secondary)] mb-4">Double elimination, {entrants.length} entrants.</p>
+
+            {/* Advisory only -- doesn't block or filter Generate below. Gold
+                (caution), not coral (error/destructive) -- not checking in
+                isn't a failure state, just something worth a second look. */}
+            {notCheckedIn.length > 0 && (
+              <div
+                className="mb-4 px-3 py-2.5 rounded-md text-[12px]"
+                style={{ background: "var(--gold-dim)", color: "var(--gold)", border: "1px solid rgba(240,180,41,0.25)" }}
+              >
+                <p className="font-semibold mb-1">
+                  {notCheckedIn.length} {notCheckedIn.length === 1 ? "entrant hasn't" : "entrants haven't"} checked in yet:
+                </p>
+                <p>{notCheckedIn.map(e => e.player.tag).join(", ")}</p>
+              </div>
+            )}
 
             <div className="mb-4">
               <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Seeding method</label>

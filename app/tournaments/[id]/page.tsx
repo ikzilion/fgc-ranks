@@ -11,6 +11,8 @@ import { ManageOrganizersButton } from "@/components/ManageOrganizersButton";
 import { InvitePlayerButton } from "@/components/InvitePlayerButton";
 import { RemoveEntrantButton } from "@/components/RemoveEntrantButton";
 import { SetPlacementButton } from "@/components/SetPlacementButton";
+import { CheckInToggleButton } from "@/components/CheckInToggleButton";
+import { SelfCheckInButton } from "@/components/SelfCheckInButton";
 import { GenerateBracketButton } from "@/components/GenerateBracketButton";
 import { BracketView } from "@/components/BracketView";
 import { PoolsSection } from "@/components/PoolsSection";
@@ -89,6 +91,7 @@ const GET_TOURNAMENT = `
         id
         seed
         placement
+        checkedInAt
         player {
           id
           tag
@@ -251,10 +254,25 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                         {entrant.placement === 1 ? "🏆 Champion" : `${entrant.placement}th place`}
                       </p>
                     )}
+                    {/* Visible to everyone, not just canManage — a spectator
+                        or the entrant themselves benefits from seeing this
+                        too, not only the TO. The actionable toggle below
+                        (canManage-only) is separate from this passive
+                        status line. */}
+                    {entrant.checkedInAt && (
+                      <p className="text-[11px]" style={{ color: "var(--green)" }}>✓ Checked in</p>
+                    )}
                   </div>
                 </Link>
                 {canManage && (
                   <div className="flex items-center gap-2 flex-wrap">
+                    <CheckInToggleButton
+                      tournamentId={tournament.id}
+                      playerId={entrant.player.id}
+                      checkedInAt={entrant.checkedInAt}
+                      canManage={canManage}
+                      status={tournament.status}
+                    />
                     <SetPlacementButton entrantId={entrant.id} placement={entrant.placement} canManage={canManage} />
                     <RemoveEntrantButton entrantId={entrant.id} playerTag={entrant.player.tag} canManage={canManage} status={tournament.status} />
                   </div>
@@ -378,6 +396,19 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                   visibility={tournament.visibility}
                   isInvited={tournament.isInvited}
                 />
+                {/* Self check-in — only once actually entered (myEntrant
+                    exists); TO/admin check-in on someone else's behalf is a
+                    separate control down in the entrant list
+                    (CheckInToggleButton) and Tablet/Phone Mode's QR-scan
+                    "Check in" mode, both reusing the same mutation. */}
+                {tournament.isEntered && myEntrant && (
+                  <SelfCheckInButton
+                    tournamentId={tournament.id}
+                    playerId={playerId!}
+                    checkedInAt={myEntrant.checkedInAt}
+                    status={tournament.status}
+                  />
+                )}
               </div>
             </div>
             {canManage && (

@@ -1545,6 +1545,41 @@ export const resolvers = {
       return { entrant, alreadyEntered: false };
     },
 
+    // Self check-in (isSelf) or TO/admin check-in on someone else's behalf
+    // (isManager) — same isSelf-OR-isManager shape as leaveTournament, not
+    // addEntrantByOrganizer's manager-only shape, since unlike adding an
+    // entrant this is legitimately something the entrant does for
+    // themselves. Idempotent: checking in an already-checked-in entrant
+    // doesn't overwrite their original checkedInAt (arrival order stays
+    // meaningful), it just reports alreadyCheckedIn: true.
+    checkInEntrant: async (
+      _: unknown,
+      { tournamentId, playerId }: { tournamentId: string; playerId: string },
+      { playerId: callerPlayerId, role }: { playerId?: string; role?: string }
+    ) => {
+      await connectToDatabase();
+      const tournament = await Tournament.findById(tournamentId);
+      if (!tournament) throw new Error("Tournament not found");
+
+      const isSelf = callerPlayerId === playerId;
+      const isManager = isOrganizer(tournament, callerPlayerId, role);
+      if (!isSelf && !isManager) throw new Error("Not authorized");
+
+      if (tournament.status === "ENDED" || tournament.status === "CANCELLED") {
+        throw new Error("Cannot check in to a tournament that has already ended or was cancelled");
+      }
+
+      const entrant = await Entrant.findOne({ tournamentId, playerId });
+      if (!entrant) throw new Error("This player hasn't joined this tournament yet.");
+
+      if (entrant.checkedInAt) {
+        return { entrant, alreadyCheckedIn: true };
+      }
+
+      const updated = await Entrant.findByIdAndUpdate(entrant._id, { checkedInAt: new Date() }, { new: true });
+      return { entrant: updated, alreadyCheckedIn: false };
+    },
+
     setPlacement: async (
       _: unknown,
       { entrantId, placement }: { entrantId: string; placement: number },

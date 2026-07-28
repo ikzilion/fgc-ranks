@@ -1,12 +1,15 @@
 // components/TabletModeButton.tsx
-// "Tablet/Phone Mode" — a touch-optimized live-event view for TOs, with two
-// modes: Report match (scan both players' Player ID QR codes to find their
-// real PENDING match, then report it via large touch targets — optionally
-// through a Queue mode showing every ready-to-play match instead of
-// scanning) and Add player (the former standalone ScanToAddPlayerButton,
+// "Tablet/Phone Mode" — a touch-optimized live-event view for TOs, with
+// three modes: Report match (scan both players' Player ID QR codes to find
+// their real PENDING match, then report it via large touch targets —
+// optionally through a Queue mode showing every ready-to-play match instead
+// of scanning), Add player (the former standalone ScanToAddPlayerButton,
 // folded in here so a TO never has to leave the mode to seat a late
-// walk-up entrant — see the removal note below). Both share ONE QR-camera
-// implementation via lib/useQrScanner.ts instead of each rolling their own.
+// walk-up entrant — see the removal note below), and Check in (day-of
+// attendance confirmation via checkInEntrant — the entrant-list manual
+// toggle, CheckInToggleButton, is the no-scanner-handy alternative to this
+// same mutation). All three share ONE QR-camera implementation via
+// lib/useQrScanner.ts instead of each rolling their own.
 //
 // No new backend logic anywhere: match-finding and the ready-to-play queue
 // are pure client-side filters over the EXISTING matches(tournamentId)
@@ -15,8 +18,10 @@
 // tournamentId, no per-format branching needed); match-reporting reuses
 // reportResult verbatim (same mutation ReportMatchButton calls); adding a
 // player reuses addEntrantByOrganizer verbatim (same mutation the removed
-// ScanToAddPlayerButton called). ReportMatchButton.tsx and the rest of the
-// non-tablet UI are completely untouched.
+// ScanToAddPlayerButton called); checking in reuses checkInEntrant verbatim
+// (same mutation SelfCheckInButton/CheckInToggleButton call, just with the
+// scanned player's id instead of the caller's own). ReportMatchButton.tsx
+// and the rest of the non-tablet UI are completely untouched.
 //
 // ScanToAddPlayerButton.tsx removed (not just superseded) now that its
 // exact capability lives inside Tablet/Phone Mode: keeping both would mean
@@ -54,7 +59,7 @@ interface MatchSummary {
   player2: { id: string; tag: string } | null;
 }
 
-type OverlayMode = "report" | "add-player";
+type OverlayMode = "report" | "add-player" | "check-in";
 
 type ReportScreen =
   | { kind: "idle" } // shown content depends on queueModeOn: queue list, or the scan-player-1 prompt
@@ -67,6 +72,12 @@ type AddPlayerScreen =
   | { kind: "scanning" }
   | { kind: "looking-up" }
   | { kind: "success"; tag: string; alreadyEntered: boolean }
+  | { kind: "error"; message: string };
+
+type CheckInScreen =
+  | { kind: "scanning" }
+  | { kind: "looking-up" }
+  | { kind: "success"; tag: string; alreadyCheckedIn: boolean }
   | { kind: "error"; message: string };
 
 const MATCHES_QUERY = `
@@ -90,6 +101,7 @@ export function TabletModeButton({ tournamentId, canManage }: { tournamentId: st
   const [queueModeOn, setQueueModeOn] = useState(false);
   const [reportScreen, setReportScreen] = useState<ReportScreen>({ kind: "idle" });
   const [addPlayerScreen, setAddPlayerScreen] = useState<AddPlayerScreen>({ kind: "scanning" });
+  const [checkInScreen, setCheckInScreen] = useState<CheckInScreen>({ kind: "scanning" });
   const [matches, setMatches] = useState<MatchSummary[]>([]);
   const [loadingMatches, setLoadingMatches] = useState(false);
   const [scanError, setScanError] = useState("");
@@ -152,6 +164,7 @@ export function TabletModeButton({ tournamentId, canManage }: { tournamentId: st
     setQueueModeOn(false);
     setReportScreen({ kind: "idle" });
     setAddPlayerScreen({ kind: "scanning" });
+    setCheckInScreen({ kind: "scanning" });
     setScanError("");
     setOpen(true);
     fetchMatches();
@@ -162,6 +175,7 @@ export function TabletModeButton({ tournamentId, canManage }: { tournamentId: st
     setScanError("");
     setReportScreen({ kind: "idle" });
     setAddPlayerScreen({ kind: "scanning" });
+    setCheckInScreen({ kind: "scanning" });
   }
 
   async function lookupPlayer(displayId: string): Promise<{ id: string; tag: string } | null> {
@@ -185,6 +199,9 @@ export function TabletModeButton({ tournamentId, canManage }: { tournamentId: st
   function handleScanned(decodedText: string) {
     if (modeRef.current === "add-player") {
       return handleAddPlayerScanned(decodedText);
+    }
+    if (modeRef.current === "check-in") {
+      return handleCheckInScanned(decodedText);
     }
     return handleReportScanned(decodedText);
   }
@@ -306,6 +323,52 @@ export function TabletModeButton({ tournamentId, canManage }: { tournamentId: st
     }, RESULT_DISPLAY_MS);
   }
 
+  async function handleCheckInScanned(decodedText: string) {
+    setCheckInScreen({ kind: "looking-up" });
+
+    try {
+      const player = await lookupPlayer(decodedText);
+      if (!player) {
+        finishCheckIn({ kind: "error", message: "QR code not recognized as a valid Player ID." });
+        return;
+      }
+
+      const res = await fetch("/api/graphql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: `
+            mutation TabletCheckInEntrant($tournamentId: ID!, $playerId: ID!) {
+              checkInEntrant(tournamentId: $tournamentId, playerId: $playerId) {
+                alreadyCheckedIn
+                entrant { id }
+              }
+            }
+          `,
+          variables: { tournamentId, playerId: player.id },
+        }),
+      });
+      const json = await res.json();
+      if (json.errors) {
+        finishCheckIn({ kind: "error", message: json.errors[0]?.message ?? "Failed to check in." });
+        return;
+      }
+
+      finishCheckIn({ kind: "success", tag: player.tag, alreadyCheckedIn: json.data.checkInEntrant.alreadyCheckedIn });
+    } catch {
+      finishCheckIn({ kind: "error", message: "Something went wrong. Try again." });
+    }
+  }
+
+  function finishCheckIn(result: CheckInScreen) {
+    setCheckInScreen(result);
+    router.refresh();
+    setTimeout(() => {
+      setCheckInScreen({ kind: "scanning" });
+      scanner.resume();
+    }, RESULT_DISPLAY_MS);
+  }
+
   return (
     <>
       {/* Big/prominent entry point — same card pattern as the Streamer Mode
@@ -361,6 +424,18 @@ export function TabletModeButton({ tournamentId, canManage }: { tournamentId: st
                 }}
               >
                 ➕ Add player
+              </button>
+              <button
+                onClick={() => switchMode("check-in")}
+                className="font-rajdhani text-[16px] font-bold px-4 py-3 rounded-lg"
+                style={{
+                  background: mode === "check-in" ? "var(--blue)" : "var(--navy-4)",
+                  color: mode === "check-in" ? "white" : "var(--text-secondary)",
+                  border: "1px solid var(--border-strong)",
+                  cursor: "pointer",
+                }}
+              >
+                ✅ Check in
               </button>
             </div>
 
@@ -419,8 +494,9 @@ export function TabletModeButton({ tournamentId, canManage }: { tournamentId: st
 
             {/* THE one shared scanner block — see the file-level comment for
                 why this must never be duplicated across mode/screen JSX
-                branches. Label text and (add-player mode only) the result
-                overlay vary by mode/screen; the container itself doesn't. */}
+                branches. Label text and (add-player/check-in modes only)
+                the result overlay vary by mode/screen; the container itself
+                doesn't. */}
             {cameraActive && (
               <div className="w-full max-w-sm text-center">
                 {mode === "report" ? (
@@ -435,11 +511,18 @@ export function TabletModeButton({ tournamentId, canManage }: { tournamentId: st
                       <p className="text-[13px] text-[var(--text-secondary)] mb-4">Then Player 2's — the match between them will be found automatically.</p>
                     </>
                   )
-                ) : (
+                ) : mode === "add-player" ? (
                   <>
                     <p className="font-rajdhani text-2xl font-bold text-[var(--text-primary)] mb-2">Scan a player's QR code</p>
                     <p className="text-[13px] text-[var(--text-secondary)] mb-4">
                       Point the camera at a player's Player ID QR code (from their profile page) to add them to this tournament.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-rajdhani text-2xl font-bold text-[var(--text-primary)] mb-2">Scan a player's QR code</p>
+                    <p className="text-[13px] text-[var(--text-secondary)] mb-4">
+                      Point the camera at a player's Player ID QR code to confirm they've checked in.
                     </p>
                   </>
                 )}
@@ -460,6 +543,21 @@ export function TabletModeButton({ tournamentId, canManage }: { tournamentId: st
                         </p>
                       )}
                       {addPlayerScreen.kind === "error" && <p className="text-[14px]" style={{ color: "var(--coral)" }}>{addPlayerScreen.message}</p>}
+                    </div>
+                  )}
+
+                  {/* Check in mode — same "keep the camera visible with a
+                      result overlay on top" UX as Add player, for fast
+                      repeated check-ins at the door. */}
+                  {mode === "check-in" && checkInScreen.kind !== "scanning" && (
+                    <div className="absolute inset-0 flex items-center justify-center text-center p-4" style={{ background: "rgba(10,14,26,0.92)" }}>
+                      {checkInScreen.kind === "looking-up" && <p className="text-[14px] text-[var(--text-secondary)]">Looking up player...</p>}
+                      {checkInScreen.kind === "success" && (
+                        <p className="font-rajdhani text-xl font-bold" style={{ color: checkInScreen.alreadyCheckedIn ? "var(--gold)" : "var(--green)" }}>
+                          {checkInScreen.alreadyCheckedIn ? `${checkInScreen.tag} already checked in.` : `✓ Checked in ${checkInScreen.tag}`}
+                        </p>
+                      )}
+                      {checkInScreen.kind === "error" && <p className="text-[14px]" style={{ color: "var(--coral)" }}>{checkInScreen.message}</p>}
                     </div>
                   )}
                 </div>
