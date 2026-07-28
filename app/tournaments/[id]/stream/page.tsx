@@ -39,6 +39,8 @@ const GET_STREAM_TOURNAMENT = `
       format
       streamBackgroundUrl
       sponsorBannerUrl
+      sponsorBannerUrls
+      sponsorBannerIntervalSeconds
       bracketLineColor
       bracketBoxColor
       bracketFontColor

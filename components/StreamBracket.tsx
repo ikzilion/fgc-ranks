@@ -36,6 +36,8 @@ const GET_STREAM_TOURNAMENT = `
       format
       streamBackgroundUrl
       sponsorBannerUrl
+      sponsorBannerUrls
+      sponsorBannerIntervalSeconds
       bracketLineColor
       bracketBoxColor
       bracketFontColor
@@ -86,6 +88,8 @@ interface StreamTournament {
   format?: string | null;
   streamBackgroundUrl?: string | null;
   sponsorBannerUrl?: string | null;
+  sponsorBannerUrls?: string[] | null;
+  sponsorBannerIntervalSeconds?: number | null;
   bracketLineColor?: string | null;
   bracketBoxColor?: string | null;
   bracketFontColor?: string | null;
@@ -239,6 +243,33 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
 
   const hasBackground = !!tournament.streamBackgroundUrl;
 
+  // Sponsor banner slideshow — 2+ entries in sponsorBannerUrls rotates on
+  // the TO-configured interval; 0 or 1 entries falls back to rendering the
+  // single sponsorBannerUrl statically, exactly as before this feature
+  // existed (see models/Tournament.ts). Joined to a string for the effect's
+  // dependency array since the array itself is a fresh reference every poll
+  // even when its contents haven't changed.
+  const bannerUrls =
+    tournament.sponsorBannerUrls && tournament.sponsorBannerUrls.length > 0
+      ? tournament.sponsorBannerUrls
+      : tournament.sponsorBannerUrl
+        ? [tournament.sponsorBannerUrl]
+        : [];
+  const bannerUrlsKey = bannerUrls.join("|");
+  const [bannerIndex, setBannerIndex] = useState(0);
+  useEffect(() => {
+    if (bannerUrls.length < 2) return;
+    const intervalMs = Math.max(1, tournament.sponsorBannerIntervalSeconds || 8) * 1000;
+    const id = setInterval(() => {
+      setBannerIndex(i => (i + 1) % bannerUrls.length);
+    }, intervalMs);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bannerUrlsKey, tournament.sponsorBannerIntervalSeconds]);
+  // Clamp defensively — bannerUrls can shrink between polls (e.g. a banner
+  // removed from the slideshow) while bannerIndex is mid-rotation.
+  const activeBannerUrl = bannerUrls.length > 0 ? bannerUrls[bannerIndex % bannerUrls.length] : null;
+
   // Pool play + top-cut format only — a TO needs to put an individual
   // pool's bracket on stream during the pool stage, before the main bracket
   // even exists, not just the main/standard bracket. Selection is local
@@ -365,16 +396,19 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
         }}
       />
 
-      {tournament.sponsorBannerUrl && (
+      {activeBannerUrl && (
         // Sticky (not fixed) so it stays anchored to the top of the viewport
         // as the bracket scrolls beneath it, without needing to know the
         // page's height or take it out of normal flow — a broadcast overlay's
         // sponsor placement needs to stay visible throughout the stream.
+        // Plain <img> (not next/image) is load-bearing for animated GIF
+        // banners — Next's Image component re-encodes through its
+        // optimizer and flattens GIFs to a static first frame.
         <div
           className="sticky top-0 z-20 w-full flex items-center justify-center py-3 px-4"
           style={{ background: "rgba(13,15,26,0.75)", borderBottom: "1px solid var(--border-strong)" }}
         >
-          <img src={tournament.sponsorBannerUrl} alt="Sponsor" className="max-h-16 sm:max-h-20 object-contain" />
+          <img key={activeBannerUrl} src={activeBannerUrl} alt="Sponsor" className="max-h-16 sm:max-h-20 object-contain" />
         </div>
       )}
 

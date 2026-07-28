@@ -63,6 +63,17 @@ const TournamentSchema = new Schema(
     // stream view falls back to design system defaults.
     streamBackgroundUrl: { type: String, default: "" },
     sponsorBannerUrl: { type: String, default: "" },
+    // Sponsor banner slideshow (settled design, see the Notion "Sponsor
+    // banner slideshow" writeup) -- when non-empty, the stream view rotates
+    // through these instead of showing the single sponsorBannerUrl above.
+    // Selected from the same reusable stream-asset library the single-banner
+    // picker already draws from (models/StreamAsset.ts). Empty = no
+    // slideshow configured, falls back to sponsorBannerUrl as before.
+    sponsorBannerUrls: { type: [String], default: [] },
+    // Required (validated + clamped 1-3600 in updateTournamentStreamAssets)
+    // once sponsorBannerUrls has 2+ entries. Null/unset otherwise -- there's
+    // no sensible hardcoded default to fall back to, the TO has to pick one.
+    sponsorBannerIntervalSeconds: { type: Number, default: null },
     // Bracket connector-line color, TO-customizable so it stays visible
     // against whatever stream background they pick. Empty = unset, bracket
     // rendering falls back to the design system default.

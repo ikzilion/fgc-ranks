@@ -1414,7 +1414,19 @@ export const resolvers = {
 
     updateTournamentStreamAssets: async (
       _: unknown,
-      { id, streamBackgroundUrl, sponsorBannerUrl }: { id: string; streamBackgroundUrl?: string; sponsorBannerUrl?: string },
+      {
+        id,
+        streamBackgroundUrl,
+        sponsorBannerUrl,
+        sponsorBannerUrls,
+        sponsorBannerIntervalSeconds,
+      }: {
+        id: string;
+        streamBackgroundUrl?: string;
+        sponsorBannerUrl?: string;
+        sponsorBannerUrls?: string[];
+        sponsorBannerIntervalSeconds?: number | null;
+      },
       { playerId, role }: { playerId?: string; role?: string }
     ) => {
       await connectToDatabase();
@@ -1427,13 +1439,33 @@ export const resolvers = {
       // OTHER mutation, for bracket colors, in that case), so this is a
       // defense-in-depth backstop against a direct API call, not something
       // the normal UI flow should ever actually hit.
-      if (tournament.isRestricted && (streamBackgroundUrl || sponsorBannerUrl)) {
+      if (
+        tournament.isRestricted &&
+        (streamBackgroundUrl || sponsorBannerUrl || (sponsorBannerUrls && sponsorBannerUrls.length > 0))
+      ) {
         throw new Error("This tournament was created without TO status and can't set a stream background or sponsor banner.");
       }
 
       const update: any = {};
       if (streamBackgroundUrl !== undefined) update.streamBackgroundUrl = streamBackgroundUrl;
       if (sponsorBannerUrl !== undefined) update.sponsorBannerUrl = sponsorBannerUrl;
+
+      // Slideshow — a rotation needs an interval to rotate BY, so 2+ final
+      // URLs (whichever of this call's array or the already-saved one wins,
+      // same for the interval) must resolve to a valid 1-3600s interval.
+      // A single selected URL (or zero) doesn't need one — the stream view
+      // just renders it statically, same as the plain sponsorBannerUrl case.
+      const finalUrls = sponsorBannerUrls !== undefined ? sponsorBannerUrls.filter(Boolean) : (tournament.sponsorBannerUrls ?? []);
+      const finalInterval = sponsorBannerIntervalSeconds !== undefined ? sponsorBannerIntervalSeconds : tournament.sponsorBannerIntervalSeconds;
+      if (finalUrls.length >= 2 && (!finalInterval || finalInterval < 1)) {
+        throw new Error("Set a rotation interval to enable the sponsor banner slideshow.");
+      }
+
+      if (sponsorBannerUrls !== undefined) update.sponsorBannerUrls = finalUrls;
+      if (sponsorBannerIntervalSeconds !== undefined) {
+        update.sponsorBannerIntervalSeconds =
+          sponsorBannerIntervalSeconds === null ? null : Math.min(3600, Math.max(1, sponsorBannerIntervalSeconds));
+      }
 
       return Tournament.findByIdAndUpdate(id, update, { new: true });
     },
@@ -2930,6 +2962,10 @@ export const resolvers = {
     // Same "schema default doesn't retroactively apply to old documents"
     // coalescing as isRestricted above.
     poolModel: (parent: { poolModel?: string }) => parent.poolModel ?? "C",
+    // Same coalescing — every tournament created before the slideshow
+    // feature existed has this genuinely absent (not []) in its stored
+    // document, which the non-null [String!]! schema field can't return as-is.
+    sponsorBannerUrls: (parent: { sponsorBannerUrls?: string[] }) => parent.sponsorBannerUrls ?? [],
     event: async (parent: { eventId?: string }) => (parent.eventId ? await Event.findById(parent.eventId) : null),
     // Live-link overrides: when eventId is set, these three resolve from
     // the LINKED EVENT's current data instead of this tournament's own

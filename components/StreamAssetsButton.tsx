@@ -175,10 +175,27 @@ function ColorPickerField({
   );
 }
 
+// seconds<->display-unit conversion for the slideshow interval field —
+// stored/sent as seconds always (matches the schema's
+// sponsorBannerIntervalSeconds), the minutes option is purely a display
+// convenience so a TO picking "5 minutes" doesn't have to do the math to 300.
+const INTERVAL_UNIT_SECONDS: Record<"seconds" | "minutes", number> = { seconds: 1, minutes: 60 };
+
+// Picks the nicer of the two units to show a saved interval in (e.g. 300s
+// displays as "5 minutes", not "300 seconds") — purely a display choice,
+// the stored value is always in seconds regardless of which unit is shown.
+function secondsToIntervalDisplay(seconds?: number | null): { value: string; unit: "seconds" | "minutes" } {
+  if (!seconds) return { value: "", unit: "seconds" };
+  if (seconds >= 60 && seconds % 60 === 0) return { value: String(seconds / 60), unit: "minutes" };
+  return { value: String(seconds), unit: "seconds" };
+}
+
 export function StreamAssetsButton({
   tournamentId,
   streamBackgroundUrl,
   sponsorBannerUrl,
+  sponsorBannerUrls,
+  sponsorBannerIntervalSeconds,
   bracketLineColor,
   bracketBoxColor,
   bracketFontColor,
@@ -192,6 +209,8 @@ export function StreamAssetsButton({
   tournamentId: string;
   streamBackgroundUrl?: string;
   sponsorBannerUrl?: string;
+  sponsorBannerUrls?: string[];
+  sponsorBannerIntervalSeconds?: number | null;
   bracketLineColor?: string;
   bracketBoxColor?: string;
   bracketFontColor?: string;
@@ -202,6 +221,14 @@ export function StreamAssetsButton({
   const [open, setOpen] = useState(false);
   const [backgroundUrl, setBackgroundUrl] = useState(streamBackgroundUrl || "");
   const [bannerUrl, setBannerUrl] = useState(sponsorBannerUrl || "");
+  // Sponsor banner slideshow — the subset of the TO's banner library
+  // (bannerAssets below) selected to rotate through, plus the interval
+  // that's saved/sent as seconds but shown in whichever unit the current
+  // value reads more naturally in (see secondsToIntervalDisplay).
+  const [slideshowUrls, setSlideshowUrls] = useState<string[]>(sponsorBannerUrls ?? []);
+  const initialInterval = secondsToIntervalDisplay(sponsorBannerIntervalSeconds);
+  const [intervalValue, setIntervalValue] = useState(initialInterval.value);
+  const [intervalUnit, setIntervalUnit] = useState<"seconds" | "minutes">(initialInterval.unit);
   // Each confirmed/draft pair follows the same rule: the confirmed value is
   // what gets saved and what the "current" swatch shows; the draft value
   // tracks the picker while the user is actively choosing, so a pick needs
@@ -229,6 +256,10 @@ export function StreamAssetsButton({
   function openModal() {
     setBackgroundUrl(streamBackgroundUrl || "");
     setBannerUrl(sponsorBannerUrl || "");
+    setSlideshowUrls(sponsorBannerUrls ?? []);
+    const initial = secondsToIntervalDisplay(sponsorBannerIntervalSeconds);
+    setIntervalValue(initial.value);
+    setIntervalUnit(initial.unit);
     setLineColor(bracketLineColor || DEFAULT_LINE_COLOR);
     setDraftLineColor(bracketLineColor || DEFAULT_LINE_COLOR);
     setBoxColor(bracketBoxColor || DEFAULT_BOX_COLOR);
@@ -250,6 +281,10 @@ export function StreamAssetsButton({
   function closeWithoutSaving() {
     setBackgroundUrl(streamBackgroundUrl || "");
     setBannerUrl(sponsorBannerUrl || "");
+    setSlideshowUrls(sponsorBannerUrls ?? []);
+    const resetInterval = secondsToIntervalDisplay(sponsorBannerIntervalSeconds);
+    setIntervalValue(resetInterval.value);
+    setIntervalUnit(resetInterval.unit);
     setLineColor(bracketLineColor || DEFAULT_LINE_COLOR);
     setDraftLineColor(bracketLineColor || DEFAULT_LINE_COLOR);
     setBoxColor(bracketBoxColor || DEFAULT_BOX_COLOR);
@@ -319,9 +354,25 @@ export function StreamAssetsButton({
     setUploadingBanner(false);
   }
 
+  function toggleSlideshowUrl(url: string) {
+    setSlideshowUrls(prev => (prev.includes(url) ? prev.filter(u => u !== url) : [...prev, url]));
+  }
+
   async function handleSave() {
-    setLoading(true);
     setError("");
+
+    // Mirrors the server-side check in updateTournamentStreamAssets — catch
+    // it here too so the TO gets an inline message instead of a round trip
+    // just to find out the interval field was left blank.
+    const intervalNum = parseFloat(intervalValue);
+    const effectiveIntervalSeconds =
+      intervalValue && !isNaN(intervalNum) && intervalNum > 0 ? Math.round(intervalNum * INTERVAL_UNIT_SECONDS[intervalUnit]) : null;
+    if (!isRestricted && slideshowUrls.length >= 2 && !effectiveIntervalSeconds) {
+      setError("Set a rotation interval to enable the sponsor banner slideshow.");
+      return;
+    }
+
+    setLoading(true);
 
     try {
       // A restricted tournament never sends the assets mutation at all —
@@ -351,11 +402,23 @@ export function StreamAssetsButton({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               query: `
-                mutation UpdateStreamAssets($id: ID!, $streamBackgroundUrl: String, $sponsorBannerUrl: String) {
-                  updateTournamentStreamAssets(id: $id, streamBackgroundUrl: $streamBackgroundUrl, sponsorBannerUrl: $sponsorBannerUrl) { id }
+                mutation UpdateStreamAssets($id: ID!, $streamBackgroundUrl: String, $sponsorBannerUrl: String, $sponsorBannerUrls: [String!], $sponsorBannerIntervalSeconds: Int) {
+                  updateTournamentStreamAssets(
+                    id: $id
+                    streamBackgroundUrl: $streamBackgroundUrl
+                    sponsorBannerUrl: $sponsorBannerUrl
+                    sponsorBannerUrls: $sponsorBannerUrls
+                    sponsorBannerIntervalSeconds: $sponsorBannerIntervalSeconds
+                  ) { id }
                 }
               `,
-              variables: { id: tournamentId, streamBackgroundUrl: backgroundUrl, sponsorBannerUrl: bannerUrl },
+              variables: {
+                id: tournamentId,
+                streamBackgroundUrl: backgroundUrl,
+                sponsorBannerUrl: bannerUrl,
+                sponsorBannerUrls: slideshowUrls,
+                sponsorBannerIntervalSeconds: effectiveIntervalSeconds,
+              },
             }),
           })
         );
@@ -500,6 +563,63 @@ export function StreamAssetsButton({
                     )}
                   </div>
                   <AssetPickerDropdown assets={bannerAssets} currentUrl={bannerUrl} assetNoun="Banner" onPick={setBannerUrl} />
+
+                  {/* Slideshow — picks from the same library the dropdown
+                      above draws from (bannerAssets), rotating through
+                      whichever ones are checked instead of the single
+                      bannerUrl above. 0/1 selected just falls back to that
+                      single banner on the stream view, so leaving this empty
+                      is a no-op, not a separate "disabled" state to track. */}
+                  <div className="mt-3 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
+                    <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">
+                      Slideshow (optional)
+                    </label>
+                    {bannerAssets.length === 0 ? (
+                      <p className="text-[11px] text-[var(--text-secondary)]">Upload sponsor banners above to build a rotation.</p>
+                    ) : (
+                      <>
+                        <div
+                          className="flex flex-col gap-1.5 max-h-28 overflow-y-auto p-2 rounded"
+                          style={{ border: "1px solid var(--border-strong)", background: "var(--navy-3)" }}
+                        >
+                          {bannerAssets.map((a, i) => (
+                            <label key={a.id} className="flex items-center gap-2 text-[12px] cursor-pointer" style={{ color: "var(--text-secondary)" }}>
+                              <input type="checkbox" checked={slideshowUrls.includes(a.url)} onChange={() => toggleSlideshowUrl(a.url)} />
+                              {a.filename ?? `Banner ${i + 1}`}
+                            </label>
+                          ))}
+                        </div>
+                        {slideshowUrls.length >= 2 ? (
+                          <div className="flex items-center gap-2 mt-2">
+                            <span className="text-[11px] text-[var(--text-muted)]">Rotate every</span>
+                            <input
+                              type="number"
+                              min="1"
+                              value={intervalValue}
+                              onChange={e => setIntervalValue(e.target.value)}
+                              className="text-[12px] px-2 py-1.5 rounded w-16"
+                              style={{ background: "var(--navy-3)", color: "var(--text-primary)", border: "1px solid var(--border-strong)" }}
+                            />
+                            <select
+                              value={intervalUnit}
+                              onChange={e => setIntervalUnit(e.target.value as "seconds" | "minutes")}
+                              className="text-[12px] px-2 py-1.5 rounded"
+                              style={{ background: "var(--navy-3)", color: "var(--text-primary)", border: "1px solid var(--border-strong)" }}
+                            >
+                              <option value="seconds">seconds</option>
+                              <option value="minutes">minutes</option>
+                            </select>
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-[var(--text-secondary)] mt-2">
+                            {slideshowUrls.length === 1
+                              ? "Pick at least one more to enable rotation — with just this one it displays statically."
+                              : "Pick 2 or more to rotate them on the stream view."}
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
               )}

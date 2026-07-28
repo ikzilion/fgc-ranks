@@ -146,6 +146,13 @@ export const typeDefs = `#graphql
     bracket: Bracket
     streamBackgroundUrl: String
     sponsorBannerUrl: String
+    # Sponsor banner slideshow — when non-empty, the stream view rotates
+    # through these instead of the single sponsorBannerUrl above. See
+    # models/Tournament.ts.
+    sponsorBannerUrls: [String!]!
+    # Required once sponsorBannerUrls has 2+ entries — null while no
+    # slideshow is configured.
+    sponsorBannerIntervalSeconds: Int
     bracketLineColor: String
     bracketBoxColor: String
     bracketFontColor: String
@@ -571,7 +578,10 @@ export const typeDefs = `#graphql
     declineTournamentInvite(tournamentId: ID!, playerId: ID!): Tournament!
     addTournamentOrganizer(tournamentId: ID!, playerId: ID!): Tournament!
     removeTournamentOrganizer(tournamentId: ID!, playerId: ID!): Tournament!
-    updateTournamentStreamAssets(id: ID!, streamBackgroundUrl: String, sponsorBannerUrl: String): Tournament!
+    # sponsorBannerUrls/sponsorBannerIntervalSeconds: the slideshow — see
+    # Tournament.sponsorBannerUrls. Passing an array with 2+ entries requires
+    # a valid interval (either in this same call or already saved).
+    updateTournamentStreamAssets(id: ID!, streamBackgroundUrl: String, sponsorBannerUrl: String, sponsorBannerUrls: [String!], sponsorBannerIntervalSeconds: Int): Tournament!
     updateTournamentBracketLineColor(id: ID!, bracketLineColor: String!, bracketBoxColor: String, bracketFontColor: String): Tournament!
 
     joinTournament(tournamentId: ID!, playerId: ID!): Entrant!

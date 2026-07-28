@@ -62,6 +62,8 @@ const GET_TOURNAMENT = `
       isInvited(playerId: $playerId)
       streamBackgroundUrl
       sponsorBannerUrl
+      sponsorBannerUrls
+      sponsorBannerIntervalSeconds
       bracketLineColor
       bracketBoxColor
       bracketFontColor
@@ -444,6 +446,8 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                   tournamentId={tournament.id}
                   streamBackgroundUrl={tournament.streamBackgroundUrl}
                   sponsorBannerUrl={tournament.sponsorBannerUrl}
+                  sponsorBannerUrls={tournament.sponsorBannerUrls}
+                  sponsorBannerIntervalSeconds={tournament.sponsorBannerIntervalSeconds}
                   bracketLineColor={tournament.bracketLineColor}
                   bracketBoxColor={tournament.bracketBoxColor}
                   bracketFontColor={tournament.bracketFontColor}
