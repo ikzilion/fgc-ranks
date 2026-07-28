@@ -101,11 +101,24 @@ async function getPlayerPageData(id: string, viewerId?: string) {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL;
   const isOwnProfile = viewerId === id;
   const [playerJson, viewerH2hJson, playersJson, myTORequestJson] = await Promise.all([
+    // Cookie forwarding is load-bearing now, not just a nice-to-have: since
+    // Player.displayId is gated server-side on the requesting viewer
+    // (owner/Admin/TO — see that resolver), a plain fetch() without the
+    // session cookie makes the GraphQL context see no session at all, so
+    // the resolver treats EVERY caller as anonymous and always nulls
+    // displayId out, regardless of who's actually logged in (this was the
+    // f2eb432 regression — the JSX condition and the resolver gate were
+    // both correct in isolation, but this fetch never carried the session
+    // that either one needed). cache: "no-store" replaces the old
+    // next:{revalidate:60} for the same reason GET_VIEWER_HEAD_TO_HEAD and
+    // GET_MY_TO_REQUEST below already use no-store: the response is now
+    // viewer-dependent, so caching it by URL+body alone would leak one
+    // viewer's permission-gated result to a different viewer for up to 60s.
     fetch(`${baseUrl}/api/graphql`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", cookie: (await cookies()).toString() },
       body: JSON.stringify({ query: GET_PLAYER, variables: { id } }),
-      next: { revalidate: 60 },
+      cache: "no-store",
     }).then(r => r.json()),
     viewerId && viewerId !== id
       ? fetch(`${baseUrl}/api/graphql`, {
