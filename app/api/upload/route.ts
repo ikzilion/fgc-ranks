@@ -8,6 +8,7 @@ import { connectToDatabase } from "@/lib/db";
 import { StreamAssetType } from "@/models/StreamAsset";
 import { recordStreamAssetUpload } from "@/lib/streamAssets";
 import { adjustBlobStorageUsage } from "@/lib/blobStorage";
+import { processAvatarImage } from "@/lib/avatarImage";
 
 // SVG is deliberately excluded — it can embed <script> and would execute if
 // the blob URL is ever opened directly rather than used as an <img> source.
@@ -46,6 +47,13 @@ export async function POST(request: NextRequest) {
   }
 
   let filename: string;
+  // Avatars only: resized + re-encoded server-side (lib/avatarImage.ts) —
+  // storedBody/storedBytes/storedContentType track what actually ends up in
+  // Blob storage, which is smaller than (and a different format from) the
+  // original upload; every other type still stores the file exactly as-is.
+  let storedBody: File | Buffer = file;
+  let storedBytes = file.size;
+  let storedContentType: string | undefined;
   if (type === "stream-bg") {
     filename = `tournament-backgrounds/${Date.now()}-${file.name}`;
   } else if (type === "sponsor-banner") {
@@ -58,20 +66,35 @@ export async function POST(request: NextRequest) {
     filename = `game-icons/${Date.now()}-${file.name}`;
   } else {
     const playerId = (session.user as any).playerId;
-    filename = `avatars/${playerId}-${Date.now()}-${file.name}`;
+    // .webp regardless of the original extension — the compressed output is
+    // always re-encoded to WebP, see lib/avatarImage.ts.
+    filename = `avatars/${playerId}-${Date.now()}.webp`;
+    try {
+      const { buffer, contentType } = await processAvatarImage(Buffer.from(await file.arrayBuffer()));
+      storedBody = buffer;
+      storedBytes = buffer.byteLength;
+      storedContentType = contentType;
+    } catch (err) {
+      console.error("[upload] Failed to process avatar image:", err);
+      return NextResponse.json({ error: "Couldn't process that image — try a different file." }, { status: 400 });
+    }
   }
 
-  const blob = await put(filename, file, {
+  const blob = await put(filename, storedBody, {
     access: "public",
+    ...(storedContentType ? { contentType: storedContentType } : {}),
   });
 
   // Site-wide running storage total (lib/blobStorage.ts) -- every
   // successful upload through this route increments it, regardless of
-  // type. Matching decrements happen wherever a blob is actually deleted
-  // (currently: recordStreamAssetUpload's retention eviction below, and
-  // softDeletePlayer's avatar cleanup).
+  // type. storedBytes (not file.size) so an avatar's ACTUAL, post-
+  // compression footprint is what's counted. Matching decrements happen
+  // wherever a blob is actually deleted (currently: recordStreamAssetUpload's
+  // retention eviction below, and softDeletePlayer's avatar cleanup — both
+  // already re-derive the real size via head() rather than trusting a
+  // stored value, so they're unaffected by this).
   await connectToDatabase();
-  await adjustBlobStorageUsage(file.size);
+  await adjustBlobStorageUsage(storedBytes);
 
   // Stream backgrounds/sponsor banners: record every upload into the
   // uploading TO's reusable library (models/StreamAsset.ts), regardless of

@@ -151,6 +151,10 @@ export function EditProfileButton({ playerId, currentTag, currentRegion, current
                 <input type="file" accept="image/*" onChange={handleFileChange} disabled={uploading} className="hidden" />
               </label>
             </div>
+            {/* Server auto-resizes/compresses every avatar (lib/avatarImage.ts)
+                regardless of the original photo's dimensions/size, so this is
+                purely informational, not a hard limit the user needs to work around. */}
+            <p className="text-[11px] text-[var(--text-muted)] -mt-2 mb-4">Photos are automatically resized and compressed.</p>
 
             <div className="mb-4">
               <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Player tag</label>
