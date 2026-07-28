@@ -7,6 +7,7 @@ import { maxUploadBytes, formatMaxSizeLabel } from "@/lib/uploadLimits";
 import { connectToDatabase } from "@/lib/db";
 import { StreamAssetType } from "@/models/StreamAsset";
 import { recordStreamAssetUpload } from "@/lib/streamAssets";
+import { adjustBlobStorageUsage } from "@/lib/blobStorage";
 
 // SVG is deliberately excluded — it can embed <script> and would execute if
 // the blob URL is ever opened directly rather than used as an <img> source.
@@ -64,6 +65,14 @@ export async function POST(request: NextRequest) {
     access: "public",
   });
 
+  // Site-wide running storage total (lib/blobStorage.ts) -- every
+  // successful upload through this route increments it, regardless of
+  // type. Matching decrements happen wherever a blob is actually deleted
+  // (currently: recordStreamAssetUpload's retention eviction below, and
+  // softDeletePlayer's avatar cleanup).
+  await connectToDatabase();
+  await adjustBlobStorageUsage(file.size);
+
   // Stream backgrounds/sponsor banners: record every upload into the
   // uploading TO's reusable library (models/StreamAsset.ts), regardless of
   // whether they end up actually applying it this session -- the whole
@@ -75,7 +84,6 @@ export async function POST(request: NextRequest) {
   if (type === "stream-bg" || type === "sponsor-banner") {
     const organizerId = (session.user as any).playerId;
     if (organizerId) {
-      await connectToDatabase();
       await recordStreamAssetUpload(organizerId, type as StreamAssetType, blob.url, file.name);
     }
   }

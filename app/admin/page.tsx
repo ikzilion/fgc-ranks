@@ -14,12 +14,14 @@ import { notFound } from "next/navigation";
 import { cookies } from "next/headers";
 import { auth } from "@/lib/auth";
 import { isAdminOrAbove, isSuperAdmin } from "@/lib/roles";
+import { BLOB_STORAGE_LIMIT_BYTES } from "@/lib/blobStorage";
 import { AdminDashboard } from "@/components/AdminDashboard";
 
 export const dynamic = "force-dynamic";
 
 const GET_ADMIN_DASHBOARD_DATA = `
   query GetAdminDashboardData {
+    blobStorageUsageBytes
     pendingEvents {
       id
       displayId
@@ -74,9 +76,10 @@ async function getAdminDashboardData() {
     const json = await res.json();
     if (json.errors) {
       console.error("[admin] GraphQL errors:", json.errors);
-      return { pendingEvents: [], games: [], hiddenGameNames: [], pendingTORequests: [], players: [] };
+      return { blobStorageUsageBytes: 0, pendingEvents: [], games: [], hiddenGameNames: [], pendingTORequests: [], players: [] };
     }
     return {
+      blobStorageUsageBytes: json.data?.blobStorageUsageBytes ?? 0,
       pendingEvents: json.data?.pendingEvents ?? [],
       games: json.data?.games ?? [],
       hiddenGameNames: json.data?.hiddenGameNames ?? [],
@@ -85,7 +88,7 @@ async function getAdminDashboardData() {
     };
   } catch (err) {
     console.error("[admin] Fetch error:", err);
-    return { pendingEvents: [], games: [], hiddenGameNames: [], pendingTORequests: [], players: [] };
+    return { blobStorageUsageBytes: 0, pendingEvents: [], games: [], hiddenGameNames: [], pendingTORequests: [], players: [] };
   }
 }
 
@@ -94,12 +97,25 @@ export default async function AdminPage() {
   const role = (session?.user as any)?.role;
   if (!isAdminOrAbove(role)) notFound();
 
-  const { pendingEvents, games, hiddenGameNames, pendingTORequests, players } = await getAdminDashboardData();
+  const { blobStorageUsageBytes, pendingEvents, games, hiddenGameNames, pendingTORequests, players } = await getAdminDashboardData();
+  const usageMB = (blobStorageUsageBytes / (1024 * 1024)).toFixed(1);
+  const limitMB = Math.round(BLOB_STORAGE_LIMIT_BYTES / (1024 * 1024));
 
   return (
     <main className="max-w-3xl mx-auto px-4 py-8">
       <h1 className="font-rajdhani text-2xl font-bold text-[var(--text-primary)] mb-1">Admin</h1>
-      <p className="text-[12px] text-[var(--text-secondary)] mb-6">All admin tools in one place.</p>
+      <p className="text-[12px] text-[var(--text-secondary)] mb-4">All admin tools in one place.</p>
+
+      {/* Display-only, site-wide storage usage — not a tab of its own since
+          it's a single stat, not a manager tool; sits above the tabs so
+          it's visible regardless of which tab is active. See
+          lib/blobStorage.ts for how this total is tracked/updated. */}
+      <div className="fgc-card p-4 mb-6 flex items-center justify-between">
+        <p className="text-[11px] uppercase tracking-widest text-[var(--text-muted)]">Blob storage used</p>
+        <p className="font-rajdhani text-[15px] font-bold text-[var(--text-primary)]">
+          {usageMB} MB <span className="text-[var(--text-muted)] font-normal">/ {limitMB} MB</span>
+        </p>
+      </div>
 
       <AdminDashboard
         pendingEvents={pendingEvents}

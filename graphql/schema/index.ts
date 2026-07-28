@@ -407,6 +407,11 @@ export const typeDefs = `#graphql
     eventByDisplayId(displayId: String!): Event
     # ADMIN-only — the review queue's data source.
     pendingEvents: [Event!]!
+    # ADMIN-only — running total tracked incrementally in lib/blobStorage.ts,
+    # not computed on demand. Display-only (admin dashboard); pair with the
+    # hardcoded BLOB_STORAGE_LIMIT_BYTES constant client-side, not a second
+    # field here, since the limit itself never changes per-request.
+    blobStorageUsageBytes: Int!
 
     matches(tournamentId: ID!): [Match!]!
     match(id: ID!): Match

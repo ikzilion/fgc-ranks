@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { GraphQLError } from "graphql";
 import { randomBytes, createHash } from "crypto";
-import { del } from "@vercel/blob";
+import { del, head } from "@vercel/blob";
 import { Types } from "mongoose";
 import { connectToDatabase } from "@/lib/db";
 import { User, UserRole } from "@/models/User";
@@ -36,6 +36,7 @@ import { getNextSequence } from "@/lib/counter";
 import { computeRankingPoints, computeRankingPointsForPlayers, computeGameRankingsForPlayer, computeGameLeaderboard } from "@/lib/ranking";
 import { formatPlayerNumber } from "@/lib/playerId";
 import { extractTwitchUsername } from "@/lib/twitch";
+import { adjustBlobStorageUsage, getBlobStorageUsageBytes } from "@/lib/blobStorage";
 import { Loaders } from "@/graphql/loaders";
 import { StreamAssetType } from "@/models/StreamAsset";
 import { listStreamAssets } from "@/lib/streamAssets";
@@ -77,7 +78,14 @@ async function softDeletePlayer(player: any): Promise<void> {
 
   if (player.avatarUrl) {
     try {
+      // head() before del() -- the running storage total (lib/blobStorage.ts)
+      // needs the blob's real size, and there's no way to ask for it once
+      // it's gone. A failed head()/del() just skips the decrement rather
+      // than blocking the rest of the soft-delete -- a display-only counter
+      // drifting slightly beats account deletion failing over a blob issue.
+      const { size } = await head(player.avatarUrl);
       await del(player.avatarUrl);
+      await adjustBlobStorageUsage(-size);
     } catch (err) {
       console.error("[softDeletePlayer] Failed to delete avatar blob:", err);
     }
@@ -473,6 +481,12 @@ export const resolvers = {
       if (!isAdminOrAbove(role)) throw new Error("Not authorized");
       await connectToDatabase();
       return await Event.find({ status: EventStatus.PENDING }).sort({ createdAt: -1 });
+    },
+
+    blobStorageUsageBytes: async (_: unknown, __: unknown, { role }: { role?: string }) => {
+      if (!isAdminOrAbove(role)) throw new Error("Not authorized");
+      await connectToDatabase();
+      return await getBlobStorageUsageBytes();
     },
 
     // Matches

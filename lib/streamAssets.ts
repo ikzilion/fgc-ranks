@@ -17,9 +17,10 @@
 // orphaned the previous blob (confirmed against the real Vercel Blob store
 // during this task -- see the Notion "Ranking system"/"Stream asset
 // library" writeup for the real orphan count found).
-import { del } from "@vercel/blob";
+import { del, head } from "@vercel/blob";
 import { StreamAsset, StreamAssetType } from "@/models/StreamAsset";
 import { Tournament } from "@/models/Tournament";
+import { adjustBlobStorageUsage } from "@/lib/blobStorage";
 
 // Per organizer, per asset type -- capped independently (10 backgrounds +
 // 10 banners, not 10 combined) since they're shown in two separate pickers
@@ -62,7 +63,16 @@ export async function recordStreamAssetUpload(
 
   for (const asset of toEvict) {
     try {
+      // head() before del() -- the running storage total (lib/blobStorage.ts)
+      // needs the blob's real size, and there's no way to ask for it after
+      // it's gone. A failed head() (already-missing blob, transient error)
+      // just skips the decrement for this one blob rather than blocking the
+      // actual deletion below -- same fail-soft spirit as the del() catch
+      // right after it; a display-only counter drifting slightly beats an
+      // eviction that silently stops working.
+      const { size } = await head(asset.url);
       await del(asset.url);
+      await adjustBlobStorageUsage(-size);
     } catch (err) {
       console.error("[recordStreamAssetUpload] Failed to delete evicted blob:", err);
     }
