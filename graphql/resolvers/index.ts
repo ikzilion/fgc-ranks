@@ -2,12 +2,13 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { GraphQLError } from "graphql";
 import { randomBytes, createHash } from "crypto";
-import { del, head } from "@vercel/blob";
 import { Types } from "mongoose";
 import { connectToDatabase } from "@/lib/db";
 import { User, UserRole } from "@/models/User";
 import { isAdminOrAbove, isSuperAdmin } from "@/lib/roles";
 import { Player } from "@/models/Player";
+import { softDeletePlayer, logAccountDeletionEvent, DELETION_GRACE_PERIOD_MS } from "@/lib/accountDeletion";
+import { AccountDeletionAuditAction } from "@/models/AccountDeletionAuditLog";
 import { Tournament, TournamentStatus } from "@/models/Tournament";
 import { Entrant } from "@/models/Entrant";
 import { Match, MatchStatus } from "@/models/Match";
@@ -28,7 +29,7 @@ import {
   createTournamentRateLimit,
   getClientIp,
 } from "@/lib/rateLimit";
-import { sendPasswordResetEmail, sendVerificationEmail, sendAccountDeletionEmail } from "@/lib/email";
+import { sendPasswordResetEmail, sendVerificationEmail, sendAccountDeletionEmail, sendAccountDeletionScheduledEmail } from "@/lib/email";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { buildDoubleEliminationBracket, resolveSeedOrder, validateManualSlotAssignment, advanceBracketMatch, nextPowerOfTwo, computeMainBracketSeedOrder, shuffle, SeedingMethod, undoMatchEffects, MODEL_B_MIN_ENTRANTS, computeModelBInitialPoolCount, computeNextRepooledRound, buildFinalsCutoffBracket, extractPoolSurvivors, PoolSurvivors } from "@/lib/bracket";
 import { buildRoundRobinMatches, computeRoundRobinStandings } from "@/lib/roundRobin";
@@ -36,7 +37,7 @@ import { getNextSequence } from "@/lib/counter";
 import { computeRankingPoints, computeRankingPointsForPlayers, computeGameRankingsForPlayer, computeGameLeaderboard } from "@/lib/ranking";
 import { formatPlayerNumber } from "@/lib/playerId";
 import { extractTwitchUsername } from "@/lib/twitch";
-import { adjustBlobStorageUsage, getBlobStorageUsageBytes } from "@/lib/blobStorage";
+import { getBlobStorageUsageBytes } from "@/lib/blobStorage";
 import { Loaders } from "@/graphql/loaders";
 import { StreamAssetType } from "@/models/StreamAsset";
 import { listStreamAssets } from "@/lib/streamAssets";
@@ -67,58 +68,10 @@ function duplicateKeyField(err: any): string | null {
   return match ? match[1] : null;
 }
 
-// Shared soft-delete implementation — used by both the ADMIN deletePlayer
-// mutation and the self-service confirmAccountDeletion flow, so the two
-// paths can't drift apart. Assumes the caller has already authorized the
-// action (and already fetched `player`); this function itself performs no
-// permission checks. Deletes the avatar from Vercel Blob, scrubs personal
-// info, anonymizes the tag, and disables login on the linked User.
-async function softDeletePlayer(player: any): Promise<void> {
-  if (player.isDeleted) return; // already deleted — idempotent
-
-  if (player.avatarUrl) {
-    try {
-      // head() before del() -- the running storage total (lib/blobStorage.ts)
-      // needs the blob's real size, and there's no way to ask for it once
-      // it's gone. A failed head()/del() just skips the decrement rather
-      // than blocking the rest of the soft-delete -- a display-only counter
-      // drifting slightly beats account deletion failing over a blob issue.
-      const { size } = await head(player.avatarUrl);
-      await del(player.avatarUrl);
-      await adjustBlobStorageUsage(-size);
-    } catch (err) {
-      console.error("[softDeletePlayer] Failed to delete avatar blob:", err);
-    }
-  }
-
-  const deletedAt = new Date();
-  // Suffix guarantees uniqueness against the Player.tag unique index even
-  // across repeated deletions.
-  const anonymizedTag = `Deleted Player #${player._id.toString().slice(-8)}`;
-
-  await Player.findByIdAndUpdate(player._id, {
-    isDeleted: true,
-    deletedAt,
-    tag: anonymizedTag,
-    avatarUrl: "",
-    region: "",
-    team: "",
-  });
-
-  if (player.userId) {
-    await User.findByIdAndUpdate(player.userId, {
-      isDeleted: true,
-      deletedAt,
-      // Frees up the real email for reuse and removes it from the account
-      // entirely; the random passwordHash is redundant with authorize()'s
-      // isDeleted check but scrubs the credential too.
-      email: `deleted-${player._id.toString()}@deleted.local`,
-      passwordHash: await bcrypt.hash(randomBytes(32).toString("hex"), 10),
-      deleteAccountTokenHash: null,
-      deleteAccountTokenExpiry: null,
-    });
-  }
-}
+// softDeletePlayer moved to lib/accountDeletion.ts (settled July 28, 2026)
+// -- lib/auth.ts's authorize() needs to call it too (the lazy elapsed-scrub
+// check at login time), and a resolver-local function isn't importable from
+// there.
 
 // A player can manage a tournament if they're a global ADMIN, or if their
 // playerId is in that specific tournament's organizers list (Tournament
@@ -544,6 +497,17 @@ export const resolvers = {
       return TORequest.find({ status: TORequestStatus.PENDING }).sort({ createdAt: -1 });
     },
 
+    // SUPER_ADMIN-only (settled July 28, 2026) — the admin restore tool's
+    // data source. scrubBackupTag non-null is exactly "restorable right
+    // now" (see models/Player.ts); purgeExpiredScrubBackups clears it once
+    // the retention window elapses, which is what naturally drops a player
+    // out of this list without a separate expiry check here.
+    restorableDeletedPlayers: async (_: unknown, __: unknown, { role }: { role?: string }) => {
+      if (!isSuperAdmin(role)) throw new Error("Not authorized");
+      await connectToDatabase();
+      return Player.find({ isDeleted: true, scrubBackupTag: { $ne: null } }).sort({ deletedAt: -1 });
+    },
+
     // News
     newsPosts: async (_: unknown, { limit = 20, offset = 0, eventId }: { limit?: number; offset?: number; eventId?: string }) => {
       await connectToDatabase();
@@ -792,6 +756,11 @@ export const resolvers = {
       const deleteAccountTokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour, same as password reset
       await User.findByIdAndUpdate(user._id, { deleteAccountTokenHash, deleteAccountTokenExpiry });
 
+      // Logged before the (fallible) email send -- a Resend hiccup should
+      // still leave a REQUESTED entry in the trail, same reasoning as
+      // confirmAccountDeletion below.
+      await logAccountDeletionEvent(player._id, AccountDeletionAuditAction.REQUESTED, { ip });
+
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
       const confirmUrl = `${baseUrl}/delete-account/confirm?token=${rawToken}`;
       await sendAccountDeletionEmail(user.email, confirmUrl);
@@ -801,9 +770,15 @@ export const resolvers = {
 
     // Self-service account deletion, step 2 — token-only, no login required
     // to use the link (same precedent as resetPassword: clicking an email
-    // link from a different device/session is normal). Runs the exact same
-    // soft-delete as the ADMIN deletePlayer mutation via softDeletePlayer().
-    confirmAccountDeletion: async (_: unknown, { token }: { token: string }) => {
+    // link from a different device/session is normal). Grace-period account
+    // deletion (settled July 28, 2026): this no longer scrubs immediately —
+    // it starts a 7-day pending-deletion window instead, and sends a
+    // separate email with a cancel link + the exact scrub date. The actual
+    // soft-delete (softDeletePlayer, same shared implementation the ADMIN
+    // deletePlayer mutation uses) only runs once that window elapses,
+    // enforced lazily (see lib/accountDeletion.ts — this app has no cron/
+    // scheduled-job infrastructure).
+    confirmAccountDeletion: async (_: unknown, { token }: { token: string }, { req }: any) => {
       await connectToDatabase();
       const deleteAccountTokenHash = createHash("sha256").update(token).digest("hex");
       const user = await User.findOne({
@@ -814,8 +789,83 @@ export const resolvers = {
 
       const player = user.playerId ? await Player.findById(user.playerId) : null;
       if (!player) throw new Error("Player not found");
+      if (player.isDeleted) return true; // already fully scrubbed — idempotent
 
-      await softDeletePlayer(player);
+      const requestedAt = new Date();
+      const scheduledScrubAt = new Date(requestedAt.getTime() + DELETION_GRACE_PERIOD_MS);
+      const rawCancelToken = randomBytes(32).toString("hex");
+      const cancelDeletionTokenHash = createHash("sha256").update(rawCancelToken).digest("hex");
+
+      await User.findByIdAndUpdate(user._id, {
+        pendingDeletionRequestedAt: requestedAt,
+        scheduledScrubAt,
+        deleteAccountTokenHash: null,
+        deleteAccountTokenExpiry: null,
+        cancelDeletionTokenHash,
+        // Valid through the full grace window — softDeletePlayer clears
+        // this hash outright once the scrub actually runs, so in practice
+        // the token stops working the moment the account is scrubbed,
+        // whichever comes first.
+        cancelDeletionTokenExpiry: scheduledScrubAt,
+      });
+
+      const ip = getClientIp(req);
+      await logAccountDeletionEvent(player._id, AccountDeletionAuditAction.CONFIRMED, { ip });
+
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+      const cancelUrl = `${baseUrl}/delete-account/cancel?token=${rawCancelToken}`;
+      await sendAccountDeletionScheduledEmail(user.email, cancelUrl, scheduledScrubAt);
+
+      return true;
+    },
+
+    // Cancels a pending deletion via the emailed cancel link — token-only,
+    // no login required, same precedent as confirmAccountDeletion.
+    cancelAccountDeletion: async (_: unknown, { token }: { token: string }, { req }: any) => {
+      await connectToDatabase();
+      const cancelDeletionTokenHash = createHash("sha256").update(token).digest("hex");
+      const user = await User.findOne({
+        cancelDeletionTokenHash,
+        cancelDeletionTokenExpiry: { $gt: new Date() },
+      });
+      if (!user) throw new Error("Invalid or expired cancellation link");
+      if (!user.scheduledScrubAt) return true; // already cancelled / not pending — idempotent
+
+      await User.findByIdAndUpdate(user._id, {
+        pendingDeletionRequestedAt: null,
+        scheduledScrubAt: null,
+        cancelDeletionTokenHash: null,
+        cancelDeletionTokenExpiry: null,
+      });
+
+      if (user.playerId) {
+        await logAccountDeletionEvent(user.playerId, AccountDeletionAuditAction.CANCELLED, { ip: getClientIp(req) });
+      }
+      return true;
+    },
+
+    // Cancels a pending deletion for the calling session's own account — the
+    // "sign back in and cancel" path (settled July 28, 2026): sign-in still
+    // works normally while pending, see lib/auth.ts's authorize(). No token
+    // needed since the session already establishes ownership, same
+    // no-argument-always-targets-self convention as requestAccountDeletion.
+    cancelMyPendingDeletion: async (_: unknown, __: unknown, { playerId, req }: any) => {
+      if (!playerId) throw new Error("Not authorized");
+      await connectToDatabase();
+      const player = await Player.findById(playerId);
+      if (!player?.userId) throw new Error("Player not found");
+      const user = await User.findById(player.userId);
+      if (!user) throw new Error("Account not found");
+      if (!user.scheduledScrubAt) return true; // idempotent
+
+      await User.findByIdAndUpdate(user._id, {
+        pendingDeletionRequestedAt: null,
+        scheduledScrubAt: null,
+        cancelDeletionTokenHash: null,
+        cancelDeletionTokenExpiry: null,
+      });
+
+      await logAccountDeletionEvent(playerId, AccountDeletionAuditAction.CANCELLED, { ip: getClientIp(req) });
       return true;
     },
 
@@ -842,7 +892,7 @@ export const resolvers = {
     deletePlayer: async (
       _: unknown,
       { id }: { id: string },
-      { playerId, role }: { playerId?: string; role?: string }
+      { playerId, role, req }: { playerId?: string; role?: string; req?: Request }
     ) => {
       if (!isAdminOrAbove(role)) throw new Error("Not authorized");
       // Guards against an admin locking themselves out by mistake.
@@ -852,8 +902,64 @@ export const resolvers = {
       const player = await Player.findById(id);
       if (!player) throw new Error("Player not found");
 
-      await softDeletePlayer(player);
+      await softDeletePlayer(player, { ip: req ? getClientIp(req) : undefined, performedByPlayerId: playerId ?? null });
       return true;
+    },
+
+    // SUPER_ADMIN-only (settled July 28, 2026) — reverses a scrub within its
+    // restore window. Player.scrubBackupTag/User.scrubBackupEmail are the
+    // ONLY things restored: the account's passwordHash was randomized at
+    // scrub time (softDeletePlayer) and is genuinely, deliberately not part
+    // of the backup — the restored player needs a fresh password reset.
+    restoreDeletedPlayer: async (
+      _: unknown,
+      { playerId: targetPlayerId }: { playerId: string },
+      { playerId: callerPlayerId, role, req }: { playerId?: string; role?: string; req?: Request }
+    ) => {
+      if (!isSuperAdmin(role)) throw new Error("Not authorized");
+
+      await connectToDatabase();
+      const player = await Player.findById(targetPlayerId);
+      if (!player) throw new Error("Player not found");
+      if (!player.isDeleted || !player.scrubBackupTag) {
+        throw new Error("This player has no restorable backup — either it isn't deleted, or its restore window has expired.");
+      }
+
+      const user = player.userId ? await User.findById(player.userId) : null;
+      if (!user?.scrubBackupEmail) {
+        throw new Error("This player's account backup is missing or has expired — the tag can't be safely restored without it.");
+      }
+
+      // Pre-check both potential collisions before touching either
+      // document — this app doesn't use multi-document transactions
+      // anywhere else, so avoiding a half-applied restore (tag restored,
+      // email restore failed, or vice versa) means checking feasibility
+      // up front rather than rolling back after a partial failure.
+      const tagTaken = await Player.exists({ tag: player.scrubBackupTag, _id: { $ne: player._id } });
+      if (tagTaken) throw new Error(`Can't restore — the tag "${player.scrubBackupTag}" is now in use by another player.`);
+      const emailTaken = await User.exists({ email: user.scrubBackupEmail, _id: { $ne: user._id } });
+      if (emailTaken) throw new Error("Can't restore — this email is now in use by another account.");
+
+      await Player.findByIdAndUpdate(player._id, {
+        isDeleted: false,
+        deletedAt: null,
+        tag: player.scrubBackupTag,
+        scrubBackupTag: null,
+      });
+      await User.findByIdAndUpdate(user._id, {
+        isDeleted: false,
+        deletedAt: null,
+        email: user.scrubBackupEmail,
+        scrubBackupEmail: null,
+        scrubBackupExpiresAt: null,
+      });
+
+      await logAccountDeletionEvent(player._id, AccountDeletionAuditAction.RESTORED, {
+        ip: req ? getClientIp(req) : undefined,
+        performedByPlayerId: callerPlayerId ?? null,
+      });
+
+      return Player.findById(player._id);
     },
 
     // SUPER_ADMIN-only — the one in-app way to grant/revoke ADMIN. Regular

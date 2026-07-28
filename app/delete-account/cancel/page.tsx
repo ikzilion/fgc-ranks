@@ -1,19 +1,15 @@
-// app/delete-account/confirm/page.tsx
-// Handles the link from the account-deletion confirmation email. Same
-// Suspense-wrapped useSearchParams pattern as verify-email/reset-password —
-// token-only, no login required to use the link (same precedent as
-// reset-password). Grace-period account deletion (settled July 28, 2026):
-// confirming here no longer deletes the account immediately, it just starts
-// the 7-day pending-deletion window (a follow-up email has the exact date +
-// a cancel link) — so unlike before, the session stays valid and there's no
-// sign-out here anymore.
+// app/delete-account/cancel/page.tsx
+// Handles the link from the "your account is scheduled for deletion" email
+// (settled July 28, 2026, grace-period account deletion). Same
+// Suspense-wrapped useSearchParams pattern as delete-account/confirm —
+// token-only, no login required to use the link.
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 
-function DeleteAccountConfirmInner() {
+function DeleteAccountCancelInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const token = searchParams.get("token");
@@ -24,7 +20,7 @@ function DeleteAccountConfirmInner() {
   useEffect(() => {
     if (!token) {
       setStatus("error");
-      setError("This confirmation link is missing its token.");
+      setError("This cancellation link is missing its token.");
       return;
     }
 
@@ -34,7 +30,7 @@ function DeleteAccountConfirmInner() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            query: `mutation ConfirmAccountDeletion($token: String!) { confirmAccountDeletion(token: $token) }`,
+            query: `mutation CancelAccountDeletion($token: String!) { cancelAccountDeletion(token: $token) }`,
             variables: { token },
           }),
         });
@@ -57,17 +53,16 @@ function DeleteAccountConfirmInner() {
   return (
     <main className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
-        <h1 className="font-rajdhani text-3xl font-bold text-[var(--text-primary)] mb-1">Delete account</h1>
+        <h1 className="font-rajdhani text-3xl font-bold text-[var(--text-primary)] mb-1">Cancel deletion</h1>
 
         <div className="fgc-card p-6 mt-8">
           {status === "pending" && (
-            <p className="text-[13px] text-[var(--text-secondary)]">Confirming...</p>
+            <p className="text-[13px] text-[var(--text-secondary)]">Cancelling...</p>
           )}
 
           {status === "success" && (
             <p className="text-[13px] text-[var(--text-secondary)]">
-              Deletion confirmed. Your account is now scheduled for deletion in 7 days — check your email for the exact date and a link to
-              cancel. You can also cancel any time before then by signing back in. Redirecting you home...
+              Deletion cancelled — your account is safe and nothing was scrubbed. Redirecting you home...
             </p>
           )}
 
@@ -88,10 +83,10 @@ function DeleteAccountConfirmInner() {
   );
 }
 
-export default function DeleteAccountConfirmPage() {
+export default function DeleteAccountCancelPage() {
   return (
     <Suspense fallback={null}>
-      <DeleteAccountConfirmInner />
+      <DeleteAccountCancelInner />
     </Suspense>
   );
 }

@@ -32,6 +32,14 @@ const PlayerSchema = new Schema(
     // `player(id)`/`playerByTag` deliberately still resolve them.
     isDeleted: { type: Boolean, default: false },
     deletedAt: { type: Date, default: null },
+    // Restore window (settled July 28, 2026) -- see User.scrubBackupEmail
+    // for the full explanation; this is the tag half of the same backup
+    // pair, set by softDeletePlayer and cleared either by
+    // restoreDeletedPlayer (admin restore) or purgeExpiredScrubBackups once
+    // the retention window elapses (lib/accountDeletion.ts). Non-null here
+    // is exactly "restorable right now" -- the restorableDeletedPlayers
+    // admin query filters on this field directly.
+    scrubBackupTag: { type: String, default: null },
   },
   { timestamps: true }
 );

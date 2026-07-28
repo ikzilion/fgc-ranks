@@ -13,8 +13,9 @@ import { AdminEventReviewCard } from "@/components/AdminEventReviewCard";
 import { AdminGameManager } from "@/components/AdminGameManager";
 import { AdminTOManager } from "@/components/AdminTOManager";
 import { AdminUserManager } from "@/components/AdminUserManager";
+import { AdminAccountRestoreManager } from "@/components/AdminAccountRestoreManager";
 
-type TabId = "events" | "games" | "to-status" | "users";
+type TabId = "events" | "games" | "to-status" | "users" | "restore";
 
 export function AdminDashboard({
   pendingEvents,
@@ -22,6 +23,7 @@ export function AdminDashboard({
   hiddenGameNames,
   pendingTORequests,
   players,
+  restorableDeletedPlayers,
   showAdminRoles,
 }: {
   pendingEvents: any[];
@@ -29,9 +31,10 @@ export function AdminDashboard({
   hiddenGameNames: string[];
   pendingTORequests: any[];
   players: any[];
-  // Admin roles is SUPER_ADMIN-only (same gate as the standalone
-  // /admin/users page) — the other three tabs are ADMIN-or-above, same as
-  // this page's own notFound() gate.
+  restorableDeletedPlayers: any[];
+  // Admin roles AND account restore are both SUPER_ADMIN-only (same gate as
+  // the standalone /admin/users page) — the other three tabs are
+  // ADMIN-or-above, same as this page's own notFound() gate.
   showAdminRoles: boolean;
 }) {
   const [tab, setTab] = useState<TabId>("events");
@@ -40,7 +43,12 @@ export function AdminDashboard({
     { id: "events", label: "Review queue", count: pendingEvents.length },
     { id: "games", label: "Manage games", count: games.length },
     { id: "to-status", label: "Manage TOs", count: pendingTORequests.length },
-    ...(showAdminRoles ? [{ id: "users" as TabId, label: "Admin roles", count: 0 }] : []),
+    ...(showAdminRoles
+      ? [
+          { id: "users" as TabId, label: "Admin roles", count: 0 },
+          { id: "restore" as TabId, label: "Restore accounts", count: restorableDeletedPlayers.length },
+        ]
+      : []),
   ];
 
   return (
@@ -61,7 +69,7 @@ export function AdminDashboard({
               }}
             >
               {t.label}
-              {(t.id === "events" || t.id === "to-status") && ` (${t.count})`}
+              {(t.id === "events" || t.id === "to-status" || t.id === "restore") && ` (${t.count})`}
             </button>
           );
         })}
@@ -82,6 +90,8 @@ export function AdminDashboard({
       {tab === "to-status" && <AdminTOManager pendingRequests={pendingTORequests} players={players} />}
 
       {tab === "users" && showAdminRoles && <AdminUserManager players={players} />}
+
+      {tab === "restore" && showAdminRoles && <AdminAccountRestoreManager players={restorableDeletedPlayers} />}
     </>
   );
 }

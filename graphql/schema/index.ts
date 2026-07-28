@@ -43,6 +43,16 @@ export const typeDefs = `#graphql
     isTO: Boolean!
     player: Player
     createdAt: Date!
+    # Grace-period account deletion (settled July 28, 2026) — non-null means
+    # this account is pending deletion, scheduled to be scrubbed on this
+    # date unless cancelled first. See models/User.ts and
+    # cancelAccountDeletion/cancelMyPendingDeletion.
+    scheduledScrubAt: Date
+    # Admin restore tool — the original email, retained for a limited window
+    # after a scrub (see models/User.ts's scrubBackupEmail). Only ever
+    # populated on an already-scrubbed (isDeleted) account.
+    scrubBackupEmail: String
+    scrubBackupExpiresAt: Date
   }
 
   type TORequest {
@@ -96,6 +106,13 @@ export const typeDefs = `#graphql
     # Admin soft-delete — see deletePlayer. Personal info is scrubbed and
     # login disabled, but the document/historical references stay intact.
     isDeleted: Boolean!
+    deletedAt: Date
+    # Admin restore tool (settled July 28, 2026) — the original tag,
+    # retained for a limited window after a scrub (see
+    # models/Player.ts's scrubBackupTag). Non-null here is exactly what
+    # restorableDeletedPlayers filters on. Only ever populated on an
+    # already-scrubbed (isDeleted) player.
+    scrubBackupTag: String
     # Head-to-head record against a specific opponent, from THIS player's
     # perspective (wins = this player's wins over opponent). Only counts
     # completed matches (forfeits included — a forfeit still has a real
@@ -453,6 +470,11 @@ export const typeDefs = `#graphql
     # ADMIN-only — the TO-request review queue's data source.
     pendingTORequests: [TORequest!]!
 
+    # SUPER_ADMIN-only (settled July 28, 2026) — the admin restore tool's
+    # data source: every scrubbed player still within its
+    # SCRUB_BACKUP_RETENTION_MS restore window (lib/accountDeletion.ts).
+    restorableDeletedPlayers: [Player!]!
+
     # eventId omitted = global homepage posts only (unchanged pre-Events
     # behavior). eventId set = that Event's own news section instead.
     newsPosts(limit: Int, offset: Int, eventId: ID): [NewsPost!]!
@@ -477,16 +499,33 @@ export const typeDefs = `#graphql
     # the calling session's own account.
     requestAccountDeletion: Boolean!
     # Token-only, no login required to use the link — same precedent as
-    # resetPassword. Performs the same soft-delete as the ADMIN deletePlayer
-    # mutation (disables login, scrubs personal info, keeps historical
-    # records intact).
+    # resetPassword. Grace-period account deletion (settled July 28, 2026):
+    # this no longer scrubs immediately — it starts a 7-day pending-deletion
+    # window (User.scheduledScrubAt), cancellable via cancelAccountDeletion/
+    # cancelMyPendingDeletion below. The actual scrub only happens once that
+    # window elapses.
     confirmAccountDeletion(token: String!): Boolean!
+    # Cancels a pending deletion via the token from the "your account is
+    # scheduled for deletion" email — no login required, same precedent as
+    # confirmAccountDeletion. Idempotent (true even if already
+    # cancelled/not pending).
+    cancelAccountDeletion(token: String!): Boolean!
+    # Cancels a pending deletion for the calling session's own account — the
+    # "sign back in and cancel" path, no token needed. Same
+    # no-argument-always-targets-self convention as requestAccountDeletion.
+    cancelMyPendingDeletion: Boolean!
 
     updatePlayer(id: ID!, tag: String, region: String, avatarUrl: String, characters: [String!], team: String, twitchUrl: String): Player!
     # ADMIN-only. Soft-delete: disables login, scrubs personal info (email,
     # password, avatar, region, team), but keeps the Player document and all
     # Match/Entrant/Tournament/Event references intact.
     deletePlayer(id: ID!): Boolean!
+    # SUPER_ADMIN-only (settled July 28, 2026) — reverses a scrub within its
+    # restore window, recovering the original tag/email from the temporary
+    # backup (see models/Player.ts's scrubBackupTag). The account's password
+    # is NOT recoverable (randomized at scrub time by design) — the
+    # restored player needs a fresh password reset to log back in.
+    restoreDeletedPlayer(playerId: ID!): Player!
     # SUPER_ADMIN-only — the one in-app way to grant/revoke ADMIN. Regular
     # ADMINs cannot call these.
     grantAdmin(playerId: ID!): Boolean!

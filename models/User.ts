@@ -48,8 +48,41 @@ const UserSchema = new Schema(
     // requestAccountDeletion/confirmAccountDeletion resolvers.
     deleteAccountTokenHash: { type: String, default: null },
     deleteAccountTokenExpiry: { type: Date, default: null },
+    // Grace-period account deletion (settled July 28, 2026) -- replaces
+    // confirmAccountDeletion's old "scrub immediately" behavior.
+    // scheduledScrubAt null = not pending. Sign-in still works normally
+    // during this window (see lib/auth.ts's authorize()) -- locking the
+    // account out here would also block the "sign back in and cancel" path
+    // the client offers alongside the emailed cancel link. See
+    // lib/accountDeletion.ts for the grace-period length and how the
+    // eventual scrub actually gets triggered (this app has no cron/
+    // scheduled-job infrastructure -- same reasoning as lib/ranking.ts's
+    // header comment -- so it's enforced lazily instead).
+    pendingDeletionRequestedAt: { type: Date, default: null },
+    scheduledScrubAt: { type: Date, default: null },
+    // Cancel-from-email-link token -- separate from deleteAccountTokenHash/
+    // Expiry above (that pair is the short-lived 1h request->confirm step);
+    // this one needs to stay valid for the whole multi-day grace window.
+    // Same hashed-token-with-expiry pattern.
+    cancelDeletionTokenHash: { type: String, default: null },
+    cancelDeletionTokenExpiry: { type: Date, default: null },
+    // Restore window (settled July 28, 2026) -- softDeletePlayer
+    // (lib/accountDeletion.ts) retains the real email here for
+    // SCRUB_BACKUP_RETENTION_MS after a scrub, so a Super Admin can undo an
+    // unauthorized/mistaken deletion via restoreDeletedPlayer. Purged
+    // (along with Player.scrubBackupTag) once the retention window elapses
+    // -- same lazy, no-cron enforcement as the grace period above.
+    scrubBackupEmail: { type: String, default: null },
+    scrubBackupExpiresAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
+
+// Sparse -- almost every document has these unset (null), and the only
+// real query against them is "find the ones that are due" (lib/accountDeletion.ts's
+// lazy maintenance sweep, run on every GraphQL request), which only cares
+// about the small non-null subset.
+UserSchema.index({ scheduledScrubAt: 1 }, { sparse: true });
+UserSchema.index({ scrubBackupExpiresAt: 1 }, { sparse: true });
 
 export const User = models.User || model("User", UserSchema);

@@ -19,64 +19,93 @@ import { AdminDashboard } from "@/components/AdminDashboard";
 
 export const dynamic = "force-dynamic";
 
-const GET_ADMIN_DASHBOARD_DATA = `
-  query GetAdminDashboardData {
-    blobStorageUsageBytes
-    pendingEvents {
-      id
-      displayId
-      name
-      isOnlineOnly
-      address
-      logoUrl
-      twitchUrl
-      createdAt
-      creator { id tag }
-    }
-    games {
-      id
-      name
-      iconUrl
-      tournamentCount
-    }
-    hiddenGameNames
-    pendingTORequests {
-      id
-      contactEmail
-      reason
-      createdAt
-      player {
+// restorableDeletedPlayers is SUPER_ADMIN-only in the resolver (stricter
+// than this page's own ADMIN-or-above gate) and declared non-null
+// ([Player!]!) in the schema -- if a plain ADMIN's request included it,
+// the resolver's "Not authorized" throw would null-bubble the ENTIRE
+// response (GraphQL non-null propagation), wiping out every other tab's
+// data too. Built conditionally below so a plain ADMIN's query never
+// references that field at all.
+function buildAdminDashboardQuery(includeSuperAdminFields: boolean) {
+  return `
+    query GetAdminDashboardData {
+      blobStorageUsageBytes
+      pendingEvents {
+        id
+        displayId
+        name
+        isOnlineOnly
+        address
+        logoUrl
+        twitchUrl
+        createdAt
+        creator { id tag }
+      }
+      games {
+        id
+        name
+        iconUrl
+        tournamentCount
+      }
+      hiddenGameNames
+      pendingTORequests {
+        id
+        contactEmail
+        reason
+        createdAt
+        player {
+          id
+          tag
+          displayId
+          avatarUrl
+          user { id createdAt }
+          tournaments { id }
+        }
+      }
+      players(limit: 200) {
         id
         tag
         displayId
         avatarUrl
-        user { id createdAt }
-        tournaments { id }
+        user { id role isTO createdAt }
+      }
+      ${
+        includeSuperAdminFields
+          ? `restorableDeletedPlayers {
+        id
+        scrubBackupTag
+        deletedAt
+        user { id scrubBackupEmail scrubBackupExpiresAt }
+      }`
+          : ""
       }
     }
-    players(limit: 200) {
-      id
-      tag
-      displayId
-      avatarUrl
-      user { id role isTO createdAt }
-    }
-  }
-`;
+  `;
+}
 
-async function getAdminDashboardData() {
+const EMPTY_DASHBOARD_DATA = {
+  blobStorageUsageBytes: 0,
+  pendingEvents: [] as any[],
+  games: [] as any[],
+  hiddenGameNames: [] as string[],
+  pendingTORequests: [] as any[],
+  players: [] as any[],
+  restorableDeletedPlayers: [] as any[],
+};
+
+async function getAdminDashboardData(includeSuperAdminFields: boolean) {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
   try {
     const res = await fetch(`${baseUrl}/api/graphql`, {
       method: "POST",
       headers: { "Content-Type": "application/json", cookie: (await cookies()).toString() },
-      body: JSON.stringify({ query: GET_ADMIN_DASHBOARD_DATA }),
+      body: JSON.stringify({ query: buildAdminDashboardQuery(includeSuperAdminFields) }),
       cache: "no-store",
     });
     const json = await res.json();
     if (json.errors) {
       console.error("[admin] GraphQL errors:", json.errors);
-      return { blobStorageUsageBytes: 0, pendingEvents: [], games: [], hiddenGameNames: [], pendingTORequests: [], players: [] };
+      return EMPTY_DASHBOARD_DATA;
     }
     return {
       blobStorageUsageBytes: json.data?.blobStorageUsageBytes ?? 0,
@@ -85,10 +114,11 @@ async function getAdminDashboardData() {
       hiddenGameNames: json.data?.hiddenGameNames ?? [],
       pendingTORequests: json.data?.pendingTORequests ?? [],
       players: json.data?.players ?? [],
+      restorableDeletedPlayers: json.data?.restorableDeletedPlayers ?? [],
     };
   } catch (err) {
     console.error("[admin] Fetch error:", err);
-    return { blobStorageUsageBytes: 0, pendingEvents: [], games: [], hiddenGameNames: [], pendingTORequests: [], players: [] };
+    return EMPTY_DASHBOARD_DATA;
   }
 }
 
@@ -97,7 +127,8 @@ export default async function AdminPage() {
   const role = (session?.user as any)?.role;
   if (!isAdminOrAbove(role)) notFound();
 
-  const { blobStorageUsageBytes, pendingEvents, games, hiddenGameNames, pendingTORequests, players } = await getAdminDashboardData();
+  const { blobStorageUsageBytes, pendingEvents, games, hiddenGameNames, pendingTORequests, players, restorableDeletedPlayers } =
+    await getAdminDashboardData(isSuperAdmin(role));
   const usageMB = (blobStorageUsageBytes / (1024 * 1024)).toFixed(1);
   const limitMB = Math.round(BLOB_STORAGE_LIMIT_BYTES / (1024 * 1024));
 
@@ -123,6 +154,7 @@ export default async function AdminPage() {
         hiddenGameNames={hiddenGameNames}
         pendingTORequests={pendingTORequests}
         players={players}
+        restorableDeletedPlayers={restorableDeletedPlayers}
         showAdminRoles={isSuperAdmin(role)}
       />
     </main>

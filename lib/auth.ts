@@ -6,6 +6,7 @@ import { connectToDatabase } from "@/lib/db";
 import { User } from "@/models/User";
 import { Player } from "@/models/Player";
 import { loginRateLimit, getClientIp } from "@/lib/rateLimit";
+import { softDeletePlayer } from "@/lib/accountDeletion";
 
 class RateLimitedSignin extends CredentialsSignin {
   code = "rate_limited";
@@ -36,6 +37,21 @@ export const authConfig = {
         // Soft-deleted accounts are rejected outright, regardless of
         // whether the credential would otherwise be valid.
         if (user.isDeleted) return null;
+        // Grace-period account deletion (settled July 28, 2026) — this app
+        // has no cron/scheduled-job infrastructure, so an account whose
+        // 7-day window has elapsed is scrubbed lazily on next contact
+        // rather than by a background job. app/api/graphql/route.ts's
+        // context factory covers this for site traffic in general
+        // (lib/accountDeletion.ts's runAccountDeletionMaintenance), but a
+        // direct login attempt never touches /api/graphql first — so this
+        // is the redundant, narrower check specifically for "the account
+        // owner comes back and tries to log in after their window already
+        // passed but nothing has swept it yet."
+        if (user.scheduledScrubAt && user.scheduledScrubAt <= new Date()) {
+          const player = user.playerId ? await Player.findById(user.playerId) : null;
+          if (player) await softDeletePlayer(player, { ip });
+          return null; // now scrubbed — same rejection as an already-deleted account
+        }
         const valid = await bcrypt.compare(credentials.password as string, user.passwordHash);
         if (!valid) return null;
         // `=== false` (not falsy) — a grandfathered legacy account with no
@@ -68,6 +84,15 @@ export const authConfig = {
     },
     async session({ session, token }: any) {
       if (session.user) {
+        // token.sub is NextAuth's own standard claim for the authenticated
+        // user's id (mirrors authorize()'s returned `id` automatically,
+        // nothing sets it explicitly above) -- previously never copied onto
+        // session.user here, which left app/api/graphql/route.ts's
+        // `userId: session?.user?.id` context field permanently undefined.
+        // Latent until now: Query.me is the only resolver that ever reads
+        // it, and nothing called `me` until the account-deletion grace-
+        // period feature's pending-deletion banner (settled July 28, 2026).
+        session.user.id = token.sub;
         session.user.role = token.role;
         session.user.isTO = token.isTO;
         session.user.tag = token.tag;
