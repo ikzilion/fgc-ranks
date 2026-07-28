@@ -7,8 +7,6 @@ import { auth } from "@/lib/auth";
 import { isAdminOrAbove } from "@/lib/roles";
 import { JoinTournamentButton } from "@/components/JoinTournamentButton";
 import { TournamentStatusButton } from "@/components/TournamentStatusButton";
-import { ManageOrganizersButton } from "@/components/ManageOrganizersButton";
-import { InvitePlayerButton } from "@/components/InvitePlayerButton";
 import { RemoveEntrantButton } from "@/components/RemoveEntrantButton";
 import { SetPlacementButton } from "@/components/SetPlacementButton";
 import { CheckInToggleButton } from "@/components/CheckInToggleButton";
@@ -16,9 +14,8 @@ import { SelfCheckInButton } from "@/components/SelfCheckInButton";
 import { GenerateBracketButton } from "@/components/GenerateBracketButton";
 import { BracketView } from "@/components/BracketView";
 import { PoolsSection } from "@/components/PoolsSection";
-import { StreamAssetsButton } from "@/components/StreamAssetsButton";
 import { TabletModeButton } from "@/components/TabletModeButton";
-import { EditTournamentDetailsButton } from "@/components/EditTournamentDetailsButton";
+import { TournamentManageTabs } from "@/components/TournamentManageTabs";
 
 export const dynamic = "force-dynamic";
 
@@ -286,6 +283,98 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     </>
   );
 
+  // Tabbed reorganization (settled July 28, 2026, see
+  // components/TournamentManageTabs.tsx) — this is exactly what rendered in
+  // this position on the page before that feature existed, now extracted so
+  // it can be passed through as the "Overview" tab's content for a
+  // canManage viewer, or rendered directly (unwrapped, unchanged) for
+  // everyone else.
+  const overviewContent = showBracketSection ? (
+    <div className="max-w-[1800px] mx-auto mb-6">
+      <div className="flex flex-col sm:flex-row gap-4 items-start">
+        {/* Entrants — left sidebar next to the Bracket instead of down
+            with Matches, so both are visible together without scrolling
+            past the (often very tall) bracket to check who's entered. */}
+        <div className="w-full sm:w-72 sm:flex-shrink-0">{entrantsSidebar}</div>
+
+        {/* min-w-0 is load-bearing: a flex item's default min-width:auto
+            would let the bracket's intrinsic content width stretch this
+            column (pushing the sidebar off-layout) instead of shrinking
+            to the space actually available and scrolling internally via
+            its own overflow-x-auto + sticky scrollbar — same class of
+            gotcha as the min-h-0 fix on the Stream Settings modal's
+            scroll container, just the width axis instead of height.
+            w-full is equally load-bearing on mobile specifically: this
+            row is `items-start` (so the sidebar doesn't get stretched to
+            the bracket's full height once it's a sm:flex-row sibling),
+            but on mobile it's flex-col, where items-start's cross-axis
+            is WIDTH — without an explicit w-full here, this column sizes
+            to its content's natural (unclipped) width instead of the
+            viewport, so BracketView's internal overflow-x-auto never
+            sees a bounded container to scroll within and the whole page
+            overflows horizontally instead. */}
+        <div className="flex-1 min-w-0 w-full">
+          {isPoolsFormat ? (
+            // Tabbed — one bracket visible at a time (Main Bracket, once
+            // generated, plus one tab per pool) instead of every pool
+            // stacked vertically on one long page. Pools stay viewable
+            // via their own tab as history/reference once the main
+            // bracket exists, not just during the pool stage.
+            <PoolsSection
+              tournamentId={tournament.id}
+              pools={tournament.pools}
+              mainBracket={tournament.mainBracket}
+              entrantCount={tournament.entrants.length}
+              suggestedPoolCount={tournament.suggestedPoolCount}
+              allPoolsComplete={tournament.allPoolsComplete}
+              poolModel={tournament.poolModel}
+              modelBCurrentRoundComplete={tournament.modelBCurrentRoundComplete}
+              canManage={canManage}
+              lineColor={tournament.bracketLineColor}
+              boxColor={tournament.bracketBoxColor}
+              fontColor={tournament.bracketFontColor}
+            />
+          ) : (
+            // overflow: visible override — .fgc-card's overflow:hidden (for
+            // rounded-corner clipping elsewhere) becomes BracketView's sticky
+            // scrollbar's containing block otherwise, and since this card never
+            // scrolls internally (the whole page does), the sticky element would
+            // never actually track viewport scroll — a well-known overflow +
+            // position:sticky interaction, not a BracketView-side bug.
+            <div className="fgc-card p-6" style={{ overflow: "visible" }}>
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Bracket</p>
+                  {canManage && (
+                    <p className="text-[11px] text-[var(--text-muted)] mt-0.5">You can report results and manage this bracket.</p>
+                  )}
+                </div>
+                {canManage && (
+                  <GenerateBracketButton
+                    tournamentId={tournament.id}
+                    entrants={tournament.entrants}
+                    canManage={canManage}
+                    hasBracket={!!tournament.bracket}
+                  />
+                )}
+              </div>
+              {tournament.bracket ? (
+                <BracketView bracket={tournament.bracket} canManage={canManage} lineColor={tournament.bracketLineColor} boxColor={tournament.bracketBoxColor} fontColor={tournament.bracketFontColor} />
+              ) : (
+                <p className="text-[13px] text-[var(--text-secondary)]">No bracket generated yet.</p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  ) : (
+    // No bracket section to sit beside (spectator view, bracket not
+    // generated yet) — Entrants renders on its own at the standard
+    // content width instead of being a lone sidebar with nothing next to it.
+    <div className="max-w-5xl mx-auto mb-6">{entrantsSidebar}</div>
+  );
+
   return (
     <main className="mx-auto px-4 py-8">
       {/* Header — kept at the site's standard content width. Only the
@@ -413,49 +502,6 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                 )}
               </div>
             </div>
-            {canManage && (
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <EditTournamentDetailsButton
-                  tournamentId={tournament.id}
-                  logoUrl={tournament.logoUrl}
-                  isOnlineOnly={tournament.isOnlineOnly}
-                  address={tournament.address}
-                  twitchUrl={tournament.twitchUrl}
-                  format={tournament.format}
-                  capacity={tournament.capacity}
-                  entryFee={tournament.entryFee}
-                  prizePot={tournament.prizePot}
-                  event={tournament.event}
-                  canManage={canManage}
-                />
-                <ManageOrganizersButton
-                  tournamentId={tournament.id}
-                  organizers={tournament.organizers}
-                  canManage={canManage}
-                />
-                <InvitePlayerButton
-                  tournamentId={tournament.id}
-                  visibility={tournament.visibility}
-                  invitedPlayers={tournament.invitedPlayers}
-                  entrants={tournament.entrants}
-                  allPlayers={players}
-                  canManage={canManage}
-                  isRestricted={tournament.isRestricted}
-                />
-                <StreamAssetsButton
-                  tournamentId={tournament.id}
-                  streamBackgroundUrl={tournament.streamBackgroundUrl}
-                  sponsorBannerUrl={tournament.sponsorBannerUrl}
-                  sponsorBannerUrls={tournament.sponsorBannerUrls}
-                  sponsorBannerIntervalSeconds={tournament.sponsorBannerIntervalSeconds}
-                  bracketLineColor={tournament.bracketLineColor}
-                  bracketBoxColor={tournament.bracketBoxColor}
-                  bracketFontColor={tournament.bracketFontColor}
-                  canManage={canManage}
-                  isRestricted={tournament.isRestricted}
-                />
-              </div>
-            )}
           </div>
 
           {/* Streamer Mode — pulled out of the header button row into its own
@@ -485,102 +531,42 @@ export default async function TournamentDetailPage({ params }: { params: Promise
         </div>
       </div>
 
-      {/* Bracket — deliberately NOT wrapped in the max-w-5xl container above.
-          Unlike the rest of this page, the bracket is inherently wide,
-          horizontally-scrollable content (it already has its own internal
-          overflow-x scroll + sticky range-slider scrollbar for whatever
-          exceeds even this width), so constraining it to the same
-          paragraph-width column as everything else squishes it into a
-          narrow strip with unused space on both sides. Give it its own much
-          wider (near full-bleed) centered container instead — visible to
-          everyone once generated (Phase 2: public read-only view).
-          Organizers/admins additionally get generate/edit controls and can
-          see the "no bracket yet" state; non-managers just see nothing until
-          one exists, so spectators aren't shown an empty section. */}
-      {showBracketSection ? (
-        <div className="max-w-[1800px] mx-auto mb-6">
-          <div className="flex flex-col sm:flex-row gap-4 items-start">
-            {/* Entrants — left sidebar next to the Bracket instead of down
-                with Matches, so both are visible together without scrolling
-                past the (often very tall) bracket to check who's entered. */}
-            <div className="w-full sm:w-72 sm:flex-shrink-0">{entrantsSidebar}</div>
-
-            {/* min-w-0 is load-bearing: a flex item's default min-width:auto
-                would let the bracket's intrinsic content width stretch this
-                column (pushing the sidebar off-layout) instead of shrinking
-                to the space actually available and scrolling internally via
-                its own overflow-x-auto + sticky scrollbar — same class of
-                gotcha as the min-h-0 fix on the Stream Settings modal's
-                scroll container, just the width axis instead of height.
-                w-full is equally load-bearing on mobile specifically: this
-                row is `items-start` (so the sidebar doesn't get stretched to
-                the bracket's full height once it's a sm:flex-row sibling),
-                but on mobile it's flex-col, where items-start's cross-axis
-                is WIDTH — without an explicit w-full here, this column sizes
-                to its content's natural (unclipped) width instead of the
-                viewport, so BracketView's internal overflow-x-auto never
-                sees a bounded container to scroll within and the whole page
-                overflows horizontally instead. */}
-            <div className="flex-1 min-w-0 w-full">
-              {isPoolsFormat ? (
-                // Tabbed — one bracket visible at a time (Main Bracket, once
-                // generated, plus one tab per pool) instead of every pool
-                // stacked vertically on one long page. Pools stay viewable
-                // via their own tab as history/reference once the main
-                // bracket exists, not just during the pool stage.
-                <PoolsSection
-                  tournamentId={tournament.id}
-                  pools={tournament.pools}
-                  mainBracket={tournament.mainBracket}
-                  entrantCount={tournament.entrants.length}
-                  suggestedPoolCount={tournament.suggestedPoolCount}
-                  allPoolsComplete={tournament.allPoolsComplete}
-                  poolModel={tournament.poolModel}
-                  modelBCurrentRoundComplete={tournament.modelBCurrentRoundComplete}
-                  canManage={canManage}
-                  lineColor={tournament.bracketLineColor}
-                  boxColor={tournament.bracketBoxColor}
-                  fontColor={tournament.bracketFontColor}
-                />
-              ) : (
-                // overflow: visible override — .fgc-card's overflow:hidden (for
-                // rounded-corner clipping elsewhere) becomes BracketView's sticky
-                // scrollbar's containing block otherwise, and since this card never
-                // scrolls internally (the whole page does), the sticky element would
-                // never actually track viewport scroll — a well-known overflow +
-                // position:sticky interaction, not a BracketView-side bug.
-                <div className="fgc-card p-6" style={{ overflow: "visible" }}>
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Bracket</p>
-                      {canManage && (
-                        <p className="text-[11px] text-[var(--text-muted)] mt-0.5">You can report results and manage this bracket.</p>
-                      )}
-                    </div>
-                    {canManage && (
-                      <GenerateBracketButton
-                        tournamentId={tournament.id}
-                        entrants={tournament.entrants}
-                        canManage={canManage}
-                        hasBracket={!!tournament.bracket}
-                      />
-                    )}
-                  </div>
-                  {tournament.bracket ? (
-                    <BracketView bracket={tournament.bracket} canManage={canManage} lineColor={tournament.bracketLineColor} boxColor={tournament.bracketBoxColor} fontColor={tournament.bracketFontColor} />
-                  ) : (
-                    <p className="text-[13px] text-[var(--text-secondary)]">No bracket generated yet.</p>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+      {/* Tabbed reorganization (settled July 28, 2026) — TournamentManageTabs
+          only ever renders for canManage; everyone else gets overviewContent
+          directly, unwrapped, so a public/non-managing viewer's rendered
+          page is completely unchanged (same DOM, same position, same
+          max-w-[1800px]-or-max-w-5xl container overviewContent already
+          brings with it — see where it's built above). */}
+      {canManage ? (
+        <TournamentManageTabs
+          tournamentId={tournament.id}
+          logoUrl={tournament.logoUrl}
+          isOnlineOnly={tournament.isOnlineOnly}
+          address={tournament.address}
+          twitchUrl={tournament.twitchUrl}
+          format={tournament.format}
+          capacity={tournament.capacity}
+          entryFee={tournament.entryFee}
+          prizePot={tournament.prizePot}
+          event={tournament.event}
+          organizers={tournament.organizers}
+          visibility={tournament.visibility}
+          invitedPlayers={tournament.invitedPlayers}
+          entrants={tournament.entrants}
+          allPlayers={players}
+          isRestricted={tournament.isRestricted}
+          streamBackgroundUrl={tournament.streamBackgroundUrl}
+          sponsorBannerUrl={tournament.sponsorBannerUrl}
+          sponsorBannerUrls={tournament.sponsorBannerUrls}
+          sponsorBannerIntervalSeconds={tournament.sponsorBannerIntervalSeconds}
+          bracketLineColor={tournament.bracketLineColor}
+          bracketBoxColor={tournament.bracketBoxColor}
+          bracketFontColor={tournament.bracketFontColor}
+        >
+          {overviewContent}
+        </TournamentManageTabs>
       ) : (
-        // No bracket section to sit beside (spectator view, bracket not
-        // generated yet) — Entrants renders on its own at the standard
-        // content width instead of being a lone sidebar with nothing next to it.
-        <div className="max-w-5xl mx-auto mb-6">{entrantsSidebar}</div>
+        overviewContent
       )}
 
       <div className="max-w-5xl mx-auto">
