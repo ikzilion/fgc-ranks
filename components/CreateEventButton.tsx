@@ -240,8 +240,14 @@ export function CreateEventButton() {
             {/* Matches the real gate: a new Event starts PENDING (see this
                 file's top comment) — visible to its creator/managers, but
                 left out of /events and Event-ID lookup until an admin
-                approves it via the review queue. */}
-            <p className="text-[13px] font-bold text-[var(--text-muted)] mb-4">
+                approves it via the review queue. Same coral-dim/coral
+                warning-box pairing as the error message below and
+                badge-live in globals.css, not a generic red/pink — keeps
+                this notice inside the site's existing dark-theme palette. */}
+            <p
+              className="text-[13px] font-bold mb-4 px-3 py-2.5 rounded"
+              style={{ background: "var(--coral-dim)", color: "var(--coral)", border: "1px solid rgba(255,77,77,0.25)" }}
+            >
               Your event will need admin approval before it's posted publicly.
             </p>
 
