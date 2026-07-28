@@ -165,7 +165,15 @@ export function ManageOrganizersButton({
                 <div className="flex items-center gap-3 px-3 py-2.5 rounded-md" style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}>
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-semibold text-[var(--text-primary)] truncate">{foundPlayer.tag}</p>
-                    <p className="text-[10px] font-mono text-[var(--text-muted)]">{foundPlayer.displayId}</p>
+                    {/* Player.displayId is now gated server-side to owner/
+                        Admin/TO (see the resolver) — a co-organizer who's
+                        neither would get null back here even though they
+                        just typed this exact ID themselves. Fall back to
+                        their own input so the confirmation line doesn't go
+                        blank; only affects formatting (case/padding), never
+                        which player gets added, since that already uses
+                        foundPlayer.id. */}
+                    <p className="text-[10px] font-mono text-[var(--text-muted)]">{foundPlayer.displayId ?? playerIdInput.trim()}</p>
                   </div>
                   {alreadyOrganizer ? (
                     <span className="text-[11px] text-[var(--text-muted)] flex-shrink-0">Already an organizer</span>

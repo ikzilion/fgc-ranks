@@ -16,6 +16,7 @@ const handler = startServerAndCreateNextHandler<NextRequest>(server, {
       userId: (session?.user as any)?.id,
       role: (session?.user as any)?.role,
       playerId: (session?.user as any)?.playerId,
+      isTO: !!(session?.user as any)?.isTO,
       // Fresh per request -- see graphql/loaders.ts for why this can't be
       // hoisted above the context factory.
       loaders: createLoaders(),

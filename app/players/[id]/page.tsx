@@ -242,10 +242,15 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
       {/* Player ID + QR code — foundation for the separately-planned
           QR-based tournament check-in feature. Plain-text encoding of the
           formatted ID for now; check-in can decide later if it needs a
-          richer payload. Only the profile owner sees their own Player ID
-          here (viewerId === player.id) — every other visitor, logged in or
-          not, gets nothing rendered in this slot at all. */}
-      {player.displayId && viewerId === player.id && (
+          richer payload. Visible to the profile owner, Admin/Super Admin,
+          and any TO (site-wide — see the Player.displayId resolver comment
+          for why TO's reach is broader here than its usual per-tournament
+          scope). The real gate is server-side on Player.displayId itself —
+          the resolver already returns null to everyone else, so this
+          condition is redundant with that, not a substitute for it; kept
+          in sync so the QR box doesn't render empty for viewers the
+          resolver has already excluded. */}
+      {player.displayId && (viewerId === player.id || isAdminOrAbove(viewerRole) || !!(session?.user as any)?.isTO) && (
         <div className="fgc-card p-4 mb-6 flex items-center gap-4">
           <div className="bg-white p-2 rounded flex-shrink-0">
             <QRCodeSVG value={player.displayId} size={72} />

@@ -2780,8 +2780,23 @@ export const resolvers = {
     points: async (parent: { _id: string }) => await computeRankingPoints(parent._id.toString()),
     gameRankings: async (parent: { _id: string }) => await computeGameRankingsForPlayer(parent._id.toString()),
     tournaments: async (parent: { _id: string }) => await Entrant.find({ playerId: parent._id }),
-    displayId: (parent: { playerNumber?: number }) =>
-      parent.playerNumber != null ? formatPlayerNumber(parent.playerNumber) : null,
+    // Gated at the field level (not just hidden in the profile page's JSX)
+    // since displayId is the real Player ID used for QR check-in — anyone
+    // could otherwise read it straight off the public /api/graphql endpoint
+    // regardless of what the page renders. Visible to the player themselves,
+    // Admin/Super Admin, and any TO (site-wide, not scoped to tournaments
+    // they organize — a deliberate exception confirmed July 27, 2026, not a
+    // pattern to reuse elsewhere without checking back first).
+    displayId: (
+      parent: { _id: string; playerNumber?: number },
+      _args: unknown,
+      context: { playerId?: string; role?: string; isTO?: boolean }
+    ) => {
+      if (parent.playerNumber == null) return null;
+      const isOwner = context.playerId === parent._id.toString();
+      if (!isOwner && !isAdminOrAbove(context.role) && !context.isTO) return null;
+      return formatPlayerNumber(parent.playerNumber);
+    },
     winRate: (parent: { wins: number; losses: number }) => {
       const total = parent.wins + parent.losses;
       return total === 0 ? 0 : Math.round((parent.wins / total) * 100) / 100;
