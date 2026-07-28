@@ -5,17 +5,28 @@
 // reset-password). Grace-period account deletion (settled July 28, 2026):
 // confirming here no longer deletes the account immediately, it just starts
 // the 7-day pending-deletion window (a follow-up email has the exact date +
-// a cancel link) — so unlike before, the session stays valid and there's no
-// sign-out here anymore.
+// a cancel link).
+//
+// Fix (July 28, 2026, follow-up to commit 0237b3d): this page used to
+// auto-redirect home a few seconds after confirming and left the current
+// session signed in (reasoning at the time: the account isn't actually
+// deleted yet, so why sign out). Corrected -- a player shouldn't stay in an
+// active signed-in session on an account that's mid-deletion, so this signs
+// the current session out right after confirming; sign-in itself is still
+// allowed generally (see lib/auth.ts's authorize()), so signing back in
+// later to check status or cancel from within the app still works exactly
+// as designed -- this only ends THIS tab's session, not the account's
+// ability to log in during the window. The confirmation state now just
+// stays displayed instead of navigating away on its own.
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { signOut } from "next-auth/react";
 import Link from "next/link";
 
 function DeleteAccountConfirmInner() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const token = searchParams.get("token");
 
   const [status, setStatus] = useState<"pending" | "success" | "error">("pending");
@@ -46,13 +57,17 @@ function DeleteAccountConfirmInner() {
         }
 
         setStatus("success");
-        setTimeout(() => router.push("/"), 4000);
+        // The account is now mid-deletion (pending window) -- end this
+        // session rather than leaving the player signed in. redirect:
+        // false since this page already shows the confirmation state and
+        // should stay put, not navigate away.
+        await signOut({ redirect: false });
       } catch {
         setStatus("error");
         setError("Something went wrong. Please try again.");
       }
     })();
-  }, [token, router]);
+  }, [token]);
 
   return (
     <main className="min-h-screen flex items-center justify-center px-4">
@@ -67,7 +82,7 @@ function DeleteAccountConfirmInner() {
           {status === "success" && (
             <p className="text-[13px] text-[var(--text-secondary)]">
               Deletion confirmed. Your account is now scheduled for deletion in 7 days — check your email for the exact date and a link to
-              cancel. You can also cancel any time before then by signing back in. Redirecting you home...
+              cancel. You&apos;ve been signed out; you can sign back in any time before then to cancel.
             </p>
           )}
 
