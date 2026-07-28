@@ -20,6 +20,7 @@ interface EventCard {
   isOnlineOnly: boolean;
   address?: string | null;
   twitchUrl?: string | null;
+  isLiveOnTwitch?: boolean;
   tournamentCount: number;
   gameCount: number;
 }
@@ -27,11 +28,18 @@ interface EventCard {
 export function EventSearchFilter({ events }: { events: EventCard[] }) {
   const [query, setQuery] = useState("");
   const [onlineOnly, setOnlineOnly] = useState(false);
+  // Independent of the player-side "Twitch Online" filter and of
+  // isOnlineOnly above — an Event's own live-status check (see
+  // Event.isLiveOnTwitch), not derived from any player's individual status.
+  const [liveOnly, setLiveOnly] = useState(false);
 
   const filtered = useMemo(() => {
     let result = events;
     if (onlineOnly) {
       result = result.filter(e => e.isOnlineOnly);
+    }
+    if (liveOnly) {
+      result = result.filter(e => e.isLiveOnTwitch);
     }
     if (query.trim()) {
       const q = query.toLowerCase();
@@ -43,7 +51,7 @@ export function EventSearchFilter({ events }: { events: EventCard[] }) {
       );
     }
     return result;
-  }, [events, query, onlineOnly]);
+  }, [events, query, onlineOnly, liveOnly]);
 
   return (
     <>
@@ -69,12 +77,25 @@ export function EventSearchFilter({ events }: { events: EventCard[] }) {
         >
           🌐 Online only
         </button>
+        <button
+          type="button"
+          onClick={() => setLiveOnly(v => !v)}
+          className="text-[13px] font-semibold px-4 py-2.5 rounded-md whitespace-nowrap"
+          style={{
+            background: liveOnly ? "var(--blue)" : "var(--navy-3)",
+            color: liveOnly ? "white" : "var(--text-secondary)",
+            border: "1px solid var(--border-strong)",
+            cursor: "pointer",
+          }}
+        >
+          🔴 Live now
+        </button>
       </div>
 
       {filtered.length === 0 ? (
         <div className="fgc-card p-6">
           <p className="text-[var(--text-secondary)]">
-            {query || onlineOnly ? "No events match your filters." : "No events yet."}
+            {query || onlineOnly || liveOnly ? "No events match your filters." : "No events yet."}
           </p>
         </div>
       ) : (
@@ -102,14 +123,24 @@ export function EventSearchFilter({ events }: { events: EventCard[] }) {
                   </p>
                   <p className="text-[10px] font-mono text-[var(--text-muted)]">{event.displayId}</p>
                 </div>
-                {event.twitchUrl && (
+                {event.isLiveOnTwitch ? (
                   <span
-                    title="Has a Twitch link"
-                    className="text-[10px] font-semibold px-2 py-1 rounded flex-shrink-0"
-                    style={{ background: "var(--coral-dim)", color: "var(--coral)" }}
+                    title="Live on Twitch right now"
+                    className="text-[10px] font-bold uppercase px-2 py-1 rounded flex-shrink-0 flex items-center gap-1"
+                    style={{ background: "var(--coral-dim)", color: "var(--coral)", border: "1px solid rgba(255,77,77,0.25)" }}
                   >
-                    📺 Twitch
+                    <span className="live-dot" /> Live
                   </span>
+                ) : (
+                  event.twitchUrl && (
+                    <span
+                      title="Has a Twitch link"
+                      className="text-[10px] font-semibold px-2 py-1 rounded flex-shrink-0"
+                      style={{ background: "var(--coral-dim)", color: "var(--coral)" }}
+                    >
+                      📺 Twitch
+                    </span>
+                  )
                 )}
               </div>
               <p className="text-[12px] text-[var(--text-secondary)] truncate">

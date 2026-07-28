@@ -17,6 +17,10 @@ const PlayerSchema = new Schema(
     // simplicity level as `region`.
     team: { type: String, default: "" },
     avatarUrl: { type: String, default: "" },
+    // Simple URL/username field, same free-text level as `team` — parsed
+    // down to a bare username by lib/twitch.ts's extractTwitchUsername for
+    // the live-status check, not validated strictly at write time.
+    twitchUrl: { type: String, default: "" },
     // Array of character names this player mains
     characters: { type: [String], default: [] },
     wins: { type: Number, default: 0 },

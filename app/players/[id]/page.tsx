@@ -26,6 +26,8 @@ const GET_PLAYER = `
       region
       team
       avatarUrl
+      twitchUrl
+      isLiveOnTwitch
       characters
       wins
       losses
@@ -204,6 +206,7 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
                     currentCharacters={player.characters}
                     currentAvatarUrl={player.avatarUrl}
                     currentTeam={player.team}
+                    currentTwitchUrl={player.twitchUrl}
                   />
                   <ChangePasswordButton playerId={player.id} />
                   <DeleteAccountButton playerId={player.id} />
@@ -228,6 +231,27 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
           )}
           {player.team && (
             <p className="text-[13px] font-semibold mt-0.5" style={{ color: "var(--blue)" }}>{player.team}</p>
+          )}
+          {player.twitchUrl && (
+            <p className="mt-1 flex items-center gap-2">
+              <a
+                href={player.twitchUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[13px] inline-block hover:underline"
+                style={{ color: "var(--blue)" }}
+              >
+                📺 Watch on Twitch
+              </a>
+              {player.isLiveOnTwitch && (
+                <span
+                  className="text-[10px] font-bold uppercase px-2 py-0.5 rounded flex items-center gap-1"
+                  style={{ background: "var(--coral-dim)", color: "var(--coral)", border: "1px solid rgba(255,77,77,0.25)" }}
+                >
+                  <span className="live-dot" /> Live
+                </span>
+              )}
+            </p>
           )}
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             {player.characters.map((c: string) => (

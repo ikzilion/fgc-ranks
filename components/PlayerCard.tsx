@@ -21,6 +21,7 @@ interface PlayerCardData {
   // list already uses, shown wherever this card renders (it's always the
   // viewer's own card, never someone else's).
   user?: { id: string; isTO?: boolean } | null;
+  isLiveOnTwitch?: boolean;
 }
 
 export function PlayerCard({ player }: { player: PlayerCardData | null }) {
@@ -55,6 +56,14 @@ export function PlayerCard({ player }: { player: PlayerCardData | null }) {
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
             <p className="font-rajdhani text-lg font-bold text-[var(--text-primary)] leading-tight truncate">{player.tag}</p>
+            {player.isLiveOnTwitch && (
+              <span
+                className="text-[10px] font-bold uppercase px-2 py-1 rounded flex-shrink-0 flex items-center gap-1"
+                style={{ background: "var(--coral-dim)", color: "var(--coral)", border: "1px solid rgba(255,77,77,0.25)" }}
+              >
+                <span className="live-dot" /> Live
+              </span>
+            )}
             {player.user?.isTO && (
               <span
                 className="text-[10px] font-bold uppercase px-2 py-1 rounded flex-shrink-0"

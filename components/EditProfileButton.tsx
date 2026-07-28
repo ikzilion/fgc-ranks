@@ -13,9 +13,10 @@ interface Props {
   currentCharacters: string[];
   currentAvatarUrl?: string;
   currentTeam?: string;
+  currentTwitchUrl?: string;
 }
 
-export function EditProfileButton({ playerId, currentTag, currentRegion, currentCharacters, currentAvatarUrl, currentTeam }: Props) {
+export function EditProfileButton({ playerId, currentTag, currentRegion, currentCharacters, currentAvatarUrl, currentTeam, currentTwitchUrl }: Props) {
   const { data: session } = useSession();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -24,6 +25,7 @@ export function EditProfileButton({ playerId, currentTag, currentRegion, current
   const [charactersInput, setCharactersInput] = useState(currentCharacters.join(", "));
   const [avatarUrl, setAvatarUrl] = useState(currentAvatarUrl || "");
   const [team, setTeam] = useState(currentTeam || "");
+  const [twitchUrl, setTwitchUrl] = useState(currentTwitchUrl || "");
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -80,18 +82,19 @@ export function EditProfileButton({ playerId, currentTag, currentRegion, current
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           query: `
-            mutation UpdatePlayer($id: ID!, $tag: String, $region: String, $avatarUrl: String, $characters: [String!], $team: String) {
-              updatePlayer(id: $id, tag: $tag, region: $region, avatarUrl: $avatarUrl, characters: $characters, team: $team) {
+            mutation UpdatePlayer($id: ID!, $tag: String, $region: String, $avatarUrl: String, $characters: [String!], $team: String, $twitchUrl: String) {
+              updatePlayer(id: $id, tag: $tag, region: $region, avatarUrl: $avatarUrl, characters: $characters, team: $team, twitchUrl: $twitchUrl) {
                 id
                 tag
                 region
                 avatarUrl
                 characters
                 team
+                twitchUrl
               }
             }
           `,
-          variables: { id: playerId, tag, region, avatarUrl, characters, team },
+          variables: { id: playerId, tag, region, avatarUrl, characters, team, twitchUrl },
         }),
       });
 
@@ -177,6 +180,18 @@ export function EditProfileButton({ playerId, currentTag, currentRegion, current
                 type="text"
                 value={team}
                 onChange={e => setTeam(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
+                style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
+              />
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Twitch channel (optional)</label>
+              <input
+                type="text"
+                value={twitchUrl}
+                onChange={e => setTwitchUrl(e.target.value)}
+                placeholder="https://twitch.tv/yourname"
                 className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
                 style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
               />

@@ -16,6 +16,7 @@ const GET_EVENTS = `
       isOnlineOnly
       address
       twitchUrl
+      isLiveOnTwitch
       tournamentCount
       gameCount
     }

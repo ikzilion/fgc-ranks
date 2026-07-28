@@ -70,6 +70,14 @@ export const typeDefs = `#graphql
     region: String
     team: String
     avatarUrl: String
+    twitchUrl: String
+    # Computed, not stored — batched Get Streams check via lib/twitch.ts
+    # (graphql/loaders.ts's twitchLiveLoader coalesces every Player/Event
+    # needing this within one request into as few external calls as
+    # possible). False whenever twitchUrl is unset, unparseable, or the
+    # Twitch app credentials aren't configured — never null, so callers
+    # don't need to distinguish "definitely offline" from "couldn't check".
+    isLiveOnTwitch: Boolean!
     characters: [String!]!
     wins: Int!
     losses: Int!
@@ -228,6 +236,9 @@ export const typeDefs = `#graphql
     address: String
     logoUrl: String
     twitchUrl: String
+    # Same computed/batched pattern as Player.isLiveOnTwitch — see that
+    # field's comment. Independent of any player's individual live status.
+    isLiveOnTwitch: Boolean!
     status: EventStatus!
     # Only set when status is REJECTED.
     rejectionReason: String
@@ -445,7 +456,7 @@ export const typeDefs = `#graphql
     # records intact).
     confirmAccountDeletion(token: String!): Boolean!
 
-    updatePlayer(id: ID!, tag: String, region: String, avatarUrl: String, characters: [String!], team: String): Player!
+    updatePlayer(id: ID!, tag: String, region: String, avatarUrl: String, characters: [String!], team: String, twitchUrl: String): Player!
     # ADMIN-only. Soft-delete: disables login, scrubs personal info (email,
     # password, avatar, region, team), but keeps the Player document and all
     # Match/Entrant/Tournament/Event references intact.

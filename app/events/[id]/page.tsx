@@ -25,6 +25,7 @@ const GET_EVENT = `
       isOnlineOnly
       address
       twitchUrl
+      isLiveOnTwitch
       status
       rejectionReason
       createdAt
@@ -172,15 +173,25 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
                 {event.isOnlineOnly ? "🌐 Online only" : event.address || "Location not set"}
               </p>
               {event.twitchUrl && (
-                <a
-                  href={event.twitchUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[13px] mt-1 inline-block hover:underline"
-                  style={{ color: "var(--blue)" }}
-                >
-                  📺 Watch on Twitch
-                </a>
+                <p className="mt-1 flex items-center gap-2">
+                  <a
+                    href={event.twitchUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[13px] inline-block hover:underline"
+                    style={{ color: "var(--blue)" }}
+                  >
+                    📺 Watch on Twitch
+                  </a>
+                  {event.isLiveOnTwitch && (
+                    <span
+                      className="text-[10px] font-bold uppercase px-2 py-0.5 rounded flex items-center gap-1"
+                      style={{ background: "var(--coral-dim)", color: "var(--coral)", border: "1px solid rgba(255,77,77,0.25)" }}
+                    >
+                      <span className="live-dot" /> Live
+                    </span>
+                  )}
+                </p>
               )}
             </div>
           </div>

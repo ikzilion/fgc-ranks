@@ -15,6 +15,7 @@ interface Player {
   losses: number;
   points: number;
   winRate: number | null;
+  isLiveOnTwitch?: boolean;
 }
 
 function rankColor(rank: number) {
@@ -36,25 +37,33 @@ function rankBadge(rank: number) {
 
 export function PlayerSearchFilter({ players }: { players: Player[] }) {
   const [query, setQuery] = useState("");
+  const [onlineOnly, setOnlineOnly] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
 
-  // Ranks are computed from the FULL original list, so filtering never changes a player's rank number
+  // Ranks are computed from the FULL original list, so filtering (search OR
+  // the Twitch Online toggle) never changes a player's rank number.
   const ranked = useMemo(
     () => players.map((p, i) => ({ ...p, rank: i + 1 })),
     [players]
   );
 
   const filtered = useMemo(() => {
-    if (!query.trim()) return ranked;
-    const q = query.toLowerCase();
-    return ranked.filter(
-      p =>
-        p.tag.toLowerCase().includes(q) ||
-        p.region?.toLowerCase().includes(q) ||
-        p.characters.some(c => c.toLowerCase().includes(q))
-    );
-  }, [ranked, query]);
+    let result = ranked;
+    if (onlineOnly) {
+      result = result.filter(p => p.isLiveOnTwitch);
+    }
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      result = result.filter(
+        p =>
+          p.tag.toLowerCase().includes(q) ||
+          p.region?.toLowerCase().includes(q) ||
+          p.characters.some(c => c.toLowerCase().includes(q))
+      );
+    }
+    return result;
+  }, [ranked, query, onlineOnly]);
 
   // Clamped as a derived value (not synced via an effect) so the current
   // page can never strand the user on now-empty results — e.g. narrowing a
@@ -69,7 +78,7 @@ export function PlayerSearchFilter({ players }: { players: Player[] }) {
 
   return (
     <>
-      <div className="relative mb-4">
+      <div className="flex flex-col sm:flex-row gap-2 mb-4">
         <input
           type="text"
           value={query}
@@ -78,15 +87,31 @@ export function PlayerSearchFilter({ players }: { players: Player[] }) {
             setPage(1);
           }}
           placeholder="Search by tag, character, or region…"
-          className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
+          className="flex-1 px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
           style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
         />
+        <button
+          type="button"
+          onClick={() => {
+            setOnlineOnly(v => !v);
+            setPage(1);
+          }}
+          className="text-[13px] font-semibold px-4 py-2.5 rounded-md whitespace-nowrap"
+          style={{
+            background: onlineOnly ? "var(--blue)" : "var(--navy-3)",
+            color: onlineOnly ? "white" : "var(--text-secondary)",
+            border: "1px solid var(--border-strong)",
+            cursor: "pointer",
+          }}
+        >
+          🔴 Twitch Online
+        </button>
       </div>
 
       <div className="fgc-card">
         {filtered.length === 0 && (
           <p className="p-6 text-[var(--text-secondary)]">
-            {query ? `No players match "${query}".` : "No players yet. Register to join the leaderboard!"}
+            {query || onlineOnly ? "No players match your filters." : "No players yet. Register to join the leaderboard!"}
           </p>
         )}
         {paged.map(player => (
@@ -109,7 +134,17 @@ export function PlayerSearchFilter({ players }: { players: Player[] }) {
               )}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-rajdhani text-[16px] font-bold text-[var(--text-primary)] leading-tight">{player.tag}</p>
+              <p className="font-rajdhani text-[16px] font-bold text-[var(--text-primary)] leading-tight flex items-center gap-2">
+                {player.tag}
+                {player.isLiveOnTwitch && (
+                  <span
+                    className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded flex-shrink-0 flex items-center gap-1"
+                    style={{ background: "var(--coral-dim)", color: "var(--coral)", border: "1px solid rgba(255,77,77,0.25)" }}
+                  >
+                    <span className="live-dot" /> Live
+                  </span>
+                )}
+              </p>
               <p className="text-[12px] text-[var(--text-secondary)] truncate">
                 {player.characters.length > 0 ? player.characters.join(", ") : "No main"} · {player.region || "Unknown region"}
               </p>

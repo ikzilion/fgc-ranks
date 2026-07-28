@@ -35,6 +35,7 @@ import { buildRoundRobinMatches, computeRoundRobinStandings } from "@/lib/roundR
 import { getNextSequence } from "@/lib/counter";
 import { computeRankingPoints, computeRankingPointsForPlayers, computeGameRankingsForPlayer, computeGameLeaderboard } from "@/lib/ranking";
 import { formatPlayerNumber } from "@/lib/playerId";
+import { extractTwitchUsername } from "@/lib/twitch";
 import { Loaders } from "@/graphql/loaders";
 import { StreamAssetType } from "@/models/StreamAsset";
 import { listStreamAssets } from "@/lib/streamAssets";
@@ -807,7 +808,7 @@ export const resolvers = {
     // Players
     updatePlayer: async (
       _: unknown,
-      { id, tag, region, avatarUrl, characters, team }: { id: string; tag?: string; region?: string; avatarUrl?: string; characters?: string[]; team?: string },
+      { id, tag, region, avatarUrl, characters, team, twitchUrl }: { id: string; tag?: string; region?: string; avatarUrl?: string; characters?: string[]; team?: string; twitchUrl?: string },
       { playerId, role }: { playerId?: string; role?: string }
     ) => {
       if (playerId !== id && !isAdminOrAbove(role)) throw new Error("Not authorized");
@@ -816,6 +817,7 @@ export const resolvers = {
       const update: any = { tag, region, characters };
       if (avatarUrl !== undefined) update.avatarUrl = avatarUrl;
       if (team !== undefined) update.team = team;
+      if (twitchUrl !== undefined) update.twitchUrl = twitchUrl;
       return Player.findByIdAndUpdate(id, update, { new: true });
     },
 
@@ -2832,6 +2834,11 @@ export const resolvers = {
       if (!isOwner && !isAdminOrAbove(context.role) && !context.isTO) return null;
       return formatPlayerNumber(parent.playerNumber);
     },
+    isLiveOnTwitch: async (parent: { twitchUrl?: string }, _args: unknown, { loaders }: { loaders: Loaders }) => {
+      const username = extractTwitchUsername(parent.twitchUrl)?.toLowerCase();
+      if (!username) return false;
+      return loaders.twitchLiveLoader.load(username);
+    },
     winRate: (parent: { wins: number; losses: number }) => {
       const total = parent.wins + parent.losses;
       return total === 0 ? 0 : Math.round((parent.wins / total) * 100) / 100;
@@ -2966,6 +2973,11 @@ export const resolvers = {
   Event: {
     displayId: (parent: { eventNumber?: number }) =>
       parent.eventNumber != null ? formatEventNumber(parent.eventNumber) : null,
+    isLiveOnTwitch: async (parent: { twitchUrl?: string }, _args: unknown, { loaders }: { loaders: Loaders }) => {
+      const username = extractTwitchUsername(parent.twitchUrl)?.toLowerCase();
+      if (!username) return false;
+      return loaders.twitchLiveLoader.load(username);
+    },
     creator: async (parent: { creatorId?: string }) => (parent.creatorId ? await Player.findById(parent.creatorId) : null),
     managers: async (parent: { managerIds?: string[] }) =>
       parent.managerIds ? await Player.find({ _id: { $in: parent.managerIds } }) : [],

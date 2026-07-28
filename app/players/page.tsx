@@ -16,6 +16,8 @@ const GET_PLAYERS = `
       tag
       region
       avatarUrl
+      twitchUrl
+      isLiveOnTwitch
       characters
       wins
       losses
@@ -39,6 +41,7 @@ const GET_OWN_PLAYER = `
       wins
       losses
       points
+      isLiveOnTwitch
       user { id isTO }
     }
   }

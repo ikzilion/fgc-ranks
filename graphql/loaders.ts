@@ -14,6 +14,7 @@
 import DataLoader from "dataloader";
 import { Player } from "@/models/Player";
 import { Match } from "@/models/Match";
+import { getLiveStatuses } from "@/lib/twitch";
 
 // DataLoader requires each batch to return results in the SAME ORDER as the
 // keys it was given (not just the same set) -- both loaders below fetch with
@@ -33,6 +34,18 @@ export function createLoaders() {
   return {
     playerLoader: new DataLoader(batchById(Player)),
     matchLoader: new DataLoader(batchById(Match)),
+    // Batches every Player.isLiveOnTwitch / Event.isLiveOnTwitch field
+    // resolver invoked within one GraphQL request into as few Get Streams
+    // calls as lib/twitch.ts's own 100-per-call chunking requires — same
+    // "field resolver fires once per item, DataLoader coalesces the actual
+    // fetches" pattern as playerLoader/matchLoader above, just backed by an
+    // external API instead of a DB query. Keyed by lowercased username
+    // (callers are expected to pass it pre-lowercased and pre-filtered —
+    // this loader is never given a null/empty key).
+    twitchLiveLoader: new DataLoader<string, boolean>(async (usernames) => {
+      const statuses = await getLiveStatuses(usernames);
+      return usernames.map(u => statuses.get(u) ?? false);
+    }),
   };
 }
 
