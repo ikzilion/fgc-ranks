@@ -209,7 +209,7 @@ export function StreamAssetsButton({
   tournamentId: string;
   streamBackgroundUrl?: string;
   sponsorBannerUrl?: string;
-  sponsorBannerUrls?: string[];
+  sponsorBannerUrls?: { url: string; linkUrl?: string | null }[];
   sponsorBannerIntervalSeconds?: number | null;
   bracketLineColor?: string;
   bracketBoxColor?: string;
@@ -224,8 +224,13 @@ export function StreamAssetsButton({
   // Sponsor banner slideshow — the subset of the TO's banner library
   // (bannerAssets below) selected to rotate through, plus the interval
   // that's saved/sent as seconds but shown in whichever unit the current
-  // value reads more naturally in (see secondsToIntervalDisplay).
-  const [slideshowUrls, setSlideshowUrls] = useState<string[]>(sponsorBannerUrls ?? []);
+  // value reads more naturally in (see secondsToIntervalDisplay). Each
+  // selected slide carries its own optional click-through linkUrl
+  // (settled July 28, 2026) — "" means not clickable, same empty-is-unset
+  // convention as every other optional URL field in this app.
+  const [slideshowSlides, setSlideshowSlides] = useState<{ url: string; linkUrl: string }[]>(
+    (sponsorBannerUrls ?? []).map(s => ({ url: s.url, linkUrl: s.linkUrl ?? "" }))
+  );
   const initialInterval = secondsToIntervalDisplay(sponsorBannerIntervalSeconds);
   const [intervalValue, setIntervalValue] = useState(initialInterval.value);
   const [intervalUnit, setIntervalUnit] = useState<"seconds" | "minutes">(initialInterval.unit);
@@ -256,7 +261,7 @@ export function StreamAssetsButton({
   function openModal() {
     setBackgroundUrl(streamBackgroundUrl || "");
     setBannerUrl(sponsorBannerUrl || "");
-    setSlideshowUrls(sponsorBannerUrls ?? []);
+    setSlideshowSlides((sponsorBannerUrls ?? []).map(s => ({ url: s.url, linkUrl: s.linkUrl ?? "" })));
     const initial = secondsToIntervalDisplay(sponsorBannerIntervalSeconds);
     setIntervalValue(initial.value);
     setIntervalUnit(initial.unit);
@@ -281,7 +286,7 @@ export function StreamAssetsButton({
   function closeWithoutSaving() {
     setBackgroundUrl(streamBackgroundUrl || "");
     setBannerUrl(sponsorBannerUrl || "");
-    setSlideshowUrls(sponsorBannerUrls ?? []);
+    setSlideshowSlides((sponsorBannerUrls ?? []).map(s => ({ url: s.url, linkUrl: s.linkUrl ?? "" })));
     const resetInterval = secondsToIntervalDisplay(sponsorBannerIntervalSeconds);
     setIntervalValue(resetInterval.value);
     setIntervalUnit(resetInterval.unit);
@@ -355,7 +360,11 @@ export function StreamAssetsButton({
   }
 
   function toggleSlideshowUrl(url: string) {
-    setSlideshowUrls(prev => (prev.includes(url) ? prev.filter(u => u !== url) : [...prev, url]));
+    setSlideshowSlides(prev => (prev.some(s => s.url === url) ? prev.filter(s => s.url !== url) : [...prev, { url, linkUrl: "" }]));
+  }
+
+  function setSlideshowLinkUrl(url: string, linkUrl: string) {
+    setSlideshowSlides(prev => prev.map(s => (s.url === url ? { ...s, linkUrl } : s)));
   }
 
   async function handleSave() {
@@ -367,7 +376,7 @@ export function StreamAssetsButton({
     const intervalNum = parseFloat(intervalValue);
     const effectiveIntervalSeconds =
       intervalValue && !isNaN(intervalNum) && intervalNum > 0 ? Math.round(intervalNum * INTERVAL_UNIT_SECONDS[intervalUnit]) : null;
-    if (!isRestricted && slideshowUrls.length >= 2 && !effectiveIntervalSeconds) {
+    if (!isRestricted && slideshowSlides.length >= 2 && !effectiveIntervalSeconds) {
       setError("Set a rotation interval to enable the sponsor banner slideshow.");
       return;
     }
@@ -402,7 +411,7 @@ export function StreamAssetsButton({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               query: `
-                mutation UpdateStreamAssets($id: ID!, $streamBackgroundUrl: String, $sponsorBannerUrl: String, $sponsorBannerUrls: [String!], $sponsorBannerIntervalSeconds: Int) {
+                mutation UpdateStreamAssets($id: ID!, $streamBackgroundUrl: String, $sponsorBannerUrl: String, $sponsorBannerUrls: [SponsorBannerSlideInput!], $sponsorBannerIntervalSeconds: Int) {
                   updateTournamentStreamAssets(
                     id: $id
                     streamBackgroundUrl: $streamBackgroundUrl
@@ -416,7 +425,7 @@ export function StreamAssetsButton({
                 id: tournamentId,
                 streamBackgroundUrl: backgroundUrl,
                 sponsorBannerUrl: bannerUrl,
-                sponsorBannerUrls: slideshowUrls,
+                sponsorBannerUrls: slideshowSlides.map(s => ({ url: s.url, linkUrl: s.linkUrl.trim() || null })),
                 sponsorBannerIntervalSeconds: effectiveIntervalSeconds,
               },
             }),
@@ -579,17 +588,35 @@ export function StreamAssetsButton({
                     ) : (
                       <>
                         <div
-                          className="flex flex-col gap-1.5 max-h-28 overflow-y-auto p-2 rounded"
+                          className="flex flex-col gap-1.5 max-h-40 overflow-y-auto p-2 rounded"
                           style={{ border: "1px solid var(--border-strong)", background: "var(--navy-3)" }}
                         >
-                          {bannerAssets.map((a, i) => (
-                            <label key={a.id} className="flex items-center gap-2 text-[12px] cursor-pointer" style={{ color: "var(--text-secondary)" }}>
-                              <input type="checkbox" checked={slideshowUrls.includes(a.url)} onChange={() => toggleSlideshowUrl(a.url)} />
-                              {a.filename ?? `Banner ${i + 1}`}
-                            </label>
-                          ))}
+                          {bannerAssets.map((a, i) => {
+                            const slide = slideshowSlides.find(s => s.url === a.url);
+                            return (
+                              <div key={a.id}>
+                                <label className="flex items-center gap-2 text-[12px] cursor-pointer" style={{ color: "var(--text-secondary)" }}>
+                                  <input type="checkbox" checked={!!slide} onChange={() => toggleSlideshowUrl(a.url)} />
+                                  {a.filename ?? `Banner ${i + 1}`}
+                                </label>
+                                {/* Per-banner click-through link (settled July 28, 2026) —
+                                    only shown/editable once its banner is checked, so an
+                                    unselected banner has no dangling link field to fill in. */}
+                                {slide && (
+                                  <input
+                                    type="url"
+                                    placeholder="Link URL (optional)"
+                                    value={slide.linkUrl}
+                                    onChange={e => setSlideshowLinkUrl(a.url, e.target.value)}
+                                    className="text-[11px] px-2 py-1 rounded w-full mt-1 ml-5"
+                                    style={{ width: "calc(100% - 1.25rem)", background: "var(--navy-4)", color: "var(--text-primary)", border: "1px solid var(--border-strong)" }}
+                                  />
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
-                        {slideshowUrls.length >= 2 ? (
+                        {slideshowSlides.length >= 2 ? (
                           <div className="flex items-center gap-2 mt-2">
                             <span className="text-[11px] text-[var(--text-muted)]">Rotate every</span>
                             <input
@@ -612,7 +639,7 @@ export function StreamAssetsButton({
                           </div>
                         ) : (
                           <p className="text-[11px] text-[var(--text-secondary)] mt-2">
-                            {slideshowUrls.length === 1
+                            {slideshowSlides.length === 1
                               ? "Pick at least one more to enable rotation — with just this one it displays statically."
                               : "Pick 2 or more to rotate them on the stream view."}
                           </p>

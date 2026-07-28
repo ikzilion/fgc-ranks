@@ -62,7 +62,7 @@ const GET_TOURNAMENT = `
       isInvited(playerId: $playerId)
       streamBackgroundUrl
       sponsorBannerUrl
-      sponsorBannerUrls
+      sponsorBannerUrls { url linkUrl }
       sponsorBannerIntervalSeconds
       bracketLineColor
       bracketBoxColor

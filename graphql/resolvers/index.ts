@@ -1424,7 +1424,7 @@ export const resolvers = {
         id: string;
         streamBackgroundUrl?: string;
         sponsorBannerUrl?: string;
-        sponsorBannerUrls?: string[];
+        sponsorBannerUrls?: { url: string; linkUrl?: string | null }[];
         sponsorBannerIntervalSeconds?: number | null;
       },
       { playerId, role }: { playerId?: string; role?: string }
@@ -1455,7 +1455,14 @@ export const resolvers = {
       // same for the interval) must resolve to a valid 1-3600s interval.
       // A single selected URL (or zero) doesn't need one — the stream view
       // just renders it statically, same as the plain sponsorBannerUrl case.
-      const finalUrls = sponsorBannerUrls !== undefined ? sponsorBannerUrls.filter(Boolean) : (tournament.sponsorBannerUrls ?? []);
+      // linkUrl is per-slide and independent — trimmed/normalized to "" (not
+      // null/undefined) same empty-is-unset convention as every other
+      // optional URL field on this model, so a slide with no link just
+      // isn't clickable, no separate error/validation needed.
+      const finalUrls =
+        sponsorBannerUrls !== undefined
+          ? sponsorBannerUrls.filter(b => b && b.url).map(b => ({ url: b.url, linkUrl: b.linkUrl?.trim() || "" }))
+          : (tournament.sponsorBannerUrls ?? []);
       const finalInterval = sponsorBannerIntervalSeconds !== undefined ? sponsorBannerIntervalSeconds : tournament.sponsorBannerIntervalSeconds;
       if (finalUrls.length >= 2 && (!finalInterval || finalInterval < 1)) {
         throw new Error("Set a rotation interval to enable the sponsor banner slideshow.");
@@ -2964,8 +2971,9 @@ export const resolvers = {
     poolModel: (parent: { poolModel?: string }) => parent.poolModel ?? "C",
     // Same coalescing — every tournament created before the slideshow
     // feature existed has this genuinely absent (not []) in its stored
-    // document, which the non-null [String!]! schema field can't return as-is.
-    sponsorBannerUrls: (parent: { sponsorBannerUrls?: string[] }) => parent.sponsorBannerUrls ?? [],
+    // document, which the non-null [SponsorBannerSlide!]! schema field can't
+    // return as-is.
+    sponsorBannerUrls: (parent: { sponsorBannerUrls?: { url: string; linkUrl?: string }[] }) => parent.sponsorBannerUrls ?? [],
     event: async (parent: { eventId?: string }) => (parent.eventId ? await Event.findById(parent.eventId) : null),
     // Live-link overrides: when eventId is set, these three resolve from
     // the LINKED EVENT's current data instead of this tournament's own

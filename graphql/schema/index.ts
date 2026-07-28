@@ -126,6 +126,20 @@ export const typeDefs = `#graphql
     losses: Int!
   }
 
+  # One slot in the sponsor banner slideshow — see Tournament.sponsorBannerUrls.
+  # linkUrl is optional per banner (settled July 28, 2026): each sponsor's
+  # banner click-throughs to that sponsor's own site independently of
+  # whichever other banners are also rotating. null/empty = not clickable.
+  type SponsorBannerSlide {
+    url: String!
+    linkUrl: String
+  }
+
+  input SponsorBannerSlideInput {
+    url: String!
+    linkUrl: String
+  }
+
   type Tournament {
     id: ID!
     name: String!
@@ -149,7 +163,7 @@ export const typeDefs = `#graphql
     # Sponsor banner slideshow — when non-empty, the stream view rotates
     # through these instead of the single sponsorBannerUrl above. See
     # models/Tournament.ts.
-    sponsorBannerUrls: [String!]!
+    sponsorBannerUrls: [SponsorBannerSlide!]!
     # Required once sponsorBannerUrls has 2+ entries — null while no
     # slideshow is configured.
     sponsorBannerIntervalSeconds: Int
@@ -580,8 +594,10 @@ export const typeDefs = `#graphql
     removeTournamentOrganizer(tournamentId: ID!, playerId: ID!): Tournament!
     # sponsorBannerUrls/sponsorBannerIntervalSeconds: the slideshow — see
     # Tournament.sponsorBannerUrls. Passing an array with 2+ entries requires
-    # a valid interval (either in this same call or already saved).
-    updateTournamentStreamAssets(id: ID!, streamBackgroundUrl: String, sponsorBannerUrl: String, sponsorBannerUrls: [String!], sponsorBannerIntervalSeconds: Int): Tournament!
+    # a valid interval (either in this same call or already saved). Each
+    # slide's linkUrl is independent — omit/null it on a slide for no
+    # click-through link on that specific banner.
+    updateTournamentStreamAssets(id: ID!, streamBackgroundUrl: String, sponsorBannerUrl: String, sponsorBannerUrls: [SponsorBannerSlideInput!], sponsorBannerIntervalSeconds: Int): Tournament!
     updateTournamentBracketLineColor(id: ID!, bracketLineColor: String!, bracketBoxColor: String, bracketFontColor: String): Tournament!
 
     joinTournament(tournamentId: ID!, playerId: ID!): Entrant!

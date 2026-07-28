@@ -36,7 +36,7 @@ const GET_STREAM_TOURNAMENT = `
       format
       streamBackgroundUrl
       sponsorBannerUrl
-      sponsorBannerUrls
+      sponsorBannerUrls { url linkUrl }
       sponsorBannerIntervalSeconds
       bracketLineColor
       bracketBoxColor
@@ -88,7 +88,7 @@ interface StreamTournament {
   format?: string | null;
   streamBackgroundUrl?: string | null;
   sponsorBannerUrl?: string | null;
-  sponsorBannerUrls?: string[] | null;
+  sponsorBannerUrls?: { url: string; linkUrl?: string | null }[] | null;
   sponsorBannerIntervalSeconds?: number | null;
   bracketLineColor?: string | null;
   bracketBoxColor?: string | null;
@@ -246,29 +246,32 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
   // Sponsor banner slideshow — 2+ entries in sponsorBannerUrls rotates on
   // the TO-configured interval; 0 or 1 entries falls back to rendering the
   // single sponsorBannerUrl statically, exactly as before this feature
-  // existed (see models/Tournament.ts). Joined to a string for the effect's
-  // dependency array since the array itself is a fresh reference every poll
-  // even when its contents haven't changed.
-  const bannerUrls =
+  // existed (see models/Tournament.ts). The single sponsorBannerUrl fallback
+  // has no per-banner link concept (that's slideshow-only, settled July 28,
+  // 2026) — linkUrl: null there renders it exactly as it always has.
+  // Joined to a string for the effect's dependency array since the array
+  // itself is a fresh reference every poll even when its contents haven't
+  // changed.
+  const bannerSlides: { url: string; linkUrl?: string | null }[] =
     tournament.sponsorBannerUrls && tournament.sponsorBannerUrls.length > 0
       ? tournament.sponsorBannerUrls
       : tournament.sponsorBannerUrl
-        ? [tournament.sponsorBannerUrl]
+        ? [{ url: tournament.sponsorBannerUrl, linkUrl: null }]
         : [];
-  const bannerUrlsKey = bannerUrls.join("|");
+  const bannerSlidesKey = bannerSlides.map(s => `${s.url}|${s.linkUrl ?? ""}`).join(",");
   const [bannerIndex, setBannerIndex] = useState(0);
   useEffect(() => {
-    if (bannerUrls.length < 2) return;
+    if (bannerSlides.length < 2) return;
     const intervalMs = Math.max(1, tournament.sponsorBannerIntervalSeconds || 8) * 1000;
     const id = setInterval(() => {
-      setBannerIndex(i => (i + 1) % bannerUrls.length);
+      setBannerIndex(i => (i + 1) % bannerSlides.length);
     }, intervalMs);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bannerUrlsKey, tournament.sponsorBannerIntervalSeconds]);
-  // Clamp defensively — bannerUrls can shrink between polls (e.g. a banner
-  // removed from the slideshow) while bannerIndex is mid-rotation.
-  const activeBannerUrl = bannerUrls.length > 0 ? bannerUrls[bannerIndex % bannerUrls.length] : null;
+  }, [bannerSlidesKey, tournament.sponsorBannerIntervalSeconds]);
+  // Clamp defensively — bannerSlides can shrink between polls (e.g. a
+  // banner removed from the slideshow) while bannerIndex is mid-rotation.
+  const activeBannerSlide = bannerSlides.length > 0 ? bannerSlides[bannerIndex % bannerSlides.length] : null;
 
   // Pool play + top-cut format only — a TO needs to put an individual
   // pool's bracket on stream during the pool stage, before the main bracket
@@ -396,7 +399,7 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
         }}
       />
 
-      {activeBannerUrl && (
+      {activeBannerSlide && (
         // Sticky (not fixed) so it stays anchored to the top of the viewport
         // as the bracket scrolls beneath it, without needing to know the
         // page's height or take it out of normal flow — a broadcast overlay's
@@ -408,7 +411,17 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
           className="sticky top-0 z-20 w-full flex items-center justify-center py-3 px-4"
           style={{ background: "rgba(13,15,26,0.75)", borderBottom: "1px solid var(--border-strong)" }}
         >
-          <img key={activeBannerUrl} src={activeBannerUrl} alt="Sponsor" className="max-h-16 sm:max-h-20 object-contain" />
+          {activeBannerSlide.linkUrl ? (
+            // Per-banner click-through link (settled July 28, 2026) — each
+            // slide's own linkUrl, swapped as the slideshow rotates. New tab
+            // since this is an OBS/broadcast-style page, not a normal
+            // in-app link a viewer would want to navigate away from.
+            <a href={activeBannerSlide.linkUrl} target="_blank" rel="noopener noreferrer">
+              <img key={activeBannerSlide.url} src={activeBannerSlide.url} alt="Sponsor" className="max-h-16 sm:max-h-20 object-contain" />
+            </a>
+          ) : (
+            <img key={activeBannerSlide.url} src={activeBannerSlide.url} alt="Sponsor" className="max-h-16 sm:max-h-20 object-contain" />
+          )}
         </div>
       )}
 

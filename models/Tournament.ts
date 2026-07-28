@@ -69,7 +69,28 @@ const TournamentSchema = new Schema(
     // Selected from the same reusable stream-asset library the single-banner
     // picker already draws from (models/StreamAsset.ts). Empty = no
     // slideshow configured, falls back to sponsorBannerUrl as before.
-    sponsorBannerUrls: { type: [String], default: [] },
+    //
+    // Each entry carries its OWN optional click-through link (per-banner
+    // links, settled July 28, 2026) -- a plain string array would need a
+    // second parallel array to stay in sync by index for that, so this is a
+    // small subdocument instead. _id: false since these are just an ordered
+    // list, not independently referenced/queried documents.
+    // NOTE: this field used to be a plain string array -- any pre-existing
+    // data was migrated by scripts/migrateSponsorBannerUrlsShape.mjs before
+    // this shape shipped; that script is safe to re-run if ever needed.
+    sponsorBannerUrls: {
+      type: [
+        {
+          url: { type: String, required: true },
+          // "" = no click-through link, banner renders unclickable exactly
+          // as before this feature existed. Same empty-is-unset convention
+          // as every other optional URL field on this model.
+          linkUrl: { type: String, default: "" },
+          _id: false,
+        },
+      ],
+      default: [],
+    },
     // Required (validated + clamped 1-3600 in updateTournamentStreamAssets)
     // once sponsorBannerUrls has 2+ entries. Null/unset otherwise -- there's
     // no sensible hardcoded default to fall back to, the TO has to pick one.
