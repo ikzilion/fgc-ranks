@@ -15,6 +15,7 @@ interface Props {
   isOnlineOnly: boolean;
   address?: string;
   twitchUrl?: string;
+  description?: string;
   canManage: boolean;
 }
 
@@ -25,6 +26,7 @@ export function EditEventDetailsButton({
   isOnlineOnly: savedIsOnlineOnly,
   address: savedAddress,
   twitchUrl: savedTwitchUrl,
+  description: savedDescription,
   canManage,
 }: Props) {
   const router = useRouter();
@@ -35,6 +37,7 @@ export function EditEventDetailsButton({
   const [isOnlineOnly, setIsOnlineOnly] = useState(savedIsOnlineOnly);
   const [address, setAddress] = useState(savedAddress || "");
   const [twitchUrl, setTwitchUrl] = useState(savedTwitchUrl || "");
+  const [description, setDescription] = useState(savedDescription || "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -46,6 +49,7 @@ export function EditEventDetailsButton({
     setIsOnlineOnly(savedIsOnlineOnly);
     setAddress(savedAddress || "");
     setTwitchUrl(savedTwitchUrl || "");
+    setDescription(savedDescription || "");
     setError("");
   }
 
@@ -102,8 +106,8 @@ export function EditEventDetailsButton({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           query: `
-            mutation UpdateEvent($id: ID!, $name: String, $isOnlineOnly: Boolean, $address: String, $logoUrl: String, $twitchUrl: String) {
-              updateEvent(id: $id, name: $name, isOnlineOnly: $isOnlineOnly, address: $address, logoUrl: $logoUrl, twitchUrl: $twitchUrl) { id }
+            mutation UpdateEvent($id: ID!, $name: String, $isOnlineOnly: Boolean, $address: String, $logoUrl: String, $twitchUrl: String, $description: String) {
+              updateEvent(id: $id, name: $name, isOnlineOnly: $isOnlineOnly, address: $address, logoUrl: $logoUrl, twitchUrl: $twitchUrl, description: $description) { id }
             }
           `,
           variables: {
@@ -113,6 +117,7 @@ export function EditEventDetailsButton({
             address: isOnlineOnly ? "" : address,
             logoUrl,
             twitchUrl,
+            description,
           },
         }),
       });
@@ -232,13 +237,25 @@ export function EditEventDetailsButton({
               )}
             </div>
 
-            <div className="mb-6">
+            <div className="mb-4">
               <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Twitch link</label>
               <input
                 type="text"
                 value={twitchUrl}
                 onChange={e => setTwitchUrl(e.target.value)}
                 placeholder="https://twitch.tv/..."
+                className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
+                style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
+              />
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Description (optional)</label>
+              <textarea
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                placeholder="What is this event? Venue info, schedule notes, etc. Markdown supported — **bold**, [links](https://...), line breaks."
+                rows={4}
                 className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
                 style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
               />

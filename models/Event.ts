@@ -28,6 +28,13 @@ const EventSchema = new Schema(
     address: { type: String, default: "" },
     logoUrl: { type: String, default: "" },
     twitchUrl: { type: String, default: "" },
+    // Free-text markdown source (settled July 28, 2026) — what the event
+    // actually is, venue info, schedule notes, etc. Optional, same
+    // empty-is-unset convention as every other free-text field here.
+    // Rendered on the public Event page via components/MarkdownContent.tsx
+    // -- see that file for why storing raw markdown here (rather than
+    // sanitizing at write time) is still XSS-safe.
+    description: { type: String, default: "" },
     // New Events start PENDING regardless of who creates them — hidden from
     // the public `events` list and `eventByDisplayId` lookup (so they can't
     // be linked to a Tournament) until an admin approves them via

@@ -2801,7 +2801,14 @@ export const resolvers = {
     // Events
     createEvent: async (
       _: unknown,
-      { name, isOnlineOnly, address, logoUrl, twitchUrl }: { name: string; isOnlineOnly?: boolean; address?: string; logoUrl?: string; twitchUrl?: string },
+      {
+        name,
+        isOnlineOnly,
+        address,
+        logoUrl,
+        twitchUrl,
+        description,
+      }: { name: string; isOnlineOnly?: boolean; address?: string; logoUrl?: string; twitchUrl?: string; description?: string },
       { playerId }: { playerId?: string }
     ) => {
       if (!playerId) throw new Error("Not authorized");
@@ -2819,6 +2826,7 @@ export const resolvers = {
         address,
         logoUrl,
         twitchUrl,
+        description,
         eventNumber,
         status: EventStatus.PENDING,
         creatorId: playerId,
@@ -2835,7 +2843,8 @@ export const resolvers = {
         address,
         logoUrl,
         twitchUrl,
-      }: { id: string; name?: string; isOnlineOnly?: boolean; address?: string; logoUrl?: string; twitchUrl?: string },
+        description,
+      }: { id: string; name?: string; isOnlineOnly?: boolean; address?: string; logoUrl?: string; twitchUrl?: string; description?: string },
       { playerId, role }: { playerId?: string; role?: string }
     ) => {
       await connectToDatabase();
@@ -2849,6 +2858,7 @@ export const resolvers = {
       if (address !== undefined) update.address = address;
       if (logoUrl !== undefined) update.logoUrl = logoUrl;
       if (twitchUrl !== undefined) update.twitchUrl = twitchUrl;
+      if (description !== undefined) update.description = description;
 
       // Resubmission: any edit to a REJECTED Event re-enters the review
       // queue automatically, rather than needing a separate "resubmit"
@@ -2930,7 +2940,8 @@ export const resolvers = {
         address,
         logoUrl,
         twitchUrl,
-      }: { id: string; name?: string; isOnlineOnly?: boolean; address?: string; logoUrl?: string; twitchUrl?: string },
+        description,
+      }: { id: string; name?: string; isOnlineOnly?: boolean; address?: string; logoUrl?: string; twitchUrl?: string; description?: string },
       { role }: { role?: string }
     ) => {
       if (!isAdminOrAbove(role)) throw new Error("Not authorized");
@@ -2944,6 +2955,7 @@ export const resolvers = {
       if (address !== undefined) update.address = address;
       if (logoUrl !== undefined) update.logoUrl = logoUrl;
       if (twitchUrl !== undefined) update.twitchUrl = twitchUrl;
+      if (description !== undefined) update.description = description;
 
       return Event.findByIdAndUpdate(id, update, { new: true });
     },

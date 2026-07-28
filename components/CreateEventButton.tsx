@@ -20,6 +20,7 @@ export function CreateEventButton() {
   const [isOnlineOnly, setIsOnlineOnly] = useState(false);
   const [address, setAddress] = useState("");
   const [twitchUrl, setTwitchUrl] = useState("");
+  const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -31,6 +32,7 @@ export function CreateEventButton() {
     setIsOnlineOnly(false);
     setAddress("");
     setTwitchUrl("");
+    setDescription("");
     setError("");
   }
 
@@ -82,8 +84,8 @@ export function CreateEventButton() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           query: `
-            mutation CreateEvent($name: String!, $isOnlineOnly: Boolean, $address: String, $logoUrl: String, $twitchUrl: String) {
-              createEvent(name: $name, isOnlineOnly: $isOnlineOnly, address: $address, logoUrl: $logoUrl, twitchUrl: $twitchUrl) {
+            mutation CreateEvent($name: String!, $isOnlineOnly: Boolean, $address: String, $logoUrl: String, $twitchUrl: String, $description: String) {
+              createEvent(name: $name, isOnlineOnly: $isOnlineOnly, address: $address, logoUrl: $logoUrl, twitchUrl: $twitchUrl, description: $description) {
                 id
                 displayId
               }
@@ -95,6 +97,7 @@ export function CreateEventButton() {
             address: isOnlineOnly ? "" : address,
             logoUrl: logoUrl || undefined,
             twitchUrl: twitchUrl || undefined,
+            description: description || undefined,
           },
         }),
       });
@@ -226,6 +229,18 @@ export function CreateEventButton() {
                 value={twitchUrl}
                 onChange={e => setTwitchUrl(e.target.value)}
                 placeholder="https://twitch.tv/..."
+                className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
+                style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
+              />
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Description (optional)</label>
+              <textarea
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                placeholder="What is this event? Venue info, schedule notes, etc. Markdown supported — **bold**, [links](https://...), line breaks."
+                rows={4}
                 className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
                 style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
               />

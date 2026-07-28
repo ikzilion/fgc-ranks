@@ -274,6 +274,9 @@ export const typeDefs = `#graphql
     address: String
     logoUrl: String
     twitchUrl: String
+    # Free-text markdown source, optional — rendered on the public Event
+    # page via components/MarkdownContent.tsx. See models/Event.ts.
+    description: String
     # Same computed/batched pattern as Player.isLiveOnTwitch — see that
     # field's comment. Independent of any player's individual live status.
     isLiveOnTwitch: Boolean!
@@ -613,14 +616,14 @@ export const typeDefs = `#graphql
     # which is correct, not a bug).
     unhideUncuratedGame(name: String!): Boolean!
 
-    createEvent(name: String!, isOnlineOnly: Boolean, address: String, logoUrl: String, twitchUrl: String): Event!
-    updateEvent(id: ID!, name: String, isOnlineOnly: Boolean, address: String, logoUrl: String, twitchUrl: String): Event!
+    createEvent(name: String!, isOnlineOnly: Boolean, address: String, logoUrl: String, twitchUrl: String, description: String): Event!
+    updateEvent(id: ID!, name: String, isOnlineOnly: Boolean, address: String, logoUrl: String, twitchUrl: String, description: String): Event!
     deleteEvent(id: ID!): Boolean!
     addEventManager(eventId: ID!, playerId: ID!): Event!
     removeEventManager(eventId: ID!, playerId: ID!): Event!
     # ADMIN-only. Edit-and-approve in one call — any field left null keeps
     # its current value, same partial-update convention as updateEvent.
-    approveEvent(id: ID!, name: String, isOnlineOnly: Boolean, address: String, logoUrl: String, twitchUrl: String): Event!
+    approveEvent(id: ID!, name: String, isOnlineOnly: Boolean, address: String, logoUrl: String, twitchUrl: String, description: String): Event!
     # ADMIN-only. Reason is required.
     rejectEvent(id: ID!, reason: String!): Event!
     updateTournamentStatus(id: ID!, status: TournamentStatus!): Tournament!

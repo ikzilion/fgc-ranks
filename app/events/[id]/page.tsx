@@ -12,6 +12,7 @@ import { ManageEventManagersButton } from "@/components/ManageEventManagersButto
 import { DeleteEventButton } from "@/components/DeleteEventButton";
 import { NewsPostForm } from "@/components/NewsPostForm";
 import { DeleteNewsPostButton } from "@/components/DeleteNewsPostButton";
+import { MarkdownContent } from "@/components/MarkdownContent";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,7 @@ const GET_EVENT = `
       isOnlineOnly
       address
       twitchUrl
+      description
       isLiveOnTwitch
       status
       rejectionReason
@@ -206,6 +208,7 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
               isOnlineOnly={event.isOnlineOnly}
               address={event.address}
               twitchUrl={event.twitchUrl}
+              description={event.description}
               canManage={canManage}
             />
             <ManageEventManagersButton
@@ -218,6 +221,22 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
           </div>
         )}
       </div>
+
+      {/* About — optional markdown description (settled July 28, 2026).
+          Entirely omitted (no header, no empty card) when unset, rather than
+          showing an empty section — same "no broken empty section" pattern
+          the News/Tournaments sections below use for their own zero-content
+          states, just one level more conservative (they always show
+          SOMETHING, even if it's "No news yet."; this has nothing
+          meaningful to say about an Event with no description at all). */}
+      {event.description && event.description.trim() && (
+        <div className="mb-6">
+          <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">About</p>
+          <div className="fgc-card p-5">
+            <MarkdownContent content={event.description} />
+          </div>
+        </div>
+      )}
 
       {/* News */}
       <div className="mb-6">
