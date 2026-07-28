@@ -70,7 +70,7 @@ export function TournamentStatusButton({ tournamentId, status, canManage }: { to
   const showRevert = status === "LIVE";
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 flex-wrap">
       {transition && (
         <button
           onClick={handleClick}

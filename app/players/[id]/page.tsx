@@ -167,10 +167,14 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
       {/* Header */}
       <div className="fgc-card p-6 mb-4 flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-5">
         <ZoomableAvatar avatarUrl={player.avatarUrl} tag={player.tag} sizeClassName="w-16 h-16" textClassName="text-2xl" />
-        <div className="flex-1">
-          <div className="flex items-center justify-between">
+        {/* min-w-0 + flex-wrap: same overflow:hidden-clipping risk as the
+            tournament header (see the comment there) — this row can hold up
+            to 5 action buttons next to a potentially-long tag, with no
+            wrapping fallback otherwise. */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <h1 className="font-rajdhani text-3xl font-bold text-[var(--text-primary)] leading-tight">{player.tag}</h1>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               {/* Deleted accounts can never log back in (their email is
                   scrubbed), so EditProfileButton's own isOwnProfile check
                   would already hide it here — this is an explicit,

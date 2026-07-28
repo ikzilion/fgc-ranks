@@ -275,7 +275,20 @@ export default async function TournamentDetailPage({ params }: { params: Promise
       <div className="max-w-5xl mx-auto">
         <div className="flex flex-col sm:flex-row gap-4 mb-6 items-stretch">
           <div className="fgc-card p-6 flex-1">
-            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+            {/* flex-wrap is load-bearing here (not just sm:flex-row): once
+                canManage adds a third fixed-width card (Tablet/Phone Mode)
+                next to this one in the row above, this card's own width can
+                shrink well below what the name block + action buttons need
+                side by side at viewports roughly 640-880px wide (small
+                tablets, phones in landscape -- exactly this feature's
+                target devices). Without wrap, the action buttons don't
+                overflow the PAGE (so it's easy to miss in a quick check) --
+                they get silently clipped by .fgc-card's overflow:hidden
+                instead, since that's a nearer ancestor. flex-wrap lets the
+                button row drop below the name block instead of being cut
+                off. Confirmed via headless DOM measurement across
+                375-1024px, not just visually. */}
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 flex-wrap">
               <div className="flex items-start gap-4">
                 {tournament.logoUrl && (
                   <img
@@ -339,7 +352,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                   )}
                 </div>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 {statusBadge(tournament.status)}
                 <TournamentStatusButton tournamentId={tournament.id} status={tournament.status} canManage={canManage} />
                 {/* Post-tournament results screen — distinct from the

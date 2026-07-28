@@ -38,7 +38,7 @@ export function JoinTournamentButton({ tournamentId, isEntered, entrantId, statu
 
   if (isEntered) {
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <span
           className="px-4 py-2 rounded font-rajdhani text-[13px] font-bold tracking-wide"
           style={{ background: "var(--green-dim)", color: "var(--green)", border: "1px solid rgba(34,197,94,0.2)" }}
@@ -180,7 +180,7 @@ export function JoinTournamentButton({ tournamentId, isEntered, entrantId, statu
   if (isPrivate && isInvited) {
     return (
       <div className="flex flex-col items-end gap-1">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={handleJoin}
             disabled={loading}
