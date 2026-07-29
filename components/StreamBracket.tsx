@@ -10,14 +10,21 @@ const POLL_INTERVAL_MS = 12000;
 // whatever the site-wide Color Theme System (lib/theme.ts) is currently set
 // to -- a Super Admin picking a different public-site theme shouldn't change
 // what's already live on someone's stream/OBS overlay. BracketView (and this
-// component) only ever reference colors via var(--navy)/var(--blue)/etc,
-// which app/layout.tsx sets on <html> from the ACTIVE theme -- with no local
+// component) reference colors both via inline var(--navy)/var(--blue)/etc
+// AND via the shared .fgc-card CSS class (app/globals.css: background:
+// var(--navy-2); border: var(--border) -- every MatchCard is one), which
+// app/layout.tsx sets on <html> from the ACTIVE theme -- with no local
 // override, those variables would just cascade down unchanged, coupling
 // Streamer Mode to the current site theme (confirmed: switching the site
-// theme changed the stream view's colors too). Re-declaring the same 7
-// custom properties BracketView/this file actually use, on this page's own
-// root element, wins the CSS cascade for everything inside it regardless of
-// what <html> has -- no BracketView changes needed.
+// theme changed the stream view's colors, including MatchCard backgrounds
+// via .fgc-card -- an initial pass at this fix only re-declared the inline-
+// style vars and missed the stylesheet-defined ones, caught during the
+// TO/admin-view follow-up investigation). Re-declaring every custom
+// property BracketView/this file's render tree actually depends on
+// (checked both inline var() usage AND every custom CSS class referenced,
+// not just the former), on this page's own root element, wins the CSS
+// cascade for everything inside it regardless of what <html> has -- no
+// BracketView/globals.css changes needed.
 //
 // Values are byte-identical to lib/theme.ts's THEMES.default on purpose
 // (Streamer Mode's broadcast look has always been the original navy/blue
@@ -27,6 +34,8 @@ const POLL_INTERVAL_MS = 12000;
 // sync with THEMES.default by hand if that palette's values ever change.
 const BROADCAST_FIXED_VARS: React.CSSProperties = {
   "--navy": "#0D0F1A",
+  "--navy-2": "#13162A",
+  "--border": "rgba(255,255,255,0.07)",
   "--blue": "#4F8EF7",
   "--green": "#22C55E",
   "--text-primary": "#F0F2FF",

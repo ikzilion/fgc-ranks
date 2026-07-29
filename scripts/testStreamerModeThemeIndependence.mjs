@@ -110,7 +110,10 @@ try {
   const isolateBefore = extractIsolateDivStyle(streamBefore);
   console.log("  stream page's isolate-div style:", isolateBefore);
   assert(extractHtmlTagStyle(regularBefore)?.includes("--navy:#0D0F1A"), "regular page <html> shows default theme's navy");
-  assert(isolateBefore?.includes("--navy:#0D0F1A") && isolateBefore?.includes("--blue:#4F8EF7"), "stream page's isolate wrapper shows the frozen default navy/blue");
+  assert(
+    isolateBefore?.includes("--navy:#0D0F1A") && isolateBefore?.includes("--navy-2:#13162A") && isolateBefore?.includes("--border:rgba(255,255,255,0.07)") && isolateBefore?.includes("--blue:#4F8EF7"),
+    "stream page's isolate wrapper shows the frozen default navy/navy-2/border/blue"
+  );
 
   console.log("\n=== Switching real site-wide theme to 'orange' (polling for cache to catch up) ===");
   await SiteSettings.findByIdAndUpdate("siteSettings", { activeTheme: "orange" }, { upsert: true });
@@ -130,7 +133,10 @@ try {
   // this route the way Streamer Mode has one.
   assert(extractHtmlTagStyle(streamAfter)?.includes("--navy:#1A1A1A"), "stream page's <html> itself still reports the new site theme (layout.tsx applies it everywhere)");
   assert(isolateAfter === isolateBefore, "stream page's own wrapper style is BYTE-FOR-BYTE identical before/after the site theme switch");
-  assert(isolateAfter?.includes("--navy:#0D0F1A") && isolateAfter?.includes("--blue:#4F8EF7"), "stream page's wrapper still shows the frozen default navy/blue, NOT orange");
+  assert(
+    isolateAfter?.includes("--navy:#0D0F1A") && isolateAfter?.includes("--navy-2:#13162A") && isolateAfter?.includes("--border:rgba(255,255,255,0.07)") && isolateAfter?.includes("--blue:#4F8EF7"),
+    "stream page's wrapper still shows the frozen default navy/navy-2/border/blue, NOT orange (regression check for the .fgc-card navy-2/border gap found in the TO/admin-view follow-up)"
+  );
 
   console.log(`\n${failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURE(S)`}`);
 } finally {
