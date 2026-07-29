@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Navbar } from "@/components/Navbar";
 import { SessionProvider } from "next-auth/react";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -27,6 +28,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Navbar />
           {children}
         </SessionProvider>
+        {/* Real-user performance monitoring — collects zero data outside a
+            real Vercel deployment (nothing in local dev), so it's safe to
+            mount unconditionally here rather than gating it per-environment. */}
+        <SpeedInsights />
       </body>
     </html>
   );
