@@ -32,7 +32,7 @@
 // visually similar.
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { EditTournamentDetailsButton } from "./EditTournamentDetailsButton";
 import { ManageOrganizersButton } from "./ManageOrganizersButton";
 import { InvitePlayerButton } from "./InvitePlayerButton";
@@ -49,26 +49,67 @@ const TABS: { key: TabId; label: string }[] = [
 // Duplicated (not imported) from PoolsSection.tsx's own TabBar -- same
 // visual convention, kept as a local copy per this codebase's existing
 // per-screen-tab-bar precedent (see this file's header comment).
+//
+// A single scrollable row (overflow-x-auto + nowrap, same precedent as
+// Navbar.tsx's own nav-links row) instead of flex-wrap -- wrapping silently
+// absorbed narrow-viewport overflow with no indication more tabs existed
+// off-screen; a horizontally-scrollable row plus the chevron below at least
+// hints at it (settled scope, July 29, 2026, 2 previewed options).
 function TabBar({ activeKey, onSelect }: { activeKey: TabId; onSelect: (key: TabId) => void }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const updateArrow = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // +1 tolerance for subpixel rounding -- without it, a tab bar that
+    // exactly fits can read as "1px of overflow" on some zoom levels.
+    const hasOverflow = el.scrollWidth > el.clientWidth + 1;
+    const atEnd = el.scrollLeft >= el.scrollWidth - el.clientWidth - 1;
+    setCanScrollRight(hasOverflow && !atEnd);
+  }, []);
+
+  useEffect(() => {
+    updateArrow();
+    window.addEventListener("resize", updateArrow);
+    return () => window.removeEventListener("resize", updateArrow);
+  }, [updateArrow]);
+
   return (
-    <div className="flex flex-wrap gap-2">
-      {TABS.map(tab => {
-        const active = tab.key === activeKey;
-        return (
-          <button
-            key={tab.key}
-            onClick={() => onSelect(tab.key)}
-            className="font-rajdhani text-[13px] font-bold tracking-wide px-3 py-1.5 rounded"
-            style={
-              active
-                ? { background: "var(--blue)", color: "white", border: "none", cursor: "pointer" }
-                : { background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border)", cursor: "pointer" }
-            }
-          >
-            {tab.label}
-          </button>
-        );
-      })}
+    <div className="relative">
+      <div ref={scrollRef} onScroll={updateArrow} className="flex gap-2 overflow-x-auto">
+        {TABS.map(tab => {
+          const active = tab.key === activeKey;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => onSelect(tab.key)}
+              className="font-rajdhani text-[13px] font-bold tracking-wide px-3 py-1.5 rounded"
+              style={
+                active
+                  ? { background: "var(--blue)", color: "white", border: "none", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }
+                  : { background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border)", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }
+              }
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* No gradient/fade behind it -- just the icon itself, per the settled
+          scope. pointer-events-none so it never blocks a tap on whatever tab
+          happens to sit underneath its edge. */}
+      {canScrollRight && (
+        <span
+          className="absolute right-0 top-1/2 pointer-events-none"
+          style={{ transform: "translateY(-50%)", color: "var(--text-muted)" }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 6l6 6-6 6" />
+          </svg>
+        </span>
+      )}
     </div>
   );
 }
