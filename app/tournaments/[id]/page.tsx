@@ -3,6 +3,7 @@
 
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import nextDynamic from "next/dynamic";
 import { auth } from "@/lib/auth";
 import { isAdminOrAbove } from "@/lib/roles";
 import { JoinTournamentButton } from "@/components/JoinTournamentButton";
@@ -14,8 +15,16 @@ import { SelfCheckInButton } from "@/components/SelfCheckInButton";
 import { GenerateBracketButton } from "@/components/GenerateBracketButton";
 import { BracketView } from "@/components/BracketView";
 import { PoolsSection } from "@/components/PoolsSection";
-import { TabletModeButton } from "@/components/TabletModeButton";
 import { TournamentManageTabs } from "@/components/TournamentManageTabs";
+
+// Code-split from the main page bundle (next/dynamic, aliased since this
+// file already has its own `export const dynamic` route-segment config
+// below) -- TabletModeButton pulls in html5-qrcode (lib/useQrScanner.ts)
+// for its camera scanner, which every visitor to this page was downloading
+// before this change even though Tablet/Phone Mode is canManage-gated
+// (TOs/admins only) and most visitors are public/regular-player viewers
+// who will never open it (performance audit, July 29, 2026).
+const TabletModeButton = nextDynamic(() => import("@/components/TabletModeButton").then(m => m.TabletModeButton));
 
 export const dynamic = "force-dynamic";
 
