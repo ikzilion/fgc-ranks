@@ -12,6 +12,7 @@
 // caches every id it's ever loaded for its own lifetime, so sharing one
 // across requests would leak stale data between unrelated GraphQL calls.
 import DataLoader from "dataloader";
+import { Types } from "mongoose";
 import { Player } from "@/models/Player";
 import { Match } from "@/models/Match";
 import { Event } from "@/models/Event";
@@ -56,8 +57,15 @@ function batchGameTournamentCounts() {
 // same key within a request into one batch.
 function batchEventTournamentStats() {
   return async (eventIds: readonly string[]): Promise<{ tournamentCount: number; gameCount: number }[]> => {
+    // Tournament.eventId is stored as an ObjectId, but unlike Model.find(),
+    // Model.aggregate() sends the pipeline straight to the driver with no
+    // schema-aware casting -- a raw string here silently matches nothing
+    // (confirmed empirically: countDocuments found a real linked tournament,
+    // the same $match with a string eventId returned zero rows). Cast
+    // explicitly, same requirement as Mongo's ObjectId comparison rules.
+    const objectIds = eventIds.map(id => new Types.ObjectId(id));
     const rows = await Tournament.aggregate([
-      { $match: { eventId: { $in: eventIds as string[] } } },
+      { $match: { eventId: { $in: objectIds } } },
       { $group: { _id: "$eventId", count: { $sum: 1 }, games: { $addToSet: "$game" } } },
     ]);
     const statsById = new Map(
