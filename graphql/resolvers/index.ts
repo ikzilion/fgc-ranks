@@ -3252,27 +3252,32 @@ export const resolvers = {
     // the LINKED EVENT's current data instead of this tournament's own
     // stored field — re-fetched on every read, never copied at link time.
     // If the Event was since deleted (deleteEvent allows this with
-    // tournaments still linked, no block), Event.findById comes back null
-    // and this falls through to the tournament's own field automatically,
-    // same as a tournament that was never linked at all.
-    address: async (parent: { eventId?: string; address?: string }) => {
+    // tournaments still linked, no block), the loader resolves null and
+    // this falls through to the tournament's own field automatically, same
+    // as a tournament that was never linked at all. Routed through
+    // eventLoader (graphql/loaders.ts) instead of each doing its own
+    // Event.findById — that was a real N+1 on the tournaments list (up to
+    // 1000 rows, one lookup per linked event) AND a redundant triple-fetch
+    // of the SAME event on the tournament detail page, which requests all
+    // three fields at once (performance audit, July 29, 2026).
+    address: async (parent: { eventId?: string; address?: string }, _args: unknown, { loaders }: { loaders: Loaders }) => {
       if (parent.eventId) {
-        const event = await Event.findById(parent.eventId);
-        if (event) return event.address;
+        const event = await loaders.eventLoader.load(parent.eventId.toString());
+        if (event) return (event as { address?: string }).address;
       }
       return parent.address;
     },
-    logoUrl: async (parent: { eventId?: string; logoUrl?: string }) => {
+    logoUrl: async (parent: { eventId?: string; logoUrl?: string }, _args: unknown, { loaders }: { loaders: Loaders }) => {
       if (parent.eventId) {
-        const event = await Event.findById(parent.eventId);
-        if (event) return event.logoUrl;
+        const event = await loaders.eventLoader.load(parent.eventId.toString());
+        if (event) return (event as { logoUrl?: string }).logoUrl;
       }
       return parent.logoUrl;
     },
-    twitchUrl: async (parent: { eventId?: string; twitchUrl?: string }) => {
+    twitchUrl: async (parent: { eventId?: string; twitchUrl?: string }, _args: unknown, { loaders }: { loaders: Loaders }) => {
       if (parent.eventId) {
-        const event = await Event.findById(parent.eventId);
-        if (event) return event.twitchUrl;
+        const event = await loaders.eventLoader.load(parent.eventId.toString());
+        if (event) return (event as { twitchUrl?: string }).twitchUrl;
       }
       return parent.twitchUrl;
     },
@@ -3314,10 +3319,16 @@ export const resolvers = {
       parent.managerIds ? await Player.find({ _id: { $in: parent.managerIds } }) : [],
     tournaments: async (parent: { _id: string }) => await Tournament.find({ eventId: parent._id }),
     newsPosts: async (parent: { _id: string }) => await NewsPost.find({ eventId: parent._id }).sort({ createdAt: -1 }),
-    // Lean count/distinct queries — avoid populating full Tournament docs
-    // just to display a number on the browse-page card.
-    tournamentCount: async (parent: { _id: string }) => await Tournament.countDocuments({ eventId: parent._id }),
-    gameCount: async (parent: { _id: string }) => (await Tournament.distinct("game", { eventId: parent._id })).length,
+    // Both routed through eventTournamentStatsLoader (graphql/loaders.ts) —
+    // used to be two separate per-event queries (countDocuments + distinct)
+    // each, real N+1 on the events browse list (up to 100 rows, up to 200
+    // queries); the loader batches every event's stats into one grouped
+    // aggregation regardless of how many events request these fields in
+    // one response (performance audit, July 29, 2026).
+    tournamentCount: async (parent: { _id: string }, _args: unknown, { loaders }: { loaders: Loaders }) =>
+      (await loaders.eventTournamentStatsLoader.load(parent._id.toString())).tournamentCount,
+    gameCount: async (parent: { _id: string }, _args: unknown, { loaders }: { loaders: Loaders }) =>
+      (await loaders.eventTournamentStatsLoader.load(parent._id.toString())).gameCount,
   },
 
   Entrant: {
@@ -3333,9 +3344,14 @@ export const resolvers = {
   Game: {
     // Works identically for a real Game doc or a synthetic orphan entry
     // (see the `games` resolver) — both are just objects with a `name`.
-    tournamentCount: async (parent: { name: string }) => {
+    // Routed through gameTournamentCountLoader (graphql/loaders.ts) instead
+    // of its own countDocuments call — that was a real N+1 on the /games
+    // list page (one count query per game row); the loader batches every
+    // game's count into one grouped aggregation per request (performance
+    // audit, July 29, 2026).
+    tournamentCount: async (parent: { name: string }, _args: unknown, { loaders }: { loaders: Loaders }) => {
       await connectToDatabase();
-      return await Tournament.countDocuments({ game: parent.name });
+      return await loaders.gameTournamentCountLoader.load(parent.name);
     },
   },
 
@@ -3379,7 +3395,12 @@ export const resolvers = {
   },
 
   NewsPost: {
-    author: async (parent: { authorId?: string }) => (parent.authorId ? await Player.findById(parent.authorId) : null),
+    // Routed through the existing playerLoader (graphql/loaders.ts) instead
+    // of its own findById — this used to run once per news post (the
+    // homepage feed fetches up to 20), a real N+1 the loader already exists
+    // to collapse (performance audit, July 29, 2026).
+    author: async (parent: { authorId?: string }, _args: unknown, { loaders }: { loaders: Loaders }) =>
+      parent.authorId ? await loaders.playerLoader.load(parent.authorId.toString()) : null,
   },
 
   Bracket: {

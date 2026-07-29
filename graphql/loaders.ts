@@ -14,6 +14,8 @@
 import DataLoader from "dataloader";
 import { Player } from "@/models/Player";
 import { Match } from "@/models/Match";
+import { Event } from "@/models/Event";
+import { Tournament } from "@/models/Tournament";
 import { getLiveStatuses } from "@/lib/twitch";
 
 // DataLoader requires each batch to return results in the SAME ORDER as the
@@ -30,10 +32,59 @@ function batchById<T extends { _id: unknown }>(Model: { find: (filter: Record<st
   };
 }
 
+// Batches Game.tournamentCount (one countDocuments per game before this --
+// the /games list page requests it for every row) into a single grouped
+// aggregation. Any game name with no matching tournament gets 0, same
+// zero-default re-mapping approach as the count/gameCount loader below.
+function batchGameTournamentCounts() {
+  return async (names: readonly string[]): Promise<number[]> => {
+    const rows = await Tournament.aggregate([
+      { $match: { game: { $in: names as string[] } } },
+      { $group: { _id: "$game", count: { $sum: 1 } } },
+    ]);
+    const countByName = new Map(rows.map((r: { _id: string; count: number }) => [r._id, r.count]));
+    return names.map(name => countByName.get(name) ?? 0);
+  };
+}
+
+// Batches Event.tournamentCount + Event.gameCount, previously TWO separate
+// per-event queries (countDocuments + distinct) each -- the /events list
+// page requests both fields for every row. One grouped aggregation gives
+// both the count and the distinct-game count ($addToSet + array length) for
+// every event in a single query; both field resolvers share this one
+// loader, since DataLoader already coalesces multiple .load() calls for the
+// same key within a request into one batch.
+function batchEventTournamentStats() {
+  return async (eventIds: readonly string[]): Promise<{ tournamentCount: number; gameCount: number }[]> => {
+    const rows = await Tournament.aggregate([
+      { $match: { eventId: { $in: eventIds as string[] } } },
+      { $group: { _id: "$eventId", count: { $sum: 1 }, games: { $addToSet: "$game" } } },
+    ]);
+    const statsById = new Map(
+      rows.map((r: { _id: unknown; count: number; games: string[] }) => [
+        (r._id as { toString(): string }).toString(),
+        { tournamentCount: r.count, gameCount: r.games.length },
+      ])
+    );
+    return eventIds.map(id => statsById.get(id) ?? { tournamentCount: 0, gameCount: 0 });
+  };
+}
+
 export function createLoaders() {
   return {
     playerLoader: new DataLoader(batchById(Player)),
     matchLoader: new DataLoader(batchById(Match)),
+    // Tournament.address/logoUrl/twitchUrl each used to do their own
+    // Event.findById(parent.eventId) -- N+1 across the tournaments list
+    // (up to 1000 rows, one lookup per linked event) AND a redundant
+    // triple-fetch of the SAME event on the tournament detail page (all
+    // three fields requested at once). One loader, shared across all three
+    // resolvers, fixes both.
+    eventLoader: new DataLoader(batchById(Event)),
+    gameTournamentCountLoader: new DataLoader<string, number>(batchGameTournamentCounts()),
+    eventTournamentStatsLoader: new DataLoader<string, { tournamentCount: number; gameCount: number }>(
+      batchEventTournamentStats()
+    ),
     // Batches every Player.isLiveOnTwitch / Event.isLiveOnTwitch field
     // resolver invoked within one GraphQL request into as few Get Streams
     // calls as lib/twitch.ts's own 100-per-call chunking requires — same
