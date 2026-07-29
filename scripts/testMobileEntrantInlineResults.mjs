@@ -1,15 +1,16 @@
-// Verification for the mobile tournament-page reorder (search -> bracket ->
-// entrants) + entrant search bar. Real HTTP login as an ADMIN test user, a
-// real Tournament + Entrant docs seeded directly in MongoDB, then a real
-// headless Chromium (Playwright) session that measures actual
-// getBoundingClientRect() Y-positions (order-of-appearance, not a visual
-// guess) at mobile widths, confirms desktop's side-by-side layout and
-// x-position order are pixel-identical to before, and confirms the bottom
-// Entrants list stays unfiltered while a search is active (see the follow-up
-// inline quick-results panel in scripts/testMobileEntrantInlineResults.mjs).
+// Verification for the mobile entrant-search follow-up: when there's an
+// active search query on mobile, matching entrants should render directly
+// below the search bar (a compact inline results panel) instead of only
+// updating the full Entrants list at the bottom, which would still require
+// scrolling past the bracket. Confirms:
+//   1. Typing a real tag substring makes the inline panel appear directly
+//      under the search input, showing only the matching entrant(s).
+//   2. Clearing the query removes the inline panel entirely (no empty state).
+//   3. The bottom Entrants list always shows every entrant, unfiltered,
+//      throughout (query empty, active, and cleared again).
 //
 // Requires `npm run dev` already running on localhost:3000.
-// Run: npx tsx scripts/testMobileTournamentReorderSearch.mjs
+// Run: npx tsx scripts/testMobileEntrantInlineResults.mjs
 
 import fs from "fs";
 import path from "path";
@@ -57,16 +58,12 @@ async function main() {
 
   await connectToDatabase();
 
-  const email = "mobiletourneyreordertest@example.com";
+  const email = "mobileinlineresultstest@example.com";
   const password = "TestPass123!";
   await User.deleteOne({ email });
   const passwordHash = await bcrypt.hash(password, 10);
-  // ADMIN role so canManage is true without needing a real organizer link --
-  // showBracketSection = tournament.bracket || canManage, and we want the
-  // Bracket flex item to render (as its "No bracket generated yet." empty
-  // state) purely to test layout order, without needing a full bracket sim.
   const user = await User.create({ email, passwordHash, role: "ADMIN" });
-  const player = await Player.create({ userId: user._id, tag: "MobileReorderTester" });
+  const player = await Player.create({ userId: user._id, tag: "InlineResultsTester" });
   await User.findByIdAndUpdate(user._id, { playerId: player._id });
 
   const entrantTags = ["Alpha", "Bravo", "Charlie", "Delta", "ZZZUniqueSearchableTag123"];
@@ -76,9 +73,9 @@ async function main() {
     entrantPlayers.push(await Player.create({ tag }));
   }
 
-  await Tournament.deleteMany({ name: "Mobile Reorder Search Test Cup" });
+  await Tournament.deleteMany({ name: "Mobile Inline Results Test Cup" });
   const tournament = await Tournament.create({
-    name: "Mobile Reorder Search Test Cup",
+    name: "Mobile Inline Results Test Cup",
     game: "Street Fighter 6",
     startDate: new Date(),
     organizers: [player._id],
@@ -112,7 +109,7 @@ async function main() {
     cookieJar = [cookieJar, ...loginCookies.map(c => c.split(";")[0])].filter(Boolean).join("; ");
 
     // --- Real headless browser session ---
-    console.log("\n=== Headless Chromium: tournament page order + search ===");
+    console.log("\n=== Headless Chromium at 375px: inline quick-results panel ===");
     browser = await chromium.launch();
     const context = await browser.newContext();
     const cookiePairs = cookieJar.split("; ").map(pair => {
@@ -123,67 +120,65 @@ async function main() {
     await context.addCookies(cookiePairs.map(c => ({ ...c, domain: url.hostname, path: "/" })));
 
     const page = await context.newPage();
-    const tournamentUrl = `${BASE_URL}/tournaments/${tournament._id}`;
-
-    for (const width of [320, 375, 414, 480]) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(tournamentUrl, { waitUntil: "networkidle" });
-
-      const searchInput = page.getByPlaceholder("Search entrants by tag…");
-      const bracketLabel = page.getByText("Bracket", { exact: true }).first();
-      const entrantsLabel = page.getByText("Entrants", { exact: true }).first();
-
-      await searchInput.waitFor({ state: "visible", timeout: 5000 });
-      await bracketLabel.waitFor({ state: "visible", timeout: 5000 });
-      await entrantsLabel.waitFor({ state: "visible", timeout: 5000 });
-
-      const searchTop = (await searchInput.boundingBox()).y;
-      const bracketTop = (await bracketLabel.boundingBox()).y;
-      const entrantsTop = (await entrantsLabel.boundingBox()).y;
-
-      assert(
-        searchTop < bracketTop && bracketTop < entrantsTop,
-        `[${width}px] order top-to-bottom is search (${searchTop.toFixed(0)}) < bracket (${bracketTop.toFixed(0)}) < entrants (${entrantsTop.toFixed(0)})`
-      );
-    }
-
-    // --- Functional check (still at a mobile width) ---
-    // The bottom Entrants list itself always shows everyone, unfiltered --
-    // an active search instead surfaces an inline quick-results panel right
-    // under the search bar (see scripts/testMobileEntrantInlineResults.mjs
-    // for that follow-up behavior in full). This just confirms the reorder
-    // work didn't regress the bottom list back into filtering itself.
     await page.setViewportSize({ width: 375, height: 900 });
-    await page.goto(tournamentUrl, { waitUntil: "networkidle" });
-    const entrantLinks = page.locator('p:has-text("Entrants") + div.fgc-card a[href^="/players/"]');
-    const countBefore = await entrantLinks.count();
-    assert(countBefore === entrantTags.length, `All ${entrantTags.length} entrants render before searching (found ${countBefore})`);
+    await page.goto(`${BASE_URL}/tournaments/${tournament._id}`, { waitUntil: "networkidle" });
 
-    await page.getByPlaceholder("Search entrants by tag…").fill("zzzuniquesearchabletag");
+    const searchInput = page.getByPlaceholder("Search entrants by tag…");
+    await searchInput.waitFor({ state: "visible", timeout: 5000 });
+
+    const bottomListLinks = page.locator('p:has-text("Entrants") + div.fgc-card a[href^="/players/"]');
+    const inlinePanelLinks = page.locator('input[placeholder="Search entrants by tag…"] ~ div.fgc-card a[href^="/players/"]');
+
+    // 1. Empty query: no inline panel at all.
+    const inlineCountEmpty = await inlinePanelLinks.count();
+    assert(inlineCountEmpty === 0, `No inline results panel with an empty query (found ${inlineCountEmpty} rows)`);
+    const bottomCountEmpty = await bottomListLinks.count();
+    assert(bottomCountEmpty === entrantTags.length, `Bottom list shows all ${entrantTags.length} entrants with an empty query (found ${bottomCountEmpty})`);
+
+    // 2. Active, non-empty query: inline panel appears directly under the
+    // search input with only the matching entrant, positioned above the
+    // bracket -- and the bottom list still shows everyone.
+    await searchInput.fill("zzzuniquesearchabletag");
     await page.waitForTimeout(200);
-    const countAfter = await entrantLinks.count();
+
+    const inlineCountActive = await inlinePanelLinks.count();
+    const inlineText = inlineCountActive > 0 ? await inlinePanelLinks.first().innerText() : "";
     assert(
-      countAfter === entrantTags.length,
-      `Bottom Entrants list stays unfiltered (shows all ${entrantTags.length}) while a search is active (found ${countAfter})`
+      inlineCountActive === 1 && inlineText.includes("ZZZUniqueSearchableTag123"),
+      `Inline panel shows exactly the matching entrant right under the search bar (count=${inlineCountActive}, text="${inlineText.split("\n")[0]}")`
     );
 
-    // --- Desktop pixel-parity check ---
-    console.log("\n=== Desktop (1024px): unchanged side-by-side layout ===");
-    await page.setViewportSize({ width: 1024, height: 900 });
-    await page.goto(tournamentUrl, { waitUntil: "networkidle" });
-
-    const desktopSearchVisible = await page.getByPlaceholder("Search entrants by tag…").isVisible();
-    assert(!desktopSearchVisible, "[1024px] mobile search bar is not shown on desktop");
-
-    const entrantsBox = await page.getByText("Entrants", { exact: true }).first().boundingBox();
+    const searchBox = await searchInput.boundingBox();
+    const inlineBox = await inlinePanelLinks.first().boundingBox();
     const bracketBox = await page.getByText("Bracket", { exact: true }).first().boundingBox();
-    // The "Bracket" label sits inside the bracket card's own p-6 padding
-    // while "Entrants" doesn't have an equivalent wrapper, so a modest y
-    // tolerance (not exact equality) is the right same-row check here.
     assert(
-      entrantsBox.x < bracketBox.x && Math.abs(entrantsBox.y - bracketBox.y) < 80,
-      `[1024px] Entrants sidebar (x=${entrantsBox.x.toFixed(0)}, y=${entrantsBox.y.toFixed(0)}) sits left of Bracket (x=${bracketBox.x.toFixed(0)}, y=${bracketBox.y.toFixed(0)}), same row -- unchanged side-by-side layout`
+      inlineBox.y > searchBox.y && inlineBox.y < bracketBox.y,
+      `Inline result (y=${inlineBox.y.toFixed(0)}) renders between the search bar (y=${searchBox.y.toFixed(0)}) and the bracket (y=${bracketBox.y.toFixed(0)}), no scrolling past the bracket needed`
     );
+
+    const bottomCountActive = await bottomListLinks.count();
+    assert(
+      bottomCountActive === entrantTags.length,
+      `Bottom list still shows all ${entrantTags.length} entrants while a search is active, unfiltered (found ${bottomCountActive})`
+    );
+
+    // 3. Clearing the query removes the inline panel entirely (no empty
+    // state), and the bottom list is unaffected throughout.
+    await searchInput.fill("");
+    await page.waitForTimeout(200);
+    const inlineCountCleared = await inlinePanelLinks.count();
+    assert(inlineCountCleared === 0, `Inline results panel disappears entirely once the query is cleared (found ${inlineCountCleared} rows)`);
+    const bottomCountCleared = await bottomListLinks.count();
+    assert(bottomCountCleared === entrantTags.length, `Bottom list still shows all ${entrantTags.length} entrants after clearing (found ${bottomCountCleared})`);
+
+    // 4. A query with zero matches shows the inline "no match" message, not
+    // an empty invisible panel or a crash.
+    await searchInput.fill("nonexistenttagxyz");
+    await page.waitForTimeout(200);
+    const noMatchText = await page.getByText("No entrants match your search.").first().isVisible();
+    assert(noMatchText, "Inline panel shows a 'no match' message for a query with zero hits");
+    const bottomCountNoMatch = await bottomListLinks.count();
+    assert(bottomCountNoMatch === entrantTags.length, `Bottom list is still unaffected during a zero-match search (found ${bottomCountNoMatch})`);
   } finally {
     if (browser) await browser.close();
     await Entrant.deleteMany({ tournamentId: tournament._id });
