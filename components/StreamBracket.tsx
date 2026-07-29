@@ -6,6 +6,35 @@ import { BracketView } from "./BracketView";
 
 const POLL_INTERVAL_MS = 12000;
 
+// Streamer Mode's broadcast look is meant to stay fixed regardless of
+// whatever the site-wide Color Theme System (lib/theme.ts) is currently set
+// to -- a Super Admin picking a different public-site theme shouldn't change
+// what's already live on someone's stream/OBS overlay. BracketView (and this
+// component) only ever reference colors via var(--navy)/var(--blue)/etc,
+// which app/layout.tsx sets on <html> from the ACTIVE theme -- with no local
+// override, those variables would just cascade down unchanged, coupling
+// Streamer Mode to the current site theme (confirmed: switching the site
+// theme changed the stream view's colors too). Re-declaring the same 7
+// custom properties BracketView/this file actually use, on this page's own
+// root element, wins the CSS cascade for everything inside it regardless of
+// what <html> has -- no BracketView changes needed.
+//
+// Values are byte-identical to lib/theme.ts's THEMES.default on purpose
+// (Streamer Mode's broadcast look has always been the original navy/blue
+// palette) -- NOT imported from there because lib/theme.ts pulls in the
+// SiteSettings Mongoose model at module scope, which would drag server-only
+// DB code into this "use client" component's browser bundle. Keep these in
+// sync with THEMES.default by hand if that palette's values ever change.
+const BROADCAST_FIXED_VARS: React.CSSProperties = {
+  "--navy": "#0D0F1A",
+  "--blue": "#4F8EF7",
+  "--green": "#22C55E",
+  "--text-primary": "#F0F2FF",
+  "--text-secondary": "#8B8FA8",
+  "--text-muted": "#4B4F68",
+  "--border-strong": "rgba(255,255,255,0.14)",
+} as React.CSSProperties;
+
 // Shared Match field selection — same convention as the tournament detail
 // page's MATCH_FIELDS (no GraphQL fragments in this codebase — no Apollo
 // Client — so it's just a repeated string).
@@ -374,7 +403,7 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
   const noPoolsYet = isModelB ? roundTabs.length === 0 : views.length === 0;
 
   return (
-    <div className="min-h-screen w-full isolate">
+    <div className="min-h-screen w-full isolate" style={BROADCAST_FIXED_VARS}>
       {/* Fixed backdrop — the bracket can be much taller than one viewport,
           so a `background` painted directly on this scrolling wrapper would
           scroll along with it. position:fixed decouples the two: this layer
