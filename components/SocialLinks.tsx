@@ -16,6 +16,12 @@
 // icon placeholders — and the whole row renders nothing at all if nothing
 // is set (checked by the caller too, via the same hasAnySocialLink helper,
 // so a page can decide whether to render a wrapping heading/margin around it).
+//
+// Each link shows its platform name alongside the icon (settled July 28,
+// 2026, follow-up to commit 320e559) — the fixed platforms now use the same
+// icon+label pill shape the generic "other" link already used from the
+// start (it always showed its user-typed otherLinkLabel as visible text;
+// only the 5 fixed platforms were icon-only before this).
 
 interface SocialLinkFields {
   twitterUrl?: string | null;
@@ -64,10 +70,11 @@ export function SocialLinks({ className, ...fields }: SocialLinkFields) {
             rel="noopener noreferrer"
             title={p.label}
             aria-label={p.label}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-[14px] flex-shrink-0 hover:bg-[var(--navy-3)] transition-colors"
-            style={ICON_BADGE_STYLE}
+            className="flex items-center gap-1.5 h-8 px-3 rounded-full text-[12px] font-semibold flex-shrink-0 hover:bg-[var(--navy-3)] transition-colors"
+            style={{ ...ICON_BADGE_STYLE, color: "var(--text-secondary)" }}
           >
-            {p.icon}
+            <span>{p.icon}</span>
+            <span>{p.label}</span>
           </a>
         );
       })}
