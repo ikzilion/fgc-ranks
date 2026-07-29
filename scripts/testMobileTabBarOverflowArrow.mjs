@@ -43,7 +43,17 @@ const { Player } = await import("../models/Player");
 const { Tournament } = await import("../models/Tournament");
 const bcrypt = (await import("bcryptjs")).default;
 
-const CHEVRON_SELECTOR = 'svg path[d="M9 6l6 6-6 6"]';
+// Scoped to the tab bar's own "relative" wrapper (Overview button's
+// grandparent), not a page-wide selector -- Navbar's own overflow chevron
+// (added in a later follow-up) uses this exact same chevron-right path, so
+// an unscoped selector would ambiguously match both on this page.
+async function isTabBarChevronVisible(page) {
+  return page.evaluate(() => {
+    const btn = Array.from(document.querySelectorAll("button")).find(b => b.textContent?.trim() === "Overview");
+    const wrapper = btn?.parentElement?.parentElement;
+    return !!wrapper?.querySelector('svg path[d="M9 6l6 6-6 6"]');
+  });
+}
 
 async function main() {
   let failures = 0;
@@ -124,7 +134,7 @@ async function main() {
       `[220px] tab bar actually overflows (scrollWidth=${scrollInfo?.scrollWidth}, clientWidth=${scrollInfo?.clientWidth})`
     );
 
-    const chevronVisibleAtStart = await page.locator(CHEVRON_SELECTOR).isVisible();
+    const chevronVisibleAtStart = await isTabBarChevronVisible(page);
     assert(chevronVisibleAtStart, "[220px] chevron is visible when the tab bar overflows and isn't scrolled to the end");
 
     // Scroll the tab bar container all the way to its end -- real scrollLeft
@@ -135,7 +145,7 @@ async function main() {
       if (el) el.scrollLeft = el.scrollWidth - el.clientWidth;
     });
     await page.waitForTimeout(150);
-    const chevronVisibleAtEnd = await page.locator(CHEVRON_SELECTOR).isVisible().catch(() => false);
+    const chevronVisibleAtEnd = await isTabBarChevronVisible(page);
     assert(!chevronVisibleAtEnd, "[220px] chevron disappears once the tab bar is scrolled all the way to the end");
 
     // --- A normal mobile width where 3 short tab labels fit fine ---
@@ -151,14 +161,14 @@ async function main() {
       !!fitInfo && fitInfo.scrollWidth <= fitInfo.clientWidth + 1,
       `[375px] tabs fit without overflowing (scrollWidth=${fitInfo?.scrollWidth}, clientWidth=${fitInfo?.clientWidth})`
     );
-    const chevronAt375 = await page.locator(CHEVRON_SELECTOR).isVisible().catch(() => false);
+    const chevronAt375 = await isTabBarChevronVisible(page);
     assert(!chevronAt375, "[375px] chevron never renders when the tabs already fit");
 
     // --- Desktop: completely unaffected ---
     await page.setViewportSize({ width: 1024, height: 800 });
     await page.goto(tournamentUrl, { waitUntil: "networkidle" });
     await page.getByRole("button", { name: "Overview" }).waitFor({ state: "visible", timeout: 5000 });
-    const chevronAt1024 = await page.locator(CHEVRON_SELECTOR).isVisible().catch(() => false);
+    const chevronAt1024 = await isTabBarChevronVisible(page);
     assert(!chevronAt1024, "[1024px] chevron never renders on desktop");
 
     await page.getByRole("button", { name: "Manage" }).click();

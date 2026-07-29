@@ -32,7 +32,8 @@
 // visually similar.
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState } from "react";
+import { useScrollOverflow } from "@/lib/useScrollOverflow";
 import { EditTournamentDetailsButton } from "./EditTournamentDetailsButton";
 import { ManageOrganizersButton } from "./ManageOrganizersButton";
 import { InvitePlayerButton } from "./InvitePlayerButton";
@@ -54,30 +55,15 @@ const TABS: { key: TabId; label: string }[] = [
 // Navbar.tsx's own nav-links row) instead of flex-wrap -- wrapping silently
 // absorbed narrow-viewport overflow with no indication more tabs existed
 // off-screen; a horizontally-scrollable row plus the chevron below at least
-// hints at it (settled scope, July 29, 2026, 2 previewed options).
+// hints at it (settled scope, July 29, 2026, 2 previewed options). Only the
+// right edge needs a chevron here (this bar always starts scrolled to its
+// leftmost tab), unlike Navbar's nav-links row which needs both.
 function TabBar({ activeKey, onSelect }: { activeKey: TabId; onSelect: (key: TabId) => void }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [canScrollRight, setCanScrollRight] = useState(false);
-
-  const updateArrow = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    // +1 tolerance for subpixel rounding -- without it, a tab bar that
-    // exactly fits can read as "1px of overflow" on some zoom levels.
-    const hasOverflow = el.scrollWidth > el.clientWidth + 1;
-    const atEnd = el.scrollLeft >= el.scrollWidth - el.clientWidth - 1;
-    setCanScrollRight(hasOverflow && !atEnd);
-  }, []);
-
-  useEffect(() => {
-    updateArrow();
-    window.addEventListener("resize", updateArrow);
-    return () => window.removeEventListener("resize", updateArrow);
-  }, [updateArrow]);
+  const { ref: scrollRef, canScrollRight, onScroll } = useScrollOverflow<HTMLDivElement>();
 
   return (
     <div className="relative">
-      <div ref={scrollRef} onScroll={updateArrow} className="flex gap-2 overflow-x-auto">
+      <div ref={scrollRef} onScroll={onScroll} className="flex gap-2 overflow-x-auto">
         {TABS.map(tab => {
           const active = tab.key === activeKey;
           return (
