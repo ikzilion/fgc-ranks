@@ -17,13 +17,17 @@ export const metadata: Metadata = {
 
 // Color theme system (settled July 29, 2026) — GraphQL, same "GraphQL for
 // all data fetching" convention every page-level fetch in this app follows,
-// not a direct DB/lib/theme.ts call from here. cache: "no-store" since the
-// active theme can change at any moment via the admin switcher and needs to
-// take effect immediately, site-wide, on the very next request — this does
-// mean the root layout (and therefore every route under it) renders
-// dynamically rather than statically now, an accepted tradeoff at this
-// app's traffic scale for always-correct theming over shaving a few
-// otherwise-static auth pages down to edge-cached HTML.
+// not a direct DB/lib/theme.ts call from here. The active theme isn't
+// viewer-dependent (same for every visitor) and only changes on a rare
+// Super Admin action, so it doesn't need the zero-cache treatment
+// viewer-scoped fetches elsewhere in this app use — same reasoning as
+// app/players/[id]/page.tsx's GET_PLAYERS_FOR_PICKER fetch, which uses a
+// short revalidate window for the same "global, not per-viewer" reason.
+// next: {revalidate: 30} restores static/ISR rendering for every route
+// under this layout (previously forced all-ƒ-dynamic by cache: "no-store"
+// here) at the cost of up to a 30s staleness window on a theme switch —
+// accepted tradeoff (performance audit, July 29, 2026). Revisit if a Super
+// Admin ever needs a theme change to take effect instantly instead.
 async function getActiveThemePalette(): Promise<ThemePalette> {
   try {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
@@ -31,7 +35,7 @@ async function getActiveThemePalette(): Promise<ThemePalette> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query: `query { activeTheme }` }),
-      cache: "no-store",
+      next: { revalidate: 30 },
     });
     const json = await res.json();
     return getThemeOrDefault(json.data?.activeTheme);
