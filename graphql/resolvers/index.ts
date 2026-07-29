@@ -8,6 +8,7 @@ import { User, UserRole } from "@/models/User";
 import { isAdminOrAbove, isSuperAdmin } from "@/lib/roles";
 import { Player } from "@/models/Player";
 import { softDeletePlayer, logAccountDeletionEvent, DELETION_GRACE_PERIOD_MS } from "@/lib/accountDeletion";
+import { THEMES, getActiveThemeId, setActiveThemeId, listAvailableThemes } from "@/lib/theme";
 import { AccountDeletionAuditAction } from "@/models/AccountDeletionAuditLog";
 import { Tournament, TournamentStatus } from "@/models/Tournament";
 import { Entrant } from "@/models/Entrant";
@@ -324,6 +325,16 @@ export const resolvers = {
   // ─── Queries ───────────────────────────────────────────────────────────────
 
   Query: {
+    // Color theme system (settled July 29, 2026) — public, no auth check.
+    // connectToDatabase() here since getActiveThemeId (lib/theme.ts)
+    // assumes the caller already connected, same convention as
+    // lib/blobStorage.ts's own functions.
+    activeTheme: async () => {
+      await connectToDatabase();
+      return getActiveThemeId();
+    },
+    availableThemes: () => listAvailableThemes(),
+
     // Notifications
     myNotifications: async (_: unknown, __: unknown, { playerId }: { playerId?: string }) => {
       if (!playerId) return [];
@@ -1019,6 +1030,17 @@ export const resolvers = {
       });
 
       return Player.findById(player._id);
+    },
+
+    // SUPER_ADMIN-only (settled July 29, 2026) — site-wide, not per-player:
+    // changes what every visitor sees, immediately, on their very next
+    // request (see lib/theme.ts + app/layout.tsx).
+    setActiveTheme: async (_: unknown, { themeId }: { themeId: string }, { role }: { role?: string }) => {
+      if (!isSuperAdmin(role)) throw new Error("Not authorized");
+      if (!THEMES[themeId]) throw new Error(`Unknown theme "${themeId}"`);
+      await connectToDatabase();
+      await setActiveThemeId(themeId);
+      return themeId;
     },
 
     // SUPER_ADMIN-only — the one in-app way to grant/revoke ADMIN. Regular

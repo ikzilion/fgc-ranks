@@ -14,8 +14,9 @@ import { AdminGameManager } from "@/components/AdminGameManager";
 import { AdminTOManager } from "@/components/AdminTOManager";
 import { AdminUserManager } from "@/components/AdminUserManager";
 import { AdminAccountRestoreManager } from "@/components/AdminAccountRestoreManager";
+import { AdminThemeSwitcher } from "@/components/AdminThemeSwitcher";
 
-type TabId = "events" | "games" | "to-status" | "users" | "restore";
+type TabId = "events" | "games" | "to-status" | "users" | "restore" | "theme";
 
 export function AdminDashboard({
   pendingEvents,
@@ -24,6 +25,8 @@ export function AdminDashboard({
   pendingTORequests,
   players,
   restorableDeletedPlayers,
+  activeTheme,
+  availableThemes,
   showAdminRoles,
 }: {
   pendingEvents: any[];
@@ -32,9 +35,12 @@ export function AdminDashboard({
   pendingTORequests: any[];
   players: any[];
   restorableDeletedPlayers: any[];
-  // Admin roles AND account restore are both SUPER_ADMIN-only (same gate as
-  // the standalone /admin/users page) — the other three tabs are
-  // ADMIN-or-above, same as this page's own notFound() gate.
+  activeTheme: string;
+  availableThemes: { id: string; name: string }[];
+  // Admin roles, account restore, AND the theme switcher are all
+  // SUPER_ADMIN-only (same gate as the standalone /admin/users page) — the
+  // other three tabs are ADMIN-or-above, same as this page's own
+  // notFound() gate.
   showAdminRoles: boolean;
 }) {
   const [tab, setTab] = useState<TabId>("events");
@@ -47,6 +53,7 @@ export function AdminDashboard({
       ? [
           { id: "users" as TabId, label: "Admin roles", count: 0 },
           { id: "restore" as TabId, label: "Restore accounts", count: restorableDeletedPlayers.length },
+          { id: "theme" as TabId, label: "Site theme", count: 0 },
         ]
       : []),
   ];
@@ -92,6 +99,8 @@ export function AdminDashboard({
       {tab === "users" && showAdminRoles && <AdminUserManager players={players} />}
 
       {tab === "restore" && showAdminRoles && <AdminAccountRestoreManager players={restorableDeletedPlayers} />}
+
+      {tab === "theme" && showAdminRoles && <AdminThemeSwitcher activeTheme={activeTheme} availableThemes={availableThemes} />}
     </>
   );
 }

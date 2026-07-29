@@ -30,6 +30,8 @@ function buildAdminDashboardQuery(includeSuperAdminFields: boolean) {
   return `
     query GetAdminDashboardData {
       blobStorageUsageBytes
+      activeTheme
+      availableThemes { id name }
       pendingEvents {
         id
         displayId
@@ -85,6 +87,8 @@ function buildAdminDashboardQuery(includeSuperAdminFields: boolean) {
 
 const EMPTY_DASHBOARD_DATA = {
   blobStorageUsageBytes: 0,
+  activeTheme: "default",
+  availableThemes: [] as { id: string; name: string }[],
   pendingEvents: [] as any[],
   games: [] as any[],
   hiddenGameNames: [] as string[],
@@ -109,6 +113,8 @@ async function getAdminDashboardData(includeSuperAdminFields: boolean) {
     }
     return {
       blobStorageUsageBytes: json.data?.blobStorageUsageBytes ?? 0,
+      activeTheme: json.data?.activeTheme ?? "default",
+      availableThemes: json.data?.availableThemes ?? [],
       pendingEvents: json.data?.pendingEvents ?? [],
       games: json.data?.games ?? [],
       hiddenGameNames: json.data?.hiddenGameNames ?? [],
@@ -127,7 +133,7 @@ export default async function AdminPage() {
   const role = (session?.user as any)?.role;
   if (!isAdminOrAbove(role)) notFound();
 
-  const { blobStorageUsageBytes, pendingEvents, games, hiddenGameNames, pendingTORequests, players, restorableDeletedPlayers } =
+  const { blobStorageUsageBytes, activeTheme, availableThemes, pendingEvents, games, hiddenGameNames, pendingTORequests, players, restorableDeletedPlayers } =
     await getAdminDashboardData(isSuperAdmin(role));
   const usageMB = (blobStorageUsageBytes / (1024 * 1024)).toFixed(1);
   const limitMB = Math.round(BLOB_STORAGE_LIMIT_BYTES / (1024 * 1024));
@@ -155,6 +161,8 @@ export default async function AdminPage() {
         pendingTORequests={pendingTORequests}
         players={players}
         restorableDeletedPlayers={restorableDeletedPlayers}
+        activeTheme={activeTheme}
+        availableThemes={availableThemes}
         showAdminRoles={isSuperAdmin(role)}
       />
     </main>

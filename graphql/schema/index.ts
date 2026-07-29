@@ -435,7 +435,20 @@ export const typeDefs = `#graphql
     updatedAt: Date!
   }
 
+  # Color theme system (settled July 29, 2026) — see lib/theme.ts.
+  type Theme {
+    id: String!
+    name: String!
+  }
+
   type Query {
+    # Site-wide active color theme — public, no auth required (every
+    # visitor's page needs this to render with the right palette). See
+    # lib/theme.ts and app/layout.tsx.
+    activeTheme: String!
+    # The full list of available themes (id + display name), for the admin
+    # theme-switcher UI.
+    availableThemes: [Theme!]!
     myNotifications: [Notification!]!
     unreadNotificationCount: Int!
     # The calling player's own reusable stream-asset library (Stream
@@ -564,6 +577,10 @@ export const typeDefs = `#graphql
     # is NOT recoverable (randomized at scrub time by design) — the
     # restored player needs a fresh password reset to log back in.
     restoreDeletedPlayer(playerId: ID!): Player!
+    # SUPER_ADMIN-only (settled July 29, 2026) — site-wide, not per-player;
+    # changes what every visitor sees. Returns the new active theme id.
+    # See lib/theme.ts.
+    setActiveTheme(themeId: String!): String!
     # SUPER_ADMIN-only — the one in-app way to grant/revoke ADMIN. Regular
     # ADMINs cannot call these.
     grantAdmin(playerId: ID!): Boolean!
