@@ -1,11 +1,17 @@
 // lib/avatarImage.ts
 // Server-side resize/compression for player avatars specifically -- see
 // app/api/upload/route.ts, which calls this only for the avatar upload
-// path. Backgrounds/sponsor banners/tournament-logos/event-logos/game-icons
-// are untouched (settled scope, July 27, 2026) -- they're already bounded
-// by the reusable stream-asset library's 10-per-organizer retention cap
-// (lib/streamAssets.ts) and legitimately need higher resolution than a
-// small avatar thumbnail.
+// path. Backgrounds/sponsor banners are untouched (settled scope, July 27,
+// 2026) -- they're already bounded by the reusable stream-asset library's
+// 10-per-organizer retention cap (lib/streamAssets.ts) and legitimately
+// need higher resolution + GIF animation for stream overlays.
+// Tournament logos/event logos/game icons were ALSO originally grouped into
+// that same exemption, but that didn't actually hold up -- they're not
+// covered by the stream-asset library's retention cap at all (only
+// stream-bg/sponsor-banner are), so they had no size bound whatsoever
+// beyond the raw upload ceiling. Given their own resize/re-encode path now
+// -- see lib/logoImage.ts -- found during the July 29, 2026 performance
+// audit.
 //
 // Avatars are the real long-term risk to the 1GB Vercel Blob Hobby limit
 // (lib/blobStorage.ts) -- they scale with player count (uncapped) rather

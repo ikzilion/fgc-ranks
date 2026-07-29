@@ -9,6 +9,7 @@ import { StreamAssetType } from "@/models/StreamAsset";
 import { recordStreamAssetUpload } from "@/lib/streamAssets";
 import { adjustBlobStorageUsage } from "@/lib/blobStorage";
 import { processAvatarImage } from "@/lib/avatarImage";
+import { processLogoImage } from "@/lib/logoImage";
 
 // SVG is deliberately excluded — it can embed <script> and would execute if
 // the blob URL is ever opened directly rather than used as an <img> source.
@@ -58,12 +59,28 @@ export async function POST(request: NextRequest) {
     filename = `tournament-backgrounds/${Date.now()}-${file.name}`;
   } else if (type === "sponsor-banner") {
     filename = `sponsor-banners/${Date.now()}-${file.name}`;
-  } else if (type === "tournament-logo") {
-    filename = `tournament-logos/${Date.now()}-${file.name}`;
-  } else if (type === "event-logo") {
-    filename = `event-logos/${Date.now()}-${file.name}`;
-  } else if (type === "game-icon") {
-    filename = `game-icons/${Date.now()}-${file.name}`;
+  } else if (type === "tournament-logo" || type === "event-logo" || type === "game-icon") {
+    const folder = type === "tournament-logo" ? "tournament-logos" : type === "event-logo" ? "event-logos" : "game-icons";
+    // Resized/re-encoded server-side (lib/logoImage.ts) same as avatars —
+    // these had no processing at all before (performance audit, July 29,
+    // 2026). processLogoImage returns null for a genuinely animated GIF, in
+    // which case the original bytes are stored untouched (same passthrough
+    // stream-bg/sponsor-banner already get, just decided per-file here
+    // instead of per-type).
+    try {
+      const result = await processLogoImage(Buffer.from(await file.arrayBuffer()));
+      if (result) {
+        filename = `${folder}/${Date.now()}.webp`;
+        storedBody = result.buffer;
+        storedBytes = result.buffer.byteLength;
+        storedContentType = result.contentType;
+      } else {
+        filename = `${folder}/${Date.now()}-${file.name}`;
+      }
+    } catch (err) {
+      console.error(`[upload] Failed to process ${type} image:`, err);
+      return NextResponse.json({ error: "Couldn't process that image — try a different file." }, { status: 400 });
+    }
   } else {
     const playerId = (session.user as any).playerId;
     // .webp regardless of the original extension — the compressed output is
