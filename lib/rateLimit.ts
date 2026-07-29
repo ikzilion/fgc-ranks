@@ -6,9 +6,13 @@ const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN!,
 });
 
+// Login is the only limiter on a 5-minute window (user request, July 23,
+// 2026, revised) — every other limiter below was reverted back to its
+// original duration after a brief stint where all of them were flattened
+// to 5 minutes.
 export const loginRateLimit = new Ratelimit({
   redis,
-  limiter: Ratelimit.slidingWindow(5, "15 m"), // 5 attempts per 15 min
+  limiter: Ratelimit.slidingWindow(5, "5 m"), // 5 attempts per 5 min
   prefix: "ratelimit:login",
 });
 
@@ -16,6 +20,44 @@ export const registerRateLimit = new Ratelimit({
   redis,
   limiter: Ratelimit.slidingWindow(3, "1 h"), // 3 accounts per hour
   prefix: "ratelimit:register",
+});
+
+// Raised in dev so local testing doesn't get stuck waiting out the 1h window — prod stays at 3.
+const passwordResetLimit = process.env.NODE_ENV === "production" ? 3 : 20;
+
+export const passwordResetRateLimit = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(passwordResetLimit, "1 h"),
+  prefix: "ratelimit:password-reset",
+});
+
+// Same reasoning/shape as passwordResetRateLimit — prevents the "resend
+// verification email" action from being used to spam an inbox.
+const resendVerificationLimit = process.env.NODE_ENV === "production" ? 3 : 20;
+
+export const resendVerificationRateLimit = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(resendVerificationLimit, "1 h"),
+  prefix: "ratelimit:resend-verification",
+});
+
+// Same reasoning/shape as resendVerificationRateLimit — this only ever
+// emails the account holder's own inbox, but the same defensive pattern
+// keeps the "request account deletion" action from being spammed.
+const deleteAccountRequestLimit = process.env.NODE_ENV === "production" ? 3 : 20;
+
+export const deleteAccountRequestRateLimit = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(deleteAccountRequestLimit, "1 h"),
+  prefix: "ratelimit:delete-account-request",
+});
+
+// Keyed by playerId (an authenticated action), not IP — 5/day is enough for
+// a legitimate TO running several brackets, while stopping rapid-fire spam.
+export const createTournamentRateLimit = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(5, "1 d"),
+  prefix: "ratelimit:create-tournament",
 });
 
 // Next.js 15+ dropped NextRequest#ip — Vercel's edge network sets these headers instead.

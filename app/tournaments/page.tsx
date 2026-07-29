@@ -1,32 +1,42 @@
 // app/tournaments/page.tsx
 // Tournament list — upcoming, live, and ended.
 
-import Link from "next/link";
+import { auth } from "@/lib/auth";
+import { isAdminOrAbove } from "@/lib/roles";
 import { CreateTournamentButton } from "@/components/CreateTournamentButton";
-import { DeleteTournamentButton } from "@/components/DeleteTournamentButton";
+import { TournamentSearchFilter } from "@/components/TournamentSearchFilter";
 
 export const dynamic = "force-dynamic";
 
+// Pagination (components/Pagination.tsx) slices this client-side, same as
+// the existing search/filter — production is currently ~8 tournaments, so a
+// single-page fetch is still cheap. limit: 1000 covers real near-term
+// growth; revisit with server-side limit/offset if this stops being true.
 const GET_TOURNAMENTS = `
-  query {
-    tournaments(limit: 50) {
+  query GetTournaments($playerId: ID) {
+    tournaments(limit: 1000) {
       id
       name
       game
       status
+      cancellationReason
+      visibility
       entrantCount
       startDate
+      isOnlineOnly
+      address
+      isOrganizer(playerId: $playerId)
     }
   }
 `;
 
-async function getTournaments() {
+async function getTournaments(playerId?: string) {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
   try {
     const res = await fetch(`${baseUrl}/api/graphql`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: GET_TOURNAMENTS }),
+      body: JSON.stringify({ query: GET_TOURNAMENTS, variables: { playerId } }),
       cache: "no-store",
     });
     const json = await res.json();
@@ -41,20 +51,17 @@ async function getTournaments() {
   }
 }
 
-function statusBadge(status: string) {
-  if (status === "LIVE")
-    return (
-      <span className="badge-live text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded flex items-center gap-1">
-        <span className="live-dot" /> Live
-      </span>
-    );
-  if (status === "UPCOMING")
-    return <span className="badge-upcoming text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded">Upcoming</span>;
-  return <span className="badge-ended text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded">Ended</span>;
-}
+export default async function TournamentsPage({ searchParams }: { searchParams: Promise<{ game?: string }> }) {
+  const session = await auth();
+  const playerId = (session?.user as any)?.playerId ?? undefined;
+  const role = (session?.user as any)?.role;
+  const { game } = await searchParams;
+  const tournaments = await getTournaments(playerId);
 
-export default async function TournamentsPage() {
-  const tournaments = await getTournaments();
+  const withCanManage = tournaments.map((t: any) => ({
+    ...t,
+    canManage: t.isOrganizer || isAdminOrAbove(role),
+  }));
 
   return (
     <main className="max-w-4xl mx-auto px-4 py-8">
@@ -66,28 +73,7 @@ export default async function TournamentsPage() {
         </div>
       </div>
 
-      <div className="fgc-card">
-        {tournaments.length === 0 && (
-          <p className="p-6 text-[var(--text-secondary)]">No tournaments yet.</p>
-        )}
-        {tournaments.map((tournament: any) => (
-          <div
-            key={tournament.id}
-            className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 px-5 py-3 border-b border-[var(--border)] last:border-0 hover:bg-[var(--navy-3)] transition-colors"
-          >
-            <Link href={`/tournaments/${tournament.id}`} className="flex-1 min-w-0">
-              <p className="font-rajdhani text-[16px] font-bold text-[var(--text-primary)] leading-tight">{tournament.name}</p>
-              <p className="text-[12px] text-[var(--text-secondary)] truncate">
-                {tournament.game} · {tournament.entrantCount} entrants · {new Date(tournament.startDate).toLocaleDateString()}
-              </p>
-            </Link>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              {statusBadge(tournament.status)}
-              <DeleteTournamentButton tournamentId={tournament.id} />
-            </div>
-          </div>
-        ))}
-      </div>
+      <TournamentSearchFilter tournaments={withCanManage} initialQuery={game ?? ""} />
     </main>
   );
 }

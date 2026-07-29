@@ -12,11 +12,17 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendSubmitted, setResendSubmitted] = useState(false);
+  const [resendError, setResendError] = useState("");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setNeedsVerification(false);
+    setResendSubmitted(false);
 
     const result = await signIn("credentials", {
       email,
@@ -27,22 +33,55 @@ export default function LoginPage() {
     setLoading(false);
 
     if (result?.error) {
-      setError(
-        result.code === "rate_limited"
-          ? "Too many attempts. Please try again in 15 minutes."
-          : "Invalid email or password"
-      );
+      if (result.code === "email_not_verified") {
+        setError("Please verify your email before signing in.");
+        setNeedsVerification(true);
+      } else {
+        // loginRateLimit (lib/rateLimit.ts) is a 5-minute sliding window --
+        // keep this wording in sync if that window ever changes.
+        setError(
+          result.code === "rate_limited"
+            ? "Too many attempts. Please try again in 5 minutes."
+            : "Invalid email or password"
+        );
+      }
     } else {
-      router.push("/tournaments");
+      router.push("/");
       router.refresh();
     }
+  }
+
+  async function handleResend() {
+    setResendLoading(true);
+    setResendError("");
+    const res = await fetch("/api/graphql", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: `mutation ResendVerificationEmail($email: String!) { resendVerificationEmail(email: $email) }`,
+        variables: { email },
+      }),
+    });
+    const json = await res.json();
+    setResendLoading(false);
+    // A rate-limit rejection here must surface as its own distinct message --
+    // silently falling through to "sent" would hide real throttling from the
+    // user (the exact bug this fixes). Any other resolver error is safe to
+    // ignore: resendVerificationEmail always returns true regardless of
+    // whether the account needs verifying, so a non-rate-limit failure here
+    // is unexpected but not enumeration-sensitive either way.
+    if (json.errors?.[0]?.extensions?.code === "RATE_LIMITED") {
+      setResendError("Too many attempts — please wait a few minutes and try again.");
+      return;
+    }
+    setResendSubmitted(true);
   }
 
   return (
     <main className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <h1 className="font-rajdhani text-3xl font-bold text-[var(--text-primary)] mb-1">Welcome back</h1>
-        <p className="text-[13px] text-[var(--text-secondary)] mb-8">Sign in to your FGC.HUB account</p>
+        <p className="text-[13px] text-[var(--text-secondary)] mb-8">Sign in to your FGC Ranks account</p>
 
         <div className="fgc-card p-6">
           <form onSubmit={handleSubmit}>
@@ -59,7 +98,7 @@ export default function LoginPage() {
               />
             </div>
 
-            <div className="mb-6">
+            <div className="mb-2">
               <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Password</label>
               <input
                 type="password"
@@ -72,10 +111,39 @@ export default function LoginPage() {
               />
             </div>
 
+            <div className="mb-6 text-right">
+              <Link href="/forgot-password" className="text-[12px] text-[var(--blue)] hover:underline">
+                Forgot password?
+              </Link>
+            </div>
+
             {error && (
               <p className="text-[12px] mb-4 px-3 py-2 rounded" style={{ background: "var(--coral-dim)", color: "var(--coral)" }}>
                 {error}
               </p>
+            )}
+
+            {needsVerification && (
+              resendSubmitted ? (
+                <p className="text-[12px] text-[var(--text-muted)] mb-4">If needed, a new link has been sent.</p>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleResend}
+                    disabled={resendLoading}
+                    className="text-[12px] font-semibold mb-4"
+                    style={{ color: "var(--blue)", background: "none", border: "none", cursor: resendLoading ? "not-allowed" : "pointer", padding: 0 }}
+                  >
+                    {resendLoading ? "Sending..." : "Resend verification email"}
+                  </button>
+                  {resendError && (
+                    <p className="text-[12px] mb-4 px-3 py-2 rounded" style={{ background: "var(--coral-dim)", color: "var(--coral)" }}>
+                      {resendError}
+                    </p>
+                  )}
+                </>
+              )
             )}
 
             <button

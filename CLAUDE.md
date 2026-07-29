@@ -14,6 +14,8 @@ A Fighting Game Community (FGC) web platform with two core features:
 - **API:** GraphQL with Apollo Server 5.5.1 (@apollo/server + @as-integrations/next)
 - **Database:** MongoDB Atlas (Mongoose ODM)
 - **Auth:** NextAuth.js v5 (credentials provider)
+- **Rate limiting:** Upstash Redis + @upstash/ratelimit (login/register/password reset)
+- **Transactional email:** Resend (password reset)
 - **File storage:** Vercel Blob (player avatar images)
 - **Hosting:** Vercel
 

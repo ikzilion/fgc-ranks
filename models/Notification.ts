@@ -6,6 +6,7 @@ export enum NotificationType {
   TOURNAMENT_LIVE = "TOURNAMENT_LIVE",
   TOURNAMENT_ENDED = "TOURNAMENT_ENDED",
   PLAYER_JOINED = "PLAYER_JOINED",
+  TO_STATUS_GRANTED = "TO_STATUS_GRANTED",
 }
 
 const NotificationSchema = new Schema(
