@@ -81,6 +81,17 @@ export const typeDefs = `#graphql
     team: String
     avatarUrl: String
     twitchUrl: String
+    # Social media links (settled July 28, 2026) — fixed platform set, same
+    # on Event. See models/Player.ts and components/SocialLinks.tsx.
+    twitterUrl: String
+    instagramUrl: String
+    youtubeUrl: String
+    discordUrl: String
+    tiktokUrl: String
+    # Generic "website/other" slot — one only. otherLinkLabel is only
+    # meaningful when otherLinkUrl is also set.
+    otherLinkUrl: String
+    otherLinkLabel: String
     # Computed, not stored — batched Get Streams check via lib/twitch.ts
     # (graphql/loaders.ts's twitchLiveLoader coalesces every Player/Event
     # needing this within one request into as few external calls as
@@ -274,6 +285,15 @@ export const typeDefs = `#graphql
     address: String
     logoUrl: String
     twitchUrl: String
+    # Social media links (settled July 28, 2026) — fixed platform set, same
+    # on Player. See models/Event.ts and components/SocialLinks.tsx.
+    twitterUrl: String
+    instagramUrl: String
+    youtubeUrl: String
+    discordUrl: String
+    tiktokUrl: String
+    otherLinkUrl: String
+    otherLinkLabel: String
     # Free-text markdown source, optional — rendered on the public Event
     # page via components/MarkdownContent.tsx. See models/Event.ts.
     description: String
@@ -518,7 +538,22 @@ export const typeDefs = `#graphql
     # no-argument-always-targets-self convention as requestAccountDeletion.
     cancelMyPendingDeletion: Boolean!
 
-    updatePlayer(id: ID!, tag: String, region: String, avatarUrl: String, characters: [String!], team: String, twitchUrl: String): Player!
+    updatePlayer(
+      id: ID!
+      tag: String
+      region: String
+      avatarUrl: String
+      characters: [String!]
+      team: String
+      twitchUrl: String
+      twitterUrl: String
+      instagramUrl: String
+      youtubeUrl: String
+      discordUrl: String
+      tiktokUrl: String
+      otherLinkUrl: String
+      otherLinkLabel: String
+    ): Player!
     # ADMIN-only. Soft-delete: disables login, scrubs personal info (email,
     # password, avatar, region, team), but keeps the Player document and all
     # Match/Entrant/Tournament/Event references intact.
@@ -616,14 +651,58 @@ export const typeDefs = `#graphql
     # which is correct, not a bug).
     unhideUncuratedGame(name: String!): Boolean!
 
-    createEvent(name: String!, isOnlineOnly: Boolean, address: String, logoUrl: String, twitchUrl: String, description: String): Event!
-    updateEvent(id: ID!, name: String, isOnlineOnly: Boolean, address: String, logoUrl: String, twitchUrl: String, description: String): Event!
+    createEvent(
+      name: String!
+      isOnlineOnly: Boolean
+      address: String
+      logoUrl: String
+      twitchUrl: String
+      description: String
+      twitterUrl: String
+      instagramUrl: String
+      youtubeUrl: String
+      discordUrl: String
+      tiktokUrl: String
+      otherLinkUrl: String
+      otherLinkLabel: String
+    ): Event!
+    updateEvent(
+      id: ID!
+      name: String
+      isOnlineOnly: Boolean
+      address: String
+      logoUrl: String
+      twitchUrl: String
+      description: String
+      twitterUrl: String
+      instagramUrl: String
+      youtubeUrl: String
+      discordUrl: String
+      tiktokUrl: String
+      otherLinkUrl: String
+      otherLinkLabel: String
+    ): Event!
     deleteEvent(id: ID!): Boolean!
     addEventManager(eventId: ID!, playerId: ID!): Event!
     removeEventManager(eventId: ID!, playerId: ID!): Event!
     # ADMIN-only. Edit-and-approve in one call — any field left null keeps
     # its current value, same partial-update convention as updateEvent.
-    approveEvent(id: ID!, name: String, isOnlineOnly: Boolean, address: String, logoUrl: String, twitchUrl: String, description: String): Event!
+    approveEvent(
+      id: ID!
+      name: String
+      isOnlineOnly: Boolean
+      address: String
+      logoUrl: String
+      twitchUrl: String
+      description: String
+      twitterUrl: String
+      instagramUrl: String
+      youtubeUrl: String
+      discordUrl: String
+      tiktokUrl: String
+      otherLinkUrl: String
+      otherLinkLabel: String
+    ): Event!
     # ADMIN-only. Reason is required.
     rejectEvent(id: ID!, reason: String!): Event!
     updateTournamentStatus(id: ID!, status: TournamentStatus!): Tournament!

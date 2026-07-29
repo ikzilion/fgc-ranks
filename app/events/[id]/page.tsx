@@ -13,6 +13,7 @@ import { DeleteEventButton } from "@/components/DeleteEventButton";
 import { NewsPostForm } from "@/components/NewsPostForm";
 import { DeleteNewsPostButton } from "@/components/DeleteNewsPostButton";
 import { MarkdownContent } from "@/components/MarkdownContent";
+import { SocialLinks } from "@/components/SocialLinks";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,13 @@ const GET_EVENT = `
       address
       twitchUrl
       description
+      twitterUrl
+      instagramUrl
+      youtubeUrl
+      discordUrl
+      tiktokUrl
+      otherLinkUrl
+      otherLinkLabel
       isLiveOnTwitch
       status
       rejectionReason
@@ -195,6 +203,19 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
                   )}
                 </p>
               )}
+              {/* Social links (settled July 28, 2026) — separate from the
+                  Twitch block above, which keeps its own dedicated spot +
+                  live badge. Renders nothing at all when nothing is set. */}
+              <SocialLinks
+                className="mt-2"
+                twitterUrl={event.twitterUrl}
+                instagramUrl={event.instagramUrl}
+                youtubeUrl={event.youtubeUrl}
+                discordUrl={event.discordUrl}
+                tiktokUrl={event.tiktokUrl}
+                otherLinkUrl={event.otherLinkUrl}
+                otherLinkLabel={event.otherLinkLabel}
+              />
             </div>
           </div>
         </div>
@@ -209,6 +230,13 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
               address={event.address}
               twitchUrl={event.twitchUrl}
               description={event.description}
+              twitterUrl={event.twitterUrl}
+              instagramUrl={event.instagramUrl}
+              youtubeUrl={event.youtubeUrl}
+              discordUrl={event.discordUrl}
+              tiktokUrl={event.tiktokUrl}
+              otherLinkUrl={event.otherLinkUrl}
+              otherLinkLabel={event.otherLinkLabel}
               canManage={canManage}
             />
             <ManageEventManagersButton

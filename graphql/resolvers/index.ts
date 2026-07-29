@@ -218,6 +218,34 @@ function isEventManager(event: any, playerId?: string, role?: string): boolean {
   return event.managerIds.some((id: any) => id.toString() === playerId);
 }
 
+// Shared partial-update helper for the 7 social-link fields (settled July
+// 28, 2026) — same fixed platform set + one generic slot on both Player and
+// Event, applied identically across updatePlayer/updateEvent/approveEvent
+// (createEvent just spreads them directly into Event.create instead, since
+// undefined there already falls through to the schema's own defaults).
+// Centralized so those 3 partial-update call sites can't drift apart on
+// which fields this feature touches.
+function applySocialLinkFields(
+  update: any,
+  fields: {
+    twitterUrl?: string;
+    instagramUrl?: string;
+    youtubeUrl?: string;
+    discordUrl?: string;
+    tiktokUrl?: string;
+    otherLinkUrl?: string;
+    otherLinkLabel?: string;
+  }
+): void {
+  if (fields.twitterUrl !== undefined) update.twitterUrl = fields.twitterUrl;
+  if (fields.instagramUrl !== undefined) update.instagramUrl = fields.instagramUrl;
+  if (fields.youtubeUrl !== undefined) update.youtubeUrl = fields.youtubeUrl;
+  if (fields.discordUrl !== undefined) update.discordUrl = fields.discordUrl;
+  if (fields.tiktokUrl !== undefined) update.tiktokUrl = fields.tiktokUrl;
+  if (fields.otherLinkUrl !== undefined) update.otherLinkUrl = fields.otherLinkUrl;
+  if (fields.otherLinkLabel !== undefined) update.otherLinkLabel = fields.otherLinkLabel;
+}
+
 // Basic (not exhaustive/RFC-compliant) email format check — used by
 // requestTOStatus's required contactEmail field.
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -872,7 +900,37 @@ export const resolvers = {
     // Players
     updatePlayer: async (
       _: unknown,
-      { id, tag, region, avatarUrl, characters, team, twitchUrl }: { id: string; tag?: string; region?: string; avatarUrl?: string; characters?: string[]; team?: string; twitchUrl?: string },
+      {
+        id,
+        tag,
+        region,
+        avatarUrl,
+        characters,
+        team,
+        twitchUrl,
+        twitterUrl,
+        instagramUrl,
+        youtubeUrl,
+        discordUrl,
+        tiktokUrl,
+        otherLinkUrl,
+        otherLinkLabel,
+      }: {
+        id: string;
+        tag?: string;
+        region?: string;
+        avatarUrl?: string;
+        characters?: string[];
+        team?: string;
+        twitchUrl?: string;
+        twitterUrl?: string;
+        instagramUrl?: string;
+        youtubeUrl?: string;
+        discordUrl?: string;
+        tiktokUrl?: string;
+        otherLinkUrl?: string;
+        otherLinkLabel?: string;
+      },
       { playerId, role }: { playerId?: string; role?: string }
     ) => {
       if (playerId !== id && !isAdminOrAbove(role)) throw new Error("Not authorized");
@@ -882,6 +940,7 @@ export const resolvers = {
       if (avatarUrl !== undefined) update.avatarUrl = avatarUrl;
       if (team !== undefined) update.team = team;
       if (twitchUrl !== undefined) update.twitchUrl = twitchUrl;
+      applySocialLinkFields(update, { twitterUrl, instagramUrl, youtubeUrl, discordUrl, tiktokUrl, otherLinkUrl, otherLinkLabel });
       return Player.findByIdAndUpdate(id, update, { new: true });
     },
 
@@ -2808,7 +2867,28 @@ export const resolvers = {
         logoUrl,
         twitchUrl,
         description,
-      }: { name: string; isOnlineOnly?: boolean; address?: string; logoUrl?: string; twitchUrl?: string; description?: string },
+        twitterUrl,
+        instagramUrl,
+        youtubeUrl,
+        discordUrl,
+        tiktokUrl,
+        otherLinkUrl,
+        otherLinkLabel,
+      }: {
+        name: string;
+        isOnlineOnly?: boolean;
+        address?: string;
+        logoUrl?: string;
+        twitchUrl?: string;
+        description?: string;
+        twitterUrl?: string;
+        instagramUrl?: string;
+        youtubeUrl?: string;
+        discordUrl?: string;
+        tiktokUrl?: string;
+        otherLinkUrl?: string;
+        otherLinkLabel?: string;
+      },
       { playerId }: { playerId?: string }
     ) => {
       if (!playerId) throw new Error("Not authorized");
@@ -2827,6 +2907,13 @@ export const resolvers = {
         logoUrl,
         twitchUrl,
         description,
+        twitterUrl,
+        instagramUrl,
+        youtubeUrl,
+        discordUrl,
+        tiktokUrl,
+        otherLinkUrl,
+        otherLinkLabel,
         eventNumber,
         status: EventStatus.PENDING,
         creatorId: playerId,
@@ -2844,7 +2931,29 @@ export const resolvers = {
         logoUrl,
         twitchUrl,
         description,
-      }: { id: string; name?: string; isOnlineOnly?: boolean; address?: string; logoUrl?: string; twitchUrl?: string; description?: string },
+        twitterUrl,
+        instagramUrl,
+        youtubeUrl,
+        discordUrl,
+        tiktokUrl,
+        otherLinkUrl,
+        otherLinkLabel,
+      }: {
+        id: string;
+        name?: string;
+        isOnlineOnly?: boolean;
+        address?: string;
+        logoUrl?: string;
+        twitchUrl?: string;
+        description?: string;
+        twitterUrl?: string;
+        instagramUrl?: string;
+        youtubeUrl?: string;
+        discordUrl?: string;
+        tiktokUrl?: string;
+        otherLinkUrl?: string;
+        otherLinkLabel?: string;
+      },
       { playerId, role }: { playerId?: string; role?: string }
     ) => {
       await connectToDatabase();
@@ -2859,6 +2968,7 @@ export const resolvers = {
       if (logoUrl !== undefined) update.logoUrl = logoUrl;
       if (twitchUrl !== undefined) update.twitchUrl = twitchUrl;
       if (description !== undefined) update.description = description;
+      applySocialLinkFields(update, { twitterUrl, instagramUrl, youtubeUrl, discordUrl, tiktokUrl, otherLinkUrl, otherLinkLabel });
 
       // Resubmission: any edit to a REJECTED Event re-enters the review
       // queue automatically, rather than needing a separate "resubmit"
@@ -2941,7 +3051,29 @@ export const resolvers = {
         logoUrl,
         twitchUrl,
         description,
-      }: { id: string; name?: string; isOnlineOnly?: boolean; address?: string; logoUrl?: string; twitchUrl?: string; description?: string },
+        twitterUrl,
+        instagramUrl,
+        youtubeUrl,
+        discordUrl,
+        tiktokUrl,
+        otherLinkUrl,
+        otherLinkLabel,
+      }: {
+        id: string;
+        name?: string;
+        isOnlineOnly?: boolean;
+        address?: string;
+        logoUrl?: string;
+        twitchUrl?: string;
+        description?: string;
+        twitterUrl?: string;
+        instagramUrl?: string;
+        youtubeUrl?: string;
+        discordUrl?: string;
+        tiktokUrl?: string;
+        otherLinkUrl?: string;
+        otherLinkLabel?: string;
+      },
       { role }: { role?: string }
     ) => {
       if (!isAdminOrAbove(role)) throw new Error("Not authorized");
@@ -2956,6 +3088,7 @@ export const resolvers = {
       if (logoUrl !== undefined) update.logoUrl = logoUrl;
       if (twitchUrl !== undefined) update.twitchUrl = twitchUrl;
       if (description !== undefined) update.description = description;
+      applySocialLinkFields(update, { twitterUrl, instagramUrl, youtubeUrl, discordUrl, tiktokUrl, otherLinkUrl, otherLinkLabel });
 
       return Event.findByIdAndUpdate(id, update, { new: true });
     },

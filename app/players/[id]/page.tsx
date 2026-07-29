@@ -14,6 +14,7 @@ import { DeleteAccountButton } from "@/components/DeleteAccountButton";
 import { HeadToHeadSection } from "@/components/HeadToHeadSection";
 import { ZoomableAvatar } from "@/components/ZoomableAvatar";
 import { RequestTOButton } from "@/components/RequestTOButton";
+import { SocialLinks } from "@/components/SocialLinks";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,13 @@ const GET_PLAYER = `
       team
       avatarUrl
       twitchUrl
+      twitterUrl
+      instagramUrl
+      youtubeUrl
+      discordUrl
+      tiktokUrl
+      otherLinkUrl
+      otherLinkLabel
       isLiveOnTwitch
       characters
       wins
@@ -207,6 +215,13 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
                     currentAvatarUrl={player.avatarUrl}
                     currentTeam={player.team}
                     currentTwitchUrl={player.twitchUrl}
+                    currentTwitterUrl={player.twitterUrl}
+                    currentInstagramUrl={player.instagramUrl}
+                    currentYoutubeUrl={player.youtubeUrl}
+                    currentDiscordUrl={player.discordUrl}
+                    currentTiktokUrl={player.tiktokUrl}
+                    currentOtherLinkUrl={player.otherLinkUrl}
+                    currentOtherLinkLabel={player.otherLinkLabel}
                   />
                   <ChangePasswordButton playerId={player.id} />
                   <DeleteAccountButton playerId={player.id} />
@@ -253,6 +268,20 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
               )}
             </p>
           )}
+          {/* Social links (settled July 28, 2026) — separate from the
+              Twitch block above, which keeps its own dedicated spot + live
+              badge. Renders nothing at all (not even a wrapping element)
+              when nothing is set. */}
+          <SocialLinks
+            className="mt-2"
+            twitterUrl={player.twitterUrl}
+            instagramUrl={player.instagramUrl}
+            youtubeUrl={player.youtubeUrl}
+            discordUrl={player.discordUrl}
+            tiktokUrl={player.tiktokUrl}
+            otherLinkUrl={player.otherLinkUrl}
+            otherLinkLabel={player.otherLinkLabel}
+          />
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             {player.characters.map((c: string) => (
               <span

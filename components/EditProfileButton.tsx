@@ -14,9 +14,31 @@ interface Props {
   currentAvatarUrl?: string;
   currentTeam?: string;
   currentTwitchUrl?: string;
+  currentTwitterUrl?: string;
+  currentInstagramUrl?: string;
+  currentYoutubeUrl?: string;
+  currentDiscordUrl?: string;
+  currentTiktokUrl?: string;
+  currentOtherLinkUrl?: string;
+  currentOtherLinkLabel?: string;
 }
 
-export function EditProfileButton({ playerId, currentTag, currentRegion, currentCharacters, currentAvatarUrl, currentTeam, currentTwitchUrl }: Props) {
+export function EditProfileButton({
+  playerId,
+  currentTag,
+  currentRegion,
+  currentCharacters,
+  currentAvatarUrl,
+  currentTeam,
+  currentTwitchUrl,
+  currentTwitterUrl,
+  currentInstagramUrl,
+  currentYoutubeUrl,
+  currentDiscordUrl,
+  currentTiktokUrl,
+  currentOtherLinkUrl,
+  currentOtherLinkLabel,
+}: Props) {
   const { data: session } = useSession();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -26,6 +48,13 @@ export function EditProfileButton({ playerId, currentTag, currentRegion, current
   const [avatarUrl, setAvatarUrl] = useState(currentAvatarUrl || "");
   const [team, setTeam] = useState(currentTeam || "");
   const [twitchUrl, setTwitchUrl] = useState(currentTwitchUrl || "");
+  const [twitterUrl, setTwitterUrl] = useState(currentTwitterUrl || "");
+  const [instagramUrl, setInstagramUrl] = useState(currentInstagramUrl || "");
+  const [youtubeUrl, setYoutubeUrl] = useState(currentYoutubeUrl || "");
+  const [discordUrl, setDiscordUrl] = useState(currentDiscordUrl || "");
+  const [tiktokUrl, setTiktokUrl] = useState(currentTiktokUrl || "");
+  const [otherLinkUrl, setOtherLinkUrl] = useState(currentOtherLinkUrl || "");
+  const [otherLinkLabel, setOtherLinkLabel] = useState(currentOtherLinkLabel || "");
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -82,8 +111,38 @@ export function EditProfileButton({ playerId, currentTag, currentRegion, current
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           query: `
-            mutation UpdatePlayer($id: ID!, $tag: String, $region: String, $avatarUrl: String, $characters: [String!], $team: String, $twitchUrl: String) {
-              updatePlayer(id: $id, tag: $tag, region: $region, avatarUrl: $avatarUrl, characters: $characters, team: $team, twitchUrl: $twitchUrl) {
+            mutation UpdatePlayer(
+              $id: ID!
+              $tag: String
+              $region: String
+              $avatarUrl: String
+              $characters: [String!]
+              $team: String
+              $twitchUrl: String
+              $twitterUrl: String
+              $instagramUrl: String
+              $youtubeUrl: String
+              $discordUrl: String
+              $tiktokUrl: String
+              $otherLinkUrl: String
+              $otherLinkLabel: String
+            ) {
+              updatePlayer(
+                id: $id
+                tag: $tag
+                region: $region
+                avatarUrl: $avatarUrl
+                characters: $characters
+                team: $team
+                twitchUrl: $twitchUrl
+                twitterUrl: $twitterUrl
+                instagramUrl: $instagramUrl
+                youtubeUrl: $youtubeUrl
+                discordUrl: $discordUrl
+                tiktokUrl: $tiktokUrl
+                otherLinkUrl: $otherLinkUrl
+                otherLinkLabel: $otherLinkLabel
+              ) {
                 id
                 tag
                 region
@@ -91,10 +150,32 @@ export function EditProfileButton({ playerId, currentTag, currentRegion, current
                 characters
                 team
                 twitchUrl
+                twitterUrl
+                instagramUrl
+                youtubeUrl
+                discordUrl
+                tiktokUrl
+                otherLinkUrl
+                otherLinkLabel
               }
             }
           `,
-          variables: { id: playerId, tag, region, avatarUrl, characters, team, twitchUrl },
+          variables: {
+            id: playerId,
+            tag,
+            region,
+            avatarUrl,
+            characters,
+            team,
+            twitchUrl,
+            twitterUrl,
+            instagramUrl,
+            youtubeUrl,
+            discordUrl,
+            tiktokUrl,
+            otherLinkUrl,
+            otherLinkLabel,
+          },
         }),
       });
 
@@ -124,12 +205,16 @@ export function EditProfileButton({ playerId, currentTag, currentRegion, current
       </button>
 
       {open && (
+        // overflow-y-auto + py-8 (not just items-center) -- the social-links
+        // fields below made this modal tall enough that on a shorter
+        // viewport the Save button could render below the fold with no way
+        // to reach it (the old items-center-only wrapper never scrolled).
         <div
-          className="fixed inset-0 flex items-center justify-center z-50 px-4"
+          className="fixed inset-0 flex items-center justify-center z-50 px-4 py-8 overflow-y-auto"
           style={{ background: "rgba(0,0,0,0.7)" }}
           onClick={() => setOpen(false)}
         >
-          <div className="fgc-card p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+          <div className="fgc-card p-6 w-full max-w-sm my-auto" onClick={e => e.stopPropagation()}>
             <h2 className="font-rajdhani text-xl font-bold text-[var(--text-primary)] mb-4">Edit profile</h2>
 
             <div className="mb-4 flex items-center gap-3">
@@ -199,6 +284,78 @@ export function EditProfileButton({ playerId, currentTag, currentRegion, current
                 className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
                 style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
               />
+            </div>
+
+            {/* Social links (settled July 28, 2026) — same fixed platform
+                set + one generic slot as Event's own copy of these fields,
+                see components/SocialLinks.tsx. Two-column grid (not one
+                field per row like everything else above) since these are 5
+                parallel simple URL inputs — keeps the already-long modal
+                from growing taller than it needs to. */}
+            <div className="mb-4">
+              <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Social links (all optional)</label>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <input
+                  type="text"
+                  value={twitterUrl}
+                  onChange={e => setTwitterUrl(e.target.value)}
+                  placeholder="X / Twitter URL"
+                  className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
+                  style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
+                />
+                <input
+                  type="text"
+                  value={instagramUrl}
+                  onChange={e => setInstagramUrl(e.target.value)}
+                  placeholder="Instagram URL"
+                  className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
+                  style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
+                />
+                <input
+                  type="text"
+                  value={youtubeUrl}
+                  onChange={e => setYoutubeUrl(e.target.value)}
+                  placeholder="YouTube URL"
+                  className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
+                  style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
+                />
+                <input
+                  type="text"
+                  value={discordUrl}
+                  onChange={e => setDiscordUrl(e.target.value)}
+                  placeholder="Discord URL"
+                  className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
+                  style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
+                />
+                <input
+                  type="text"
+                  value={tiktokUrl}
+                  onChange={e => setTiktokUrl(e.target.value)}
+                  placeholder="TikTok URL"
+                  className="w-full px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
+                  style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
+                />
+              </div>
+              {/* Generic "website/other" slot — one only. otherLinkLabel is
+                  only meaningful once otherLinkUrl is also set. */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={otherLinkUrl}
+                  onChange={e => setOtherLinkUrl(e.target.value)}
+                  placeholder="Other link URL"
+                  className="flex-1 min-w-0 px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
+                  style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
+                />
+                <input
+                  type="text"
+                  value={otherLinkLabel}
+                  onChange={e => setOtherLinkLabel(e.target.value)}
+                  placeholder="Label (e.g. Linktree)"
+                  className="w-36 flex-shrink-0 px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
+                  style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
+                />
+              </div>
             </div>
 
             <div className="mb-6">

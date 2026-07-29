@@ -35,6 +35,17 @@ const EventSchema = new Schema(
     // -- see that file for why storing raw markdown here (rather than
     // sanitizing at write time) is still XSS-safe.
     description: { type: String, default: "" },
+    // Social media links (settled July 28, 2026) — same fixed platform set
+    // and generic-slot pattern as Player's own copy of these fields, see
+    // models/Player.ts for the full explanation. Rendered via
+    // components/SocialLinks.tsx, separate from twitchUrl above.
+    twitterUrl: { type: String, default: "" },
+    instagramUrl: { type: String, default: "" },
+    youtubeUrl: { type: String, default: "" },
+    discordUrl: { type: String, default: "" },
+    tiktokUrl: { type: String, default: "" },
+    otherLinkUrl: { type: String, default: "" },
+    otherLinkLabel: { type: String, default: "" },
     // New Events start PENDING regardless of who creates them — hidden from
     // the public `events` list and `eventByDisplayId` lookup (so they can't
     // be linked to a Tournament) until an admin approves them via
