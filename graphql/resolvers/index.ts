@@ -3440,7 +3440,12 @@ export const resolvers = {
     // to collapse. See graphql/loaders.ts.
     player: async (parent: { playerId: string }, _args: unknown, { loaders }: { loaders: Loaders }) =>
       await loaders.playerLoader.load(parent.playerId.toString()),
-    tournament: async (parent: { tournamentId: string }) => await Tournament.findById(parent.tournamentId),
+    // Batched via tournamentLoader (graphql/loaders.ts) -- was an individual
+    // findById per Entrant, e.g. one per tournament entry on a player's
+    // profile page (fixed July 30, 2026, part of the /players/[id]
+    // performance investigation).
+    tournament: async (parent: { tournamentId: string }, _args: unknown, { loaders }: { loaders: Loaders }) =>
+      await loaders.tournamentLoader.load(parent.tournamentId.toString()),
   },
 
   Game: {
