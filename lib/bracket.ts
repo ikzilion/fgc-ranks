@@ -1456,6 +1456,22 @@ export async function undoMatchEffects(match: any) {
   await Player.findByIdAndUpdate(match.winnerId, { $inc: { wins: -1 } });
   await Player.findByIdAndUpdate(loserId, { $inc: { losses: -1 } });
 
+  // Clear the downstream slot(s) this match's now-undone result filled --
+  // same "only touch the slot our winner/loser actually filled" pattern
+  // editMatchResult uses (see its own nextMatchId/nextLoserMatchId
+  // handling). Without this, a bracket's terminal match going back to
+  // PENDING left the next round still showing that match's old winner/loser
+  // as already advanced -- a phantom participant in a match that, per the
+  // just-undone result, hasn't actually been decided.
+  if (match.nextMatchId) {
+    const field = match.nextMatchSlot === 1 ? "player1Id" : "player2Id";
+    await Match.findOneAndUpdate({ _id: match.nextMatchId, [field]: match.winnerId }, { [field]: null });
+  }
+  if (match.nextLoserMatchId) {
+    const field = match.nextLoserMatchSlot === 1 ? "player1Id" : "player2Id";
+    await Match.findOneAndUpdate({ _id: match.nextLoserMatchId, [field]: loserId }, { [field]: null });
+  }
+
   if (match.bracketSide === "GRAND_FINAL" || match.bracketSide === "GRAND_FINAL_RESET") {
     const bracket = await Bracket.findById(match.bracketId).select("poolId seedOrder");
     // Same gate advanceBracketMatch itself uses -- a pool's own bracket
