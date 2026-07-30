@@ -16,6 +16,7 @@ import { GenerateBracketButton } from "@/components/GenerateBracketButton";
 import { BracketView } from "@/components/BracketView";
 import { PoolsSection } from "@/components/PoolsSection";
 import { TournamentManageTabs } from "@/components/TournamentManageTabs";
+import { EntrantSearchFilter } from "@/components/EntrantSearchFilter";
 
 // Code-split from the main page bundle (next/dynamic, aliased since this
 // file already has its own `export const dynamic` route-segment config
@@ -303,8 +304,20 @@ export default async function TournamentDetailPage({ params }: { params: Promise
       <div className="flex flex-col sm:flex-row gap-4 items-start">
         {/* Entrants — left sidebar next to the Bracket instead of down
             with Matches, so both are visible together without scrolling
-            past the (often very tall) bracket to check who's entered. */}
-        <div className="w-full sm:w-72 sm:flex-shrink-0">{entrantsSidebar}</div>
+            past the (often very tall) bracket to check who's entered.
+            EntrantSearchFilter renders this AND a mobile-only search bar
+            as two separate flex items (order-1 search / order-3 list) so
+            a large tournament's bracket (order-2) sits between them on
+            mobile instead of forcing a scroll past the whole entrant list
+            first (settled scope, July 29, 2026) -- desktop is unaffected
+            since sm:order-none reverts both to plain source order and the
+            search bar is sm:hidden entirely. */}
+        <EntrantSearchFilter
+          entrants={tournament.entrants}
+          canManage={canManage}
+          tournamentId={tournament.id}
+          status={tournament.status}
+        />
 
         {/* min-w-0 is load-bearing: a flex item's default min-width:auto
             would let the bracket's intrinsic content width stretch this
@@ -322,7 +335,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
             viewport, so BracketView's internal overflow-x-auto never
             sees a bounded container to scroll within and the whole page
             overflows horizontally instead. */}
-        <div className="flex-1 min-w-0 w-full">
+        <div className="flex-1 min-w-0 w-full order-2 sm:order-none">
           {isPoolsFormat ? (
             // Tabbed — one bracket visible at a time (Main Bracket, once
             // generated, plus one tab per pool) instead of every pool

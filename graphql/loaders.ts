@@ -82,6 +82,11 @@ export function createLoaders() {
   return {
     playerLoader: new DataLoader(batchById(Player)),
     matchLoader: new DataLoader(batchById(Match)),
+    // Entrant.tournament used to do its own Tournament.findById(parent.tournamentId)
+    // right next to Entrant.player above (which WAS already batched) -- an
+    // individual findOne per entrant, e.g. one per tournament on a player's
+    // profile page (/players/[id], July 30, 2026 perf investigation).
+    tournamentLoader: new DataLoader(batchById(Tournament)),
     // Tournament.address/logoUrl/twitchUrl each used to do their own
     // Event.findById(parent.eventId) -- N+1 across the tournaments list
     // (up to 1000 rows, one lookup per linked event) AND a redundant

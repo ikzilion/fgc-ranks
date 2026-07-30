@@ -56,6 +56,43 @@ const PlayerSchema = new Schema(
     // is exactly "restorable right now" -- the restorableDeletedPlayers
     // admin query filters on this field directly.
     scrubBackupTag: { type: String, default: null },
+    // Cached combined ranking points (settled July 29, 2026 — see
+    // lib/ranking.ts's recomputeAndCachePlayerPoints). Kept fresh by every
+    // mutation that can change a player's points (match report/edit/undo,
+    // placement set/clear, tournament status change/cancel/delete) so the
+    // Players list can sort + paginate via a real indexed MongoDB query
+    // instead of recomputing every player's points from their full
+    // Entrant/Tournament history on every request. One disclosed gap: a
+    // result aging out of the 52-week rolling window purely from calendar
+    // time passing (no new write in between) won't self-correct until this
+    // player's next write — this app has no cron/scheduled-job
+    // infrastructure to force a periodic recompute (see lib/ranking.ts's
+    // original header comment on why live computation was chosen).
+    rankingPoints: { type: Number, default: 0 },
+    // Cached PER-GAME ranking points (settled July 30, 2026 — mirrors
+    // rankingPoints above; see lib/ranking.ts's recomputeAndCachePlayerPoints).
+    // Deliberately does NOT cache rank itself, for the same reason the
+    // combined leaderboard work avoided it: a single write can shift many
+    // OTHER players' rank in that game, expensive to keep in sync across all
+    // of them. Rank is computed at read time instead — a count of how many
+    // OTHER players have a higher cached points value for that same game
+    // (+1) — see the Player.gameRankings field resolver, and this field's
+    // compound multikey index below that makes that count query fast. Only
+    // ever holds an entry for a game the player currently has at least one
+    // qualifying (ended, in-window, unrestricted) result in — an entry is
+    // removed entirely (not left at 0) once that's no longer true, same as
+    // the old live computation never listing a game the player had aged/
+    // cancelled/deleted out of.
+    gameRankingPoints: {
+      type: [
+        {
+          _id: false,
+          game: { type: String, required: true },
+          points: { type: Number, required: true },
+        },
+      ],
+      default: [],
+    },
   },
   { timestamps: true }
 );
@@ -65,5 +102,39 @@ PlayerSchema.virtual("winRate").get(function () {
   const total = this.wins + this.losses;
   return total === 0 ? 0 : Math.round((this.wins / total) * 100) / 100;
 });
+
+// Lets the Players leaderboard sort+paginate via a real indexed query
+// (.sort({rankingPoints:-1,_id:1}).skip().limit()) instead of an in-memory
+// sort over the whole collection. _id IS part of the index (not just a
+// query sort key) deliberately -- confirmed via explain() that a
+// rankingPoints-only index still forced a blocking in-memory SORT stage to
+// enforce the _id tiebreak (needed for deterministic pagination across the
+// many real rankingPoints:0 ties this app's dataset already has), examining
+// the entire matching collection every request regardless of page. This
+// exact compound shape lets MongoDB satisfy skip+limit straight from the
+// index in already-correct order — confirmed at 25k synthetic players via
+// explain(): 120 docs examined for a skip:100/limit:20 page, not 25,000.
+PlayerSchema.index({ rankingPoints: -1, _id: 1 });
+// Every "list/search players" query filters isDeleted: {$ne:true} — a
+// dedicated index instead of relying on `tag`'s own index to absorb it.
+PlayerSchema.index({ isDeleted: 1 });
+// Case-insensitive collation (not the tag/unique index's default collation)
+// so an anchored prefix search — `{ tag: { $regex: "^escaped" } }` WITHOUT
+// the regex 'i' flag, `.collation({ locale: "en", strength: 2 })` on the
+// query instead — can actually use this index (IXSCAN) for a real prefix
+// range scan. Deliberately narrower than the old client-side "contains
+// anywhere in tag/region/characters" search: only a true index-friendly
+// operation (an unanchored/substring regex can't use a B-tree index at all,
+// and this app's MongoDB Atlas tier has no full-text/autocomplete search
+// index product available) scales to 100k+ players.
+PlayerSchema.index({ tag: 1 }, { name: "tag_prefix_ci", collation: { locale: "en", strength: 2 } });
+// Multikey compound index over the array-of-subdocuments field above — lets
+// Player.gameRankings' rank-by-count query (countDocuments with $elemMatch
+// on {game, points}) hit a real index for a specific game's point range
+// instead of scanning every player. $elemMatch (not two separate top-level
+// conditions) is load-bearing here: it's what guarantees "game" and "points"
+// in the query are matched against the SAME array element, which is also
+// exactly what lets MongoDB use this as one compound index range scan.
+PlayerSchema.index({ "gameRankingPoints.game": 1, "gameRankingPoints.points": -1 });
 
 export const Player = models.Player || model("Player", PlayerSchema);

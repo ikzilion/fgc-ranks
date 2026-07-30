@@ -13,6 +13,7 @@
     "@as-integrations/next": "^4.1.0",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.0",
+    "@vercel/analytics": "^2.0.1",
     "@vercel/blob": "^2.6.1",
     "@vercel/speed-insights": "^2.0.0",
     "bcryptjs": "^3.0.3",
@@ -43,6 +44,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
     "mongodb-memory-server": "^11.2.0",
+    "playwright": "^1.62.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   },

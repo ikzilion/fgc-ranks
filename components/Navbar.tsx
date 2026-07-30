@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { NotificationBell } from "@/components/NotificationBell";
 import { isAdminOrAbove } from "@/lib/roles";
+import { useScrollOverflow } from "@/lib/useScrollOverflow";
 
 const links = [
   { href: "/", label: "News" },
@@ -18,6 +19,7 @@ export function Navbar() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const role = (session?.user as any)?.role;
+  const { ref: navLinksRef, canScrollLeft, canScrollRight, onScroll } = useScrollOverflow<HTMLDivElement>();
 
   // The stream/broadcast view (/tournaments/[id]/stream) is meant to be
   // captured as a clean OBS browser source — no site chrome at all. There's
@@ -50,40 +52,67 @@ export function Navbar() {
           FGC <span style={{ color: "var(--blue)" }}>Ranks</span>
         </Link>
 
-        <div className="w-full order-3 sm:w-auto sm:order-none" style={{ display: "flex", gap: "4px", overflowX: "auto" }}>
-          {links.map(({ href, label }) => {
-            const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
-            return (
-              <Link key={href} href={href} style={{ fontSize: "13px", fontWeight: 500, padding: "6px 14px", borderRadius: "6px", textDecoration: "none", border: "1px solid", transition: "all 0.15s", color: active ? "var(--blue)" : "var(--text-secondary)", background: active ? "var(--blue-dim)" : "transparent", borderColor: active ? "rgba(79,142,247,0.2)" : "transparent", whiteSpace: "nowrap", flexShrink: 0 }}>
-                {label}
+        {/* relative wrapper carries the w-full/order classes (participation
+            in the OUTER logo/links/icons row); the inner div is the actual
+            horizontally-scrollable row the chevrons below are measuring.
+            Same overflow-indicator pattern as TournamentManageTabs' tab bar
+            (commit 78eb976), but checking both edges since this row -- unlike
+            that tab bar, which always starts at its leftmost tab -- can be
+            scrolled either direction (confirmed on a real phone: "Players"
+            cut off at the left extreme, "News" cut off at the right).
+            No gradient/fade, just the muted icon; pointer-events-none so
+            neither chevron blocks a tap on the link underneath its edge. */}
+        <div className="relative w-full order-3 sm:w-auto sm:order-none">
+          <div ref={navLinksRef} onScroll={onScroll} style={{ display: "flex", gap: "4px", overflowX: "auto" }}>
+            {links.map(({ href, label }) => {
+              const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+              return (
+                <Link key={href} href={href} style={{ fontSize: "13px", fontWeight: 500, padding: "6px 14px", borderRadius: "6px", textDecoration: "none", border: "1px solid", transition: "all 0.15s", color: active ? "var(--blue)" : "var(--text-secondary)", background: active ? "var(--blue-dim)" : "transparent", borderColor: active ? "rgba(79,142,247,0.2)" : "transparent", whiteSpace: "nowrap", flexShrink: 0 }}>
+                  {label}
+                </Link>
+              );
+            })}
+            {/* Single consolidated entry point — /admin is one dashboard with
+                a sub-tab for each admin tool (Review queue, Manage games,
+                Manage TOs, and Admin roles for SUPER_ADMIN), replacing what
+                used to be four separate nav links to four separate /admin/*
+                routes. Those routes still exist and still work directly. */}
+            {isAdminOrAbove(role) && (
+              <Link
+                href="/admin"
+                style={{
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  padding: "6px 14px",
+                  borderRadius: "6px",
+                  textDecoration: "none",
+                  border: "1px solid",
+                  transition: "all 0.15s",
+                  color: pathname.startsWith("/admin") ? "var(--gold)" : "var(--text-secondary)",
+                  background: pathname.startsWith("/admin") ? "var(--gold-dim)" : "transparent",
+                  borderColor: pathname.startsWith("/admin") ? "rgba(240,180,41,0.25)" : "transparent",
+                  whiteSpace: "nowrap",
+                  flexShrink: 0,
+                }}
+              >
+                Admin
               </Link>
-            );
-          })}
-          {/* Single consolidated entry point — /admin is one dashboard with
-              a sub-tab for each admin tool (Review queue, Manage games,
-              Manage TOs, and Admin roles for SUPER_ADMIN), replacing what
-              used to be four separate nav links to four separate /admin/*
-              routes. Those routes still exist and still work directly. */}
-          {isAdminOrAbove(role) && (
-            <Link
-              href="/admin"
-              style={{
-                fontSize: "13px",
-                fontWeight: 500,
-                padding: "6px 14px",
-                borderRadius: "6px",
-                textDecoration: "none",
-                border: "1px solid",
-                transition: "all 0.15s",
-                color: pathname.startsWith("/admin") ? "var(--gold)" : "var(--text-secondary)",
-                background: pathname.startsWith("/admin") ? "var(--gold-dim)" : "transparent",
-                borderColor: pathname.startsWith("/admin") ? "rgba(240,180,41,0.25)" : "transparent",
-                whiteSpace: "nowrap",
-                flexShrink: 0,
-              }}
-            >
-              Admin
-            </Link>
+            )}
+          </div>
+
+          {canScrollLeft && (
+            <span className="absolute left-0 top-1/2 pointer-events-none" style={{ transform: "translateY(-50%)", color: "var(--text-muted)" }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 6l-6 6 6 6" />
+              </svg>
+            </span>
+          )}
+          {canScrollRight && (
+            <span className="absolute right-0 top-1/2 pointer-events-none" style={{ transform: "translateY(-50%)", color: "var(--text-muted)" }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 6l6 6-6 6" />
+              </svg>
+            </span>
           )}
         </div>
 

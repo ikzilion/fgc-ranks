@@ -35,7 +35,7 @@ import { verifyTurnstileToken } from "@/lib/turnstile";
 import { buildDoubleEliminationBracket, resolveSeedOrder, validateManualSlotAssignment, advanceBracketMatch, nextPowerOfTwo, computeMainBracketSeedOrder, shuffle, SeedingMethod, undoMatchEffects, MODEL_B_MIN_ENTRANTS, computeModelBInitialPoolCount, computeNextRepooledRound, buildFinalsCutoffBracket, extractPoolSurvivors, PoolSurvivors } from "@/lib/bracket";
 import { buildRoundRobinMatches, computeRoundRobinStandings } from "@/lib/roundRobin";
 import { getNextSequence } from "@/lib/counter";
-import { computeRankingPoints, computeRankingPointsForPlayers, computeGameRankingsForPlayer, computeGameLeaderboard } from "@/lib/ranking";
+import { computeGameLeaderboard, recomputeAndCachePlayerPoints } from "@/lib/ranking";
 import { formatPlayerNumber } from "@/lib/playerId";
 import { extractTwitchUsername } from "@/lib/twitch";
 import { getBlobStorageUsageBytes } from "@/lib/blobStorage";
@@ -376,22 +376,73 @@ export const resolvers = {
     // Players
     // Excludes soft-deleted players — `$ne: true` (not `$eq: false`) so
     // pre-existing documents that predate the `isDeleted` field (no value
-    // set at all) still match, with no backfill migration needed. This is
-    // the single query every player search/picker in the app goes through
-    // (Players list, tournament invite/organizer pickers, Event manager
-    // picker, head-to-head opponent picker), so filtering it here covers
-    // all of them at once.
+    // set at all) still match, with no backfill migration needed. Used by
+    // every picker/dropdown in the app (tournament invite/organizer pickers,
+    // Event manager picker, head-to-head opponent picker, admin player
+    // management) -- NOT the Players list page anymore (settled July 29,
+    // 2026), which now goes through playersLeaderboard below for real
+    // server-side pagination and search. Left as a flat limit/offset list
+    // since none of these picker callers need a total count or search term.
     players: async (_: unknown, { limit = 20, offset = 0 }: { limit?: number; offset?: number }) => {
       await connectToDatabase();
-      // points is now computed (see lib/ranking.ts), not a stored field, so
-      // sorting by it means fetching everyone, ranking in memory, then
-      // paginating — fine at this app's scale (tens of players).
-      const allPlayers = await Player.find({ isDeleted: { $ne: true } });
-      const pointsById = await computeRankingPointsForPlayers(allPlayers.map((p: any) => p._id.toString()));
-      const sorted = [...allPlayers].sort(
-        (a: any, b: any) => (pointsById.get(b._id.toString()) ?? 0) - (pointsById.get(a._id.toString()) ?? 0)
-      );
-      return sorted.slice(offset, offset + limit);
+      // rankingPoints is a real indexed field now (models/Player.ts), so this
+      // is a genuine sorted skip/limit query, not an in-memory sort over the
+      // whole collection like before.
+      // _id is a secondary sort key so paging is deterministic even across
+      // the many real ties at rankingPoints:0 this app's current dataset
+      // actually has -- sorting on a field alone with that many ties has no
+      // guaranteed stable order across separate requests, which would let
+      // two "pages" quietly overlap.
+      return Player.find({ isDeleted: { $ne: true } })
+        .sort({ rankingPoints: -1, _id: 1 })
+        .skip(offset)
+        .limit(limit);
+    },
+
+    // Real server-side pagination + search (settled July 29, 2026, scales to
+    // 100k+ players — see the schema comment on this query). "search" is a
+    // prefix match on tag, case-insensitive. Keeps the regex's own "i" flag
+    // -- collation alone does NOT make $regex evaluation case-insensitive,
+    // it only affects index bounds/sort order (confirmed the hard way: a
+    // collation-only, no-"i" anchored regex silently matched nothing unless
+    // the input's case exactly matched what's stored). The tag_prefix_ci
+    // collated index (models/Player.ts) still lets the planner compute a
+    // real bounded index range for the anchored prefix under that collation;
+    // the regex's "i" flag then does the correct case-insensitive per-
+    // document test on that already-narrowed candidate set.
+    playersLeaderboard: async (
+      _: unknown,
+      { page = 1, pageSize = 20, search }: { page?: number; pageSize?: number; search?: string }
+    ) => {
+      await connectToDatabase();
+      const safePage = Math.max(1, page);
+      const safePageSize = Math.min(Math.max(1, pageSize), 100);
+
+      const filter: Record<string, unknown> = { isDeleted: { $ne: true } };
+      const trimmed = search?.trim();
+      const collation = { locale: "en", strength: 2 };
+      if (trimmed) {
+        // Escape regex metacharacters in the user's raw input before
+        // anchoring it — otherwise a search like "a+" would be parsed as
+        // regex syntax instead of matched as a literal string.
+        const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        filter.tag = { $regex: `^${escaped}`, $options: "i" };
+      }
+
+      const playersQuery = trimmed ? Player.find(filter).collation(collation) : Player.find(filter);
+      const countQuery = trimmed ? Player.countDocuments(filter).collation(collation) : Player.countDocuments(filter);
+
+      // _id secondary sort key -- same deterministic-pagination reasoning as
+      // the `players` query above.
+      const [players, totalCount] = await Promise.all([
+        playersQuery
+          .sort({ rankingPoints: -1, _id: 1 })
+          .skip((safePage - 1) * safePageSize)
+          .limit(safePageSize),
+        countQuery,
+      ]);
+
+      return { players, totalCount };
     },
 
     player: async (_: unknown, { id }: { id: string }) => {
@@ -1414,13 +1465,19 @@ export const resolvers = {
 
       const updated = await Tournament.findByIdAndUpdate(id, { status }, { new: true });
 
+      // Any status change can flip whether this tournament's results count
+      // toward points at all (computeRankingPointsForPlayers only counts
+      // status: "ENDED" tournaments) -- e.g. reopening an ENDED tournament
+      // back to LIVE, or ending it, both change every entrant's total.
+      const allEntrants = await Entrant.find({ tournamentId: id });
+      await recomputeAndCachePlayerPoints(allEntrants.map((e: any) => e.playerId.toString()), tournament.game);
+
       // Notify all entrants when a tournament goes live or ends
       if (status === "LIVE" || status === "ENDED") {
-        const entrants = await Entrant.find({ tournamentId: id });
         const notifType = status === "LIVE" ? "TOURNAMENT_LIVE" : "TOURNAMENT_ENDED";
         const msg = status === "LIVE" ? `${updated.name} is now live!` : `${updated.name} has ended.`;
         await Notification.create(
-          entrants.map(e => ({ playerId: e.playerId, type: notifType, message: msg, link: `/tournaments/${id}` }))
+          allEntrants.map(e => ({ playerId: e.playerId, type: notifType, message: msg, link: `/tournaments/${id}` }))
         );
       }
 
@@ -1455,6 +1512,10 @@ export const resolvers = {
           link: `/tournaments/${id}`,
         }))
       );
+
+      // Cancelling can only ever REDUCE points (a previously-ENDED tournament
+      // stops counting), same reasoning as updateTournamentStatus above.
+      await recomputeAndCachePlayerPoints(entrants.map((e: any) => e.playerId.toString()), tournament.game);
 
       return updated;
     },
@@ -1841,7 +1902,13 @@ export const resolvers = {
       // Marks this as a manual override -- the automatic bracket-placement
       // logic (lib/bracket.ts) skips any entrant with this flag set, even if
       // it re-runs later.
-      return Entrant.findByIdAndUpdate(entrantId, { placement, placementSetManually: true }, { new: true });
+      const updated = await Entrant.findByIdAndUpdate(entrantId, { placement, placementSetManually: true }, { new: true });
+      // Recompute the whole tournament's entrants (not just this one) --
+      // cheap (bounded by tournament size) and correct regardless of how a
+      // placement change might interact with anyone else's best-10 cap.
+      const allEntrantIds = await Entrant.find({ tournamentId: entrant.tournamentId }).distinct("playerId");
+      await recomputeAndCachePlayerPoints(allEntrantIds.map((id: any) => id.toString()), tournament.game);
+      return updated;
     },
 
     clearPlacement: async (
@@ -1867,7 +1934,10 @@ export const resolvers = {
       // correction on the Grand Final), that would silently leave this one
       // entrant stuck without a placement forever, instead of letting it be
       // reclaimed automatically like every other entrant.
-      return Entrant.findByIdAndUpdate(entrantId, { placement: null, placementSetManually: false }, { new: true });
+      const updated = await Entrant.findByIdAndUpdate(entrantId, { placement: null, placementSetManually: false }, { new: true });
+      const allEntrantIds = await Entrant.find({ tournamentId: entrant.tournamentId }).distinct("playerId");
+      await recomputeAndCachePlayerPoints(allEntrantIds.map((id: any) => id.toString()), tournament.game);
+      return updated;
     },
 
     // Brackets
@@ -2495,6 +2565,14 @@ export const resolvers = {
         await advanceBracketMatch(updated, winnerId, loserId);
       }
 
+      // Recompute the WHOLE tournament's entrants, not just these two --
+      // a Grand Final completion can auto-place many other entrants at once
+      // (lib/bracket.ts), and tracing exactly which ones got touched is far
+      // more fragile than just recomputing this (bounded, tournament-sized)
+      // set every time.
+      const allEntrantIds = await Entrant.find({ tournamentId: match.tournamentId }).distinct("playerId");
+      await recomputeAndCachePlayerPoints(allEntrantIds.map((id: any) => id.toString()), tournament.game);
+
       return updated;
     },
 
@@ -2566,6 +2644,11 @@ export const resolvers = {
       // Intentionally no notification here — this is a correction, not a new
       // reportable event, and would be noisy/confusing for players.
 
+      // Same whole-tournament recompute reportResult does above — a
+      // correction can re-trigger the same downstream auto-placement cascade.
+      const allEntrantIds = await Entrant.find({ tournamentId: match.tournamentId }).distinct("playerId");
+      await recomputeAndCachePlayerPoints(allEntrantIds.map((id: any) => id.toString()), tournament.game);
+
       return updated;
     },
 
@@ -2599,11 +2682,18 @@ export const resolvers = {
 
       await undoMatchEffects(match);
 
-      return await Match.findByIdAndUpdate(
+      const updated = await Match.findByIdAndUpdate(
         matchId,
         { winnerId: null, isForfeit: false, player1Score: 0, player2Score: 0, status: MatchStatus.PENDING },
         { new: true }
       );
+
+      // Same whole-tournament recompute reportResult/editMatchResult use --
+      // undoMatchEffects can unwind an auto-placement cascade too.
+      const allEntrantIds = await Entrant.find({ tournamentId: match.tournamentId }).distinct("playerId");
+      await recomputeAndCachePlayerPoints(allEntrantIds.map((id: any) => id.toString()), tournament.game);
+
+      return updated;
     },
 
     deleteTournament: async (
@@ -2625,11 +2715,18 @@ export const resolvers = {
         await Player.findByIdAndUpdate(loserId, { $inc: { losses: -1 } });
       }
 
+      // Captured before deletion -- recomputed AFTER, so the new totals
+      // correctly reflect this tournament no longer existing at all.
+      const affectedPlayerIds = await Entrant.find({ tournamentId: id }).distinct("playerId");
+
       // Clean up related matches, bracket, and entrants first
       await Match.deleteMany({ tournamentId: id });
       await Bracket.deleteMany({ tournamentId: id });
       await Entrant.deleteMany({ tournamentId: id });
       const result = await Tournament.findByIdAndDelete(id);
+
+      await recomputeAndCachePlayerPoints(affectedPlayerIds.map((id: any) => id.toString()), tournament.game);
+
       return !!result;
     },
 
@@ -3138,10 +3235,39 @@ export const resolvers = {
 
   Player: {
     user: async (parent: { userId: string }) => await User.findById(parent.userId),
-    // Computed at read time (best-10, 52-week-rolling ranking points) — see
-    // lib/ranking.ts. Player.points is no longer a stored counter.
-    points: async (parent: { _id: string }) => await computeRankingPoints(parent._id.toString()),
-    gameRankings: async (parent: { _id: string }) => await computeGameRankingsForPlayer(parent._id.toString()),
+    // Cached ranking points (best-10, 52-week-rolling — see lib/ranking.ts),
+    // kept fresh by recomputeAndCachePlayerPoints on every write that can
+    // change it. Reading the stored field directly (rather than recomputing
+    // live here) is what lets the Players leaderboard sort/paginate via a
+    // real indexed MongoDB query — this field resolver stays the single
+    // place every other Player.points consumer (profile, homepage, etc.)
+    // goes through, so they all get the same cached value for free.
+    points: (parent: { rankingPoints?: number }) => parent.rankingPoints ?? 0,
+    // Points come straight from the cached gameRankingPoints field (kept
+    // fresh by recomputeAndCachePlayerPoints, same as Player.points above) --
+    // rank is deliberately NOT cached (a single write can shift many OTHER
+    // players' rank in that game) and is instead computed here at read time:
+    // a count of how many OTHER players have a higher cached points value
+    // for that same game, +1. The gameRankingPoints.game+points compound
+    // index (models/Player.ts) is what keeps this a real indexed count per
+    // game rather than a collection scan. Ties now share the same rank
+    // (competition ranking, e.g. two players tied for 3rd both show rank 3,
+    // the next entry is rank 5) -- a deliberate refinement over the old live
+    // computation's arbitrary stable-sort tiebreak, not a regression.
+    gameRankings: async (parent: { _id: string; gameRankingPoints?: { game: string; points: number }[] }) => {
+      const entries = parent.gameRankingPoints ?? [];
+      if (entries.length === 0) return [];
+      const ranked = await Promise.all(
+        entries.map(async entry => {
+          const higherCount = await Player.countDocuments({
+            _id: { $ne: parent._id },
+            gameRankingPoints: { $elemMatch: { game: entry.game, points: { $gt: entry.points } } },
+          });
+          return { game: entry.game, points: entry.points, rank: higherCount + 1 };
+        })
+      );
+      return ranked.sort((a, b) => b.points - a.points);
+    },
     tournaments: async (parent: { _id: string }) => await Entrant.find({ playerId: parent._id }),
     // Gated at the field level (not just hidden in the profile page's JSX)
     // since displayId is the real Player ID used for QR check-in — anyone
@@ -3338,7 +3464,12 @@ export const resolvers = {
     // to collapse. See graphql/loaders.ts.
     player: async (parent: { playerId: string }, _args: unknown, { loaders }: { loaders: Loaders }) =>
       await loaders.playerLoader.load(parent.playerId.toString()),
-    tournament: async (parent: { tournamentId: string }) => await Tournament.findById(parent.tournamentId),
+    // Batched via tournamentLoader (graphql/loaders.ts) -- was an individual
+    // findById per Entrant, e.g. one per tournament entry on a player's
+    // profile page (fixed July 30, 2026, part of the /players/[id]
+    // performance investigation).
+    tournament: async (parent: { tournamentId: string }, _args: unknown, { loaders }: { loaders: Loaders }) =>
+      await loaders.tournamentLoader.load(parent.tournamentId.toString()),
   },
 
   Game: {

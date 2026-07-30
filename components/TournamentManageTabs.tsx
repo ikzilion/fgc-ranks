@@ -33,6 +33,7 @@
 "use client";
 
 import { useState } from "react";
+import { useScrollOverflow } from "@/lib/useScrollOverflow";
 import { EditTournamentDetailsButton } from "./EditTournamentDetailsButton";
 import { ManageOrganizersButton } from "./ManageOrganizersButton";
 import { InvitePlayerButton } from "./InvitePlayerButton";
@@ -49,26 +50,52 @@ const TABS: { key: TabId; label: string }[] = [
 // Duplicated (not imported) from PoolsSection.tsx's own TabBar -- same
 // visual convention, kept as a local copy per this codebase's existing
 // per-screen-tab-bar precedent (see this file's header comment).
+//
+// A single scrollable row (overflow-x-auto + nowrap, same precedent as
+// Navbar.tsx's own nav-links row) instead of flex-wrap -- wrapping silently
+// absorbed narrow-viewport overflow with no indication more tabs existed
+// off-screen; a horizontally-scrollable row plus the chevron below at least
+// hints at it (settled scope, July 29, 2026, 2 previewed options). Only the
+// right edge needs a chevron here (this bar always starts scrolled to its
+// leftmost tab), unlike Navbar's nav-links row which needs both.
 function TabBar({ activeKey, onSelect }: { activeKey: TabId; onSelect: (key: TabId) => void }) {
+  const { ref: scrollRef, canScrollRight, onScroll } = useScrollOverflow<HTMLDivElement>();
+
   return (
-    <div className="flex flex-wrap gap-2">
-      {TABS.map(tab => {
-        const active = tab.key === activeKey;
-        return (
-          <button
-            key={tab.key}
-            onClick={() => onSelect(tab.key)}
-            className="font-rajdhani text-[13px] font-bold tracking-wide px-3 py-1.5 rounded"
-            style={
-              active
-                ? { background: "var(--blue)", color: "white", border: "none", cursor: "pointer" }
-                : { background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border)", cursor: "pointer" }
-            }
-          >
-            {tab.label}
-          </button>
-        );
-      })}
+    <div className="relative">
+      <div ref={scrollRef} onScroll={onScroll} className="flex gap-2 overflow-x-auto">
+        {TABS.map(tab => {
+          const active = tab.key === activeKey;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => onSelect(tab.key)}
+              className="font-rajdhani text-[13px] font-bold tracking-wide px-3 py-1.5 rounded"
+              style={
+                active
+                  ? { background: "var(--blue)", color: "white", border: "none", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }
+                  : { background: "var(--navy-4)", color: "var(--text-secondary)", border: "1px solid var(--border)", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }
+              }
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* No gradient/fade behind it -- just the icon itself, per the settled
+          scope. pointer-events-none so it never blocks a tap on whatever tab
+          happens to sit underneath its edge. */}
+      {canScrollRight && (
+        <span
+          className="absolute right-0 top-1/2 pointer-events-none"
+          style={{ transform: "translateY(-50%)", color: "var(--text-muted)" }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 6l6 6-6 6" />
+          </svg>
+        </span>
+      )}
     </div>
   );
 }

@@ -171,12 +171,8 @@ export function NotificationBell() {
 
       {open && (
         <div
-          className="fgc-card"
+          className="fgc-card fixed left-[12px] right-[12px] top-[40px] sm:absolute sm:left-auto sm:right-0 sm:w-[320px]"
           style={{
-            position: "absolute",
-            top: "40px",
-            right: 0,
-            width: "320px",
             maxHeight: "400px",
             overflowY: "auto",
             zIndex: 100,
@@ -216,7 +212,7 @@ export function NotificationBell() {
                   background: notif.read ? "transparent" : "var(--blue-dim)",
                 }}
               >
-                <p style={{ fontSize: "12px", color: "var(--text-primary)", marginBottom: "2px" }}>{notif.message}</p>
+                <p style={{ fontSize: "12px", color: "var(--text-primary)", marginBottom: "2px", overflowWrap: "break-word", wordBreak: "break-word" }}>{notif.message}</p>
                 <p style={{ fontSize: "10px", color: "var(--text-muted)" }}>{timeAgo(notif.createdAt)}</p>
               </Link>
             ))}

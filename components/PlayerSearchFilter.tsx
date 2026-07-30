@@ -1,7 +1,7 @@
 // components/PlayerSearchFilter.tsx
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Pagination } from "@/components/Pagination";
 
@@ -17,6 +17,26 @@ interface Player {
   winRate: number | null;
   isLiveOnTwitch?: boolean;
 }
+
+const PLAYERS_LEADERBOARD_QUERY = `
+  query PlayersLeaderboard($page: Int, $pageSize: Int, $search: String) {
+    playersLeaderboard(page: $page, pageSize: $pageSize, search: $search) {
+      totalCount
+      players {
+        id
+        tag
+        region
+        avatarUrl
+        characters
+        wins
+        losses
+        points
+        winRate
+        isLiveOnTwitch
+      }
+    }
+  }
+`;
 
 function rankColor(rank: number) {
   if (rank === 1) return "text-[var(--gold)]";
@@ -35,46 +55,99 @@ function rankBadge(rank: number) {
   return null;
 }
 
-export function PlayerSearchFilter({ players }: { players: Player[] }) {
+// Real server-side pagination + search (settled July 29, 2026 — scales to
+// 100k+ players, replacing the old fetch-1000-then-slice-client-side
+// approach). initialPlayers/initialTotalCount are the server-rendered page 1
+// (no search) from app/players/page.tsx, so there's no flash of an empty
+// list on first paint; every subsequent page/pageSize/search change re-fetches
+// playersLeaderboard directly.
+//
+// "Twitch Online" stays a client-side filter over just the CURRENTLY
+// fetched page, not a server-side query param — isLiveOnTwitch is a live
+// per-request Twitch API check (see the Player.isLiveOnTwitch resolver), not
+// a stored/queryable Mongo field, so there's no way to ask the database for
+// "every online player" without checking every candidate's live status
+// first. A known, disclosed simplification: toggling it on can show fewer
+// than a full page (or zero) if none of the current page's players happen
+// to be live right now, rather than searching every player for whoever's
+// online.
+//
+// rank (1st/2nd/3rd/Top 8 badges) is this player's position on the CURRENT
+// page's server-provided order — since the server already returns players
+// sorted by points descending, rank = (page-1)*pageSize + index + 1 is each
+// player's true site-wide rank, not just a position within the page.
+export function PlayerSearchFilter({
+  initialPlayers,
+  initialTotalCount,
+}: {
+  initialPlayers: Player[];
+  initialTotalCount: number;
+}) {
   const [query, setQuery] = useState("");
   const [onlineOnly, setOnlineOnly] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [players, setPlayers] = useState<Player[]>(initialPlayers);
+  const [totalCount, setTotalCount] = useState(initialTotalCount);
+  const [loading, setLoading] = useState(false);
 
-  // Ranks are computed from the FULL original list, so filtering (search OR
-  // the Twitch Online toggle) never changes a player's rank number.
-  const ranked = useMemo(
-    () => players.map((p, i) => ({ ...p, rank: i + 1 })),
-    [players]
-  );
+  // Debounced so every keystroke doesn't fire its own request — 300ms, same
+  // ballpark as this codebase's other type-to-search inputs.
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [query]);
 
-  const filtered = useMemo(() => {
-    let result = ranked;
-    if (onlineOnly) {
-      result = result.filter(p => p.isLiveOnTwitch);
+  // Skips the redundant fetch on first mount — initialPlayers/initialTotalCount
+  // already ARE page 1 with no search, exactly what this effect would ask for.
+  const isFirstRun = useRef(true);
+  useEffect(() => {
+    if (isFirstRun.current) {
+      isFirstRun.current = false;
+      return;
     }
-    if (query.trim()) {
-      const q = query.toLowerCase();
-      result = result.filter(
-        p =>
-          p.tag.toLowerCase().includes(q) ||
-          p.region?.toLowerCase().includes(q) ||
-          p.characters.some(c => c.toLowerCase().includes(q))
-      );
-    }
-    return result;
-  }, [ranked, query, onlineOnly]);
 
-  // Clamped as a derived value (not synced via an effect) so the current
-  // page can never strand the user on now-empty results — e.g. narrowing a
-  // search from 4 pages down to 1 while sitting on page 4.
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await fetch("/api/graphql", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: PLAYERS_LEADERBOARD_QUERY,
+            variables: { page, pageSize, search: debouncedQuery || undefined },
+          }),
+        });
+        const json = await res.json();
+        if (cancelled) return;
+        if (json.errors) {
+          console.error("[PlayerSearchFilter] GraphQL errors:", json.errors);
+          return;
+        }
+        setPlayers(json.data?.playersLeaderboard?.players ?? []);
+        setTotalCount(json.data?.playersLeaderboard?.totalCount ?? 0);
+      } catch (err) {
+        console.error("[PlayerSearchFilter] fetch error:", err);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
 
-  const paged = useMemo(
-    () => filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize),
-    [filtered, currentPage, pageSize]
-  );
+    return () => {
+      cancelled = true;
+    };
+  }, [page, pageSize, debouncedQuery]);
+
+  const visible = useMemo(() => {
+    // rank must come from each player's position in the full (unfiltered)
+    // page BEFORE the onlineOnly filter runs -- filtering first would
+    // renumber/compress ranks, same bug class the old client-side version's
+    // own comment called out ("ranks computed from the full original list").
+    const ranked = players.map((p, i) => ({ ...p, rank: (page - 1) * pageSize + i + 1 }));
+    return onlineOnly ? ranked.filter(p => p.isLiveOnTwitch) : ranked;
+  }, [players, onlineOnly, page, pageSize]);
 
   return (
     <>
@@ -86,16 +159,13 @@ export function PlayerSearchFilter({ players }: { players: Player[] }) {
             setQuery(e.target.value);
             setPage(1);
           }}
-          placeholder="Search by tag, character, or region…"
+          placeholder="Search by player tag…"
           className="flex-1 px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none focus:border-[var(--blue)]"
           style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
         />
         <button
           type="button"
-          onClick={() => {
-            setOnlineOnly(v => !v);
-            setPage(1);
-          }}
+          onClick={() => setOnlineOnly(v => !v)}
           className="text-[13px] font-semibold px-4 py-2.5 rounded-md whitespace-nowrap"
           style={{
             background: onlineOnly ? "var(--blue)" : "var(--navy-3)",
@@ -108,13 +178,13 @@ export function PlayerSearchFilter({ players }: { players: Player[] }) {
         </button>
       </div>
 
-      <div className="fgc-card">
-        {filtered.length === 0 && (
+      <div className="fgc-card" style={{ opacity: loading ? 0.6 : 1, transition: "opacity 0.15s" }}>
+        {visible.length === 0 && (
           <p className="p-6 text-[var(--text-secondary)]">
             {query || onlineOnly ? "No players match your filters." : "No players yet. Register to join the leaderboard!"}
           </p>
         )}
-        {paged.map(player => (
+        {visible.map(player => (
           <Link
             key={player.id}
             href={`/players/${player.id}`}
@@ -167,9 +237,9 @@ export function PlayerSearchFilter({ players }: { players: Player[] }) {
       </div>
 
       <Pagination
-        page={currentPage}
+        page={page}
         pageSize={pageSize}
-        totalItems={filtered.length}
+        totalItems={totalCount}
         onPageChange={setPage}
         onPageSizeChange={size => {
           setPageSize(size);
