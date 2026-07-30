@@ -102,6 +102,7 @@ function TabBar({ activeKey, onSelect }: { activeKey: TabId; onSelect: (key: Tab
 
 interface Props {
   tournamentId: string;
+  status: string;
   // Manage tab
   logoUrl?: string;
   isOnlineOnly: boolean;
@@ -132,6 +133,7 @@ interface Props {
 
 export function TournamentManageTabs({
   tournamentId,
+  status,
   logoUrl,
   isOnlineOnly,
   address,
@@ -187,6 +189,7 @@ export function TournamentManageTabs({
               allPlayers={allPlayers}
               canManage
               isRestricted={isRestricted}
+              status={status}
             />
           </div>
         )}

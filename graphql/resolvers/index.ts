@@ -1549,6 +1549,14 @@ export const resolvers = {
       const tournament = await Tournament.findById(tournamentId);
       if (!tournament) throw new Error("Tournament not found");
       if (!isOrganizer(tournament, playerId, role)) throw new Error("Not authorized");
+      // Same LIVE/ENDED join-lock joinTournament/addEntrantByOrganizer
+      // already enforce -- an invite issued once joining is closed could
+      // never actually be accepted, and would leave the invitee with a
+      // misleading "you've been invited to join" notification for a
+      // tournament they structurally can't join.
+      if (tournament.status === "LIVE" || tournament.status === "ENDED") {
+        throw new Error("Cannot invite a player to a tournament that is already live or has ended");
+      }
 
       const invitee = await Player.findById(inviteeId);
       if (!invitee) throw new Error("Player not found");

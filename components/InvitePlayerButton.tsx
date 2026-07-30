@@ -21,6 +21,7 @@ export function InvitePlayerButton({
   // refuses it), so the toggle itself is pointless to show — just explain
   // why, invite management below is unaffected.
   isRestricted,
+  status,
 }: {
   tournamentId: string;
   visibility: string;
@@ -29,6 +30,7 @@ export function InvitePlayerButton({
   allPlayers: PlayerOption[];
   canManage: boolean;
   isRestricted?: boolean;
+  status: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -39,6 +41,11 @@ export function InvitePlayerButton({
   if (!canManage) return null;
 
   const isPrivate = visibility === "PRIVATE";
+  // Same join-lock joinTournament/addEntrantByOrganizer already enforce —
+  // an invite sent once joining is closed could never actually be
+  // accepted, so hide the invite picker rather than offer a dead-end action
+  // (inviteToTournament itself also enforces this server-side).
+  const joinLocked = status === "LIVE" || status === "ENDED";
 
   // Can't invite someone who's already an entrant or already invited
   const invitablePlayers = allPlayers.filter(
@@ -168,31 +175,37 @@ export function InvitePlayerButton({
                   )}
                 </div>
 
-                {invitablePlayers.length > 0 && (
-                  <div className="mb-4">
-                    <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Invite a player</label>
-                    <div className="flex gap-2">
-                      <select
-                        value={invitePlayerId}
-                        onChange={e => setInvitePlayerId(e.target.value)}
-                        className="flex-1 px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] outline-none focus:border-[var(--blue)]"
-                        style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
-                      >
-                        <option value="">Select player…</option>
-                        {invitablePlayers.map(p => (
-                          <option key={p.id} value={p.id}>{p.tag}</option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={handleInvite}
-                        disabled={loading || !invitePlayerId}
-                        className="px-4 py-2 rounded font-rajdhani text-[13px] font-bold"
-                        style={{ background: "var(--blue)", color: "white", border: "none", cursor: loading || !invitePlayerId ? "not-allowed" : "pointer", opacity: loading || !invitePlayerId ? 0.6 : 1 }}
-                      >
-                        Invite
-                      </button>
+                {joinLocked ? (
+                  <p className="text-[12px] text-[var(--text-muted)] mb-4">
+                    Invites are closed — this tournament is already {status === "LIVE" ? "live" : "ended"}.
+                  </p>
+                ) : (
+                  invitablePlayers.length > 0 && (
+                    <div className="mb-4">
+                      <label className="block text-[11px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Invite a player</label>
+                      <div className="flex gap-2">
+                        <select
+                          value={invitePlayerId}
+                          onChange={e => setInvitePlayerId(e.target.value)}
+                          className="flex-1 px-3 py-2.5 rounded-md text-[13px] text-[var(--text-primary)] outline-none focus:border-[var(--blue)]"
+                          style={{ background: "var(--navy-3)", border: "1px solid var(--border-strong)" }}
+                        >
+                          <option value="">Select player…</option>
+                          {invitablePlayers.map(p => (
+                            <option key={p.id} value={p.id}>{p.tag}</option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={handleInvite}
+                          disabled={loading || !invitePlayerId}
+                          className="px-4 py-2 rounded font-rajdhani text-[13px] font-bold"
+                          style={{ background: "var(--blue)", color: "white", border: "none", cursor: loading || !invitePlayerId ? "not-allowed" : "pointer", opacity: loading || !invitePlayerId ? 0.6 : 1 }}
+                        >
+                          Invite
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  )
                 )}
               </>
             )}

@@ -562,6 +562,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
       {canManage ? (
         <TournamentManageTabs
           tournamentId={tournament.id}
+          status={tournament.status}
           logoUrl={tournament.logoUrl}
           isOnlineOnly={tournament.isOnlineOnly}
           address={tournament.address}
