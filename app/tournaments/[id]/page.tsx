@@ -4,6 +4,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import nextDynamic from "next/dynamic";
+import { cookies } from "next/headers";
 import { auth } from "@/lib/auth";
 import { isAdminOrAbove } from "@/lib/roles";
 import { JoinTournamentButton } from "@/components/JoinTournamentButton";
@@ -17,6 +18,7 @@ import { BracketView } from "@/components/BracketView";
 import { PoolsSection } from "@/components/PoolsSection";
 import { TournamentManageTabs } from "@/components/TournamentManageTabs";
 import { EntrantSearchFilter } from "@/components/EntrantSearchFilter";
+import { TournamentCsvExport } from "@/components/TournamentCsvExport";
 
 // Code-split from the main page bundle (next/dynamic, aliased since this
 // file already has its own `export const dynamic` route-segment config
@@ -101,11 +103,13 @@ const GET_TOURNAMENT = `
         seed
         placement
         checkedInAt
+        pointsEarned
         player {
           id
           tag
           avatarUrl
           characters
+          displayId
         }
       }
       bracket {
@@ -164,9 +168,17 @@ const GET_TOURNAMENT = `
 async function getTournament(id: string, playerId?: string) {
   try {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+    // Cookie forwarding is load-bearing now, not just a nice-to-have: since
+    // Player.displayId (now selected below, for the CSV export) is gated
+    // server-side on the requesting viewer (owner/Admin/TO — see that
+    // resolver), a plain fetch() without the session cookie makes the
+    // GraphQL context see no session at all, so the resolver treats EVERY
+    // caller as anonymous and always nulls displayId out regardless of who's
+    // actually logged in — same f2eb432-class gap already fixed on the
+    // player profile page.
     const res = await fetch(`${baseUrl}/api/graphql`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", cookie: (await cookies()).toString() },
       body: JSON.stringify({ query: GET_TOURNAMENT, variables: { id, playerId } }),
       cache: "no-store",
     });
@@ -219,6 +231,24 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   const isPoolsFormat = tournament.format === "Pools + Bracket";
   const hasPoolsOrMainBracket = tournament.pools.length > 0 || !!tournament.mainBracket;
   const showBracketSection = isPoolsFormat ? hasPoolsOrMainBracket || canManage : tournament.bracket || canManage;
+
+  // CSV export (ENDED tournaments only, see TournamentCsvExport) -- grouped
+  // by bracket so pool-stage matches (real historical data, included
+  // deliberately) can be told apart from the main/standard bracket despite
+  // sharing the same generic round-label convention ("Winners Round 1",
+  // etc. -- see lib/bracket.ts, which has no pool-aware naming). label: ""
+  // for the one main/standard bracket a tournament ever has; "Pool N" for
+  // each pool, covering both pool sub-formats (Model A round-robin matches
+  // live on pool.matches, Model B/C double-elim ones on pool.bracket.matches).
+  const csvMatchGroups = isPoolsFormat
+    ? [
+        ...tournament.pools.map((p: any) => ({
+          label: `Pool ${p.poolNumber}`,
+          matches: [...p.matches, ...(p.bracket?.matches ?? [])],
+        })),
+        ...(tournament.mainBracket ? [{ label: "", matches: tournament.mainBracket.matches }] : []),
+      ]
+    : [{ label: "", matches: tournament.bracket?.matches ?? [] }];
 
   // Defined once, used in two spots below: as the left sidebar next to the
   // Bracket section when one is shown, or standalone (full width, not a
@@ -500,6 +530,13 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                   >
                     🏆 Top 8 Results
                   </Link>
+                )}
+                {tournament.status === "ENDED" && (
+                  <TournamentCsvExport
+                    tournamentName={tournament.name}
+                    entrants={tournament.entrants}
+                    matchGroups={csvMatchGroups}
+                  />
                 )}
                 <JoinTournamentButton
                   tournamentId={tournament.id}

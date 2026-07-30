@@ -344,6 +344,10 @@ export const typeDefs = `#graphql
     # checked in or not); a TO reviews who's missing before generating the
     # bracket, see Query behavior around bracket generation on the client.
     checkedInAt: Date
+    # Size-scaled ranking points this entrant's placement earned from THIS
+    # tournament specifically (scaledPointsForPlacement, lib/ranking.ts) --
+    # not the player's overall cached rankingPoints. See resolver comment.
+    pointsEarned: Int!
   }
 
   # addEntrantByOrganizer's return shape — distinct from Entrant! (what

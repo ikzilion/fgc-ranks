@@ -35,7 +35,7 @@ import { verifyTurnstileToken } from "@/lib/turnstile";
 import { buildDoubleEliminationBracket, resolveSeedOrder, validateManualSlotAssignment, advanceBracketMatch, nextPowerOfTwo, computeMainBracketSeedOrder, shuffle, SeedingMethod, undoMatchEffects, MODEL_B_MIN_ENTRANTS, computeModelBInitialPoolCount, computeNextRepooledRound, buildFinalsCutoffBracket, extractPoolSurvivors, PoolSurvivors } from "@/lib/bracket";
 import { buildRoundRobinMatches, computeRoundRobinStandings } from "@/lib/roundRobin";
 import { getNextSequence } from "@/lib/counter";
-import { computeGameLeaderboard, recomputeAndCachePlayerPoints } from "@/lib/ranking";
+import { computeGameLeaderboard, recomputeAndCachePlayerPoints, scaledPointsForPlacement } from "@/lib/ranking";
 import { formatPlayerNumber } from "@/lib/playerId";
 import { extractTwitchUsername } from "@/lib/twitch";
 import { getBlobStorageUsageBytes } from "@/lib/blobStorage";
@@ -3478,6 +3478,18 @@ export const resolvers = {
     // performance investigation).
     tournament: async (parent: { tournamentId: string }, _args: unknown, { loaders }: { loaders: Loaders }) =>
       await loaders.tournamentLoader.load(parent.tournamentId.toString()),
+    // Size-scaled points this entrant's placement earned FROM THIS
+    // TOURNAMENT specifically -- reuses scaledPointsForPlacement (lib/
+    // ranking.ts), same formula the player's cached overall rankingPoints is
+    // built from, just scoped to one result instead of summed/best-10-capped
+    // across every tournament. Added for the ENDED-tournament CSV export
+    // (Final Standings) -- every entrant in a query shares the same parent
+    // tournament, so tournamentLoader collapses this to one load per request
+    // regardless of entrant count, not a real N+1.
+    pointsEarned: async (parent: { tournamentId: string; placement?: number }, _args: unknown, { loaders }: { loaders: Loaders }) => {
+      const tournament = await loaders.tournamentLoader.load(parent.tournamentId.toString());
+      return scaledPointsForPlacement(parent.placement, (tournament as any)?.entrantCount ?? 0);
+    },
   },
 
   Game: {
