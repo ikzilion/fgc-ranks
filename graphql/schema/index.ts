@@ -148,6 +148,14 @@ export const typeDefs = `#graphql
     rank: Int!
   }
 
+  # One page of the Players list (Query.playersLeaderboard) — totalCount is
+  # the full match count (not just this page's length), needed to know how
+  # many numbered pages exist.
+  type PlayerLeaderboardPage {
+    players: [Player!]!
+    totalCount: Int!
+  }
+
   type HeadToHead {
     opponent: Player!
     wins: Int!
@@ -462,6 +470,14 @@ export const typeDefs = `#graphql
     gameLeaderboard(game: String!): [GameLeaderboardEntry!]!
 
     players(limit: Int, offset: Int): [Player!]!
+    # Real server-side pagination + search for the Players list page
+    # (settled July 29, 2026 — scales to 100k+ players, unlike "players"
+    # above which the Players page used to fetch up to 1000 of and
+    # paginate/search client-side). "search" matches a player's tag by
+    # prefix only ("starts with", case-insensitive) — the one match a plain
+    # MongoDB index can actually serve; not the old client-side "contains
+    # anywhere in tag/region/characters" behavior.
+    playersLeaderboard(page: Int, pageSize: Int, search: String): PlayerLeaderboardPage!
     player(id: ID!): Player
     playerByTag(tag: String!): Player
     # Looks up by the human-readable displayId (e.g. "FGC-000001") — what a

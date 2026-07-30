@@ -21,6 +21,7 @@
 import { connectToDatabase } from "@/lib/db";
 import { Entrant } from "@/models/Entrant";
 import { Tournament } from "@/models/Tournament";
+import { Player } from "@/models/Player";
 
 const BEST_RESULTS_COUNTED = 10;
 const ROLLING_WINDOW_MS = 52 * 7 * 24 * 60 * 60 * 1000;
@@ -137,6 +138,27 @@ export async function computeRankingPointsForPlayers(
 export async function computeRankingPoints(playerId: string): Promise<number> {
   const totals = await computeRankingPointsForPlayers([playerId]);
   return totals.get(playerId) ?? 0;
+}
+
+// Recomputes and persists Player.rankingPoints for the given players —
+// called after any write that can change a player's combined points (match
+// report/edit/undo, placement set/clear, tournament status change/cancel/
+// delete). Bounded by however many players are actually affected by that
+// one write (typically one tournament's entrants, never the whole player
+// base), so this stays cheap regardless of total site-wide player count.
+// See models/Player.ts's rankingPoints field comment for the one disclosed
+// staleness gap (pure calendar-time aging with no intervening write).
+export async function recomputeAndCachePlayerPoints(playerIds: string[]): Promise<void> {
+  const uniqueIds = [...new Set(playerIds.map(id => id.toString()))];
+  if (uniqueIds.length === 0) return;
+
+  await connectToDatabase();
+  const pointsById = await computeRankingPointsForPlayers(uniqueIds);
+  await Player.bulkWrite(
+    uniqueIds.map(id => ({
+      updateOne: { filter: { _id: id }, update: { $set: { rankingPoints: pointsById.get(id) ?? 0 } } },
+    }))
+  );
 }
 
 // ─── Per-game ranking ─────────────────────────────────────────────────────

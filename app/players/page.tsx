@@ -5,24 +5,27 @@ import { PlayerSearchFilter } from "@/components/PlayerSearchFilter";
 
 export const dynamic = "force-dynamic";
 
-// Pagination (components/Pagination.tsx) slices this client-side, same as
-// the existing search/filter — production is currently ~135 players, so a
-// single-page fetch is still cheap. limit: 1000 covers real near-term
-// growth; revisit with server-side limit/offset if this stops being true.
+// Server-rendered page 1 only (settled July 29, 2026 — real server-side
+// pagination + search, scales to 100k+ players). PlayerSearchFilter takes
+// this as its initial state and re-fetches playersLeaderboard directly for
+// every subsequent page/search change; see that component's own comment.
 const GET_PLAYERS = `
   query {
-    players(limit: 1000) {
-      id
-      tag
-      region
-      avatarUrl
-      twitchUrl
-      isLiveOnTwitch
-      characters
-      wins
-      losses
-      points
-      winRate
+    playersLeaderboard(page: 1, pageSize: 20) {
+      totalCount
+      players {
+        id
+        tag
+        region
+        avatarUrl
+        twitchUrl
+        isLiveOnTwitch
+        characters
+        wins
+        losses
+        points
+        winRate
+      }
     }
   }
 `;
@@ -71,19 +74,20 @@ async function getPlayersPageData(playerId?: string) {
     if (ownJson?.errors) console.error("[players] GraphQL own-player errors:", ownJson.errors);
 
     return {
-      players: listJson.data?.players ?? [],
+      players: listJson.data?.playersLeaderboard?.players ?? [],
+      totalCount: listJson.data?.playersLeaderboard?.totalCount ?? 0,
       ownPlayer: ownJson?.data?.player ?? null,
     };
   } catch (err) {
     console.error("[players] fetch error:", err);
-    return { players: [], ownPlayer: null };
+    return { players: [], totalCount: 0, ownPlayer: null };
   }
 }
 
 export default async function PlayersPage() {
   const session = await auth();
   const playerId = (session?.user as any)?.playerId ?? undefined;
-  const { players, ownPlayer } = await getPlayersPageData(playerId);
+  const { players, totalCount, ownPlayer } = await getPlayersPageData(playerId);
 
   return (
     <main className="max-w-6xl mx-auto px-4 py-8">
@@ -100,10 +104,10 @@ export default async function PlayersPage() {
         <div className="sm:col-span-2 order-2">
           <div className="flex items-center justify-between mb-6">
             <h1 className="font-rajdhani text-2xl font-bold text-[var(--text-primary)]">Season rankings</h1>
-            <p className="text-[12px] text-[var(--text-secondary)]">{players.length} players</p>
+            <p className="text-[12px] text-[var(--text-secondary)]">{totalCount} players</p>
           </div>
 
-          <PlayerSearchFilter players={players} />
+          <PlayerSearchFilter initialPlayers={players} initialTotalCount={totalCount} />
         </div>
       </div>
     </main>
