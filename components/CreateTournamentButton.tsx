@@ -14,6 +14,84 @@ import { isAdminOrAbove } from "@/lib/roles";
 // "orphan" entries the games resolver already merges into the Games list.
 const OTHER_GAME = "__other__";
 
+// Per-format plain-language explanation, so a TO can compare "Standard
+// Bracket" vs. "Pools + Bracket" without leaving the form. A native
+// <select>'s own <option> elements can't host custom hover/tap content (no
+// browser lets you style inside one), so this renders as its own small
+// legend row right under the dropdown instead of literally inside it —
+// same practical effect, one toggle per format name.
+//
+// Hover (desktop) previews via real onMouseEnter/onMouseLeave, tracked
+// separately from a click-driven `pinned` state (tap-to-toggle, for touch
+// devices where hover doesn't apply) -- NOT plain CSS `:hover`, because a
+// click while the mouse is still resting on the trigger needs to be able to
+// close it even though the pointer hasn't moved (confirmed necessary: a
+// CSS-hover-only version stayed visibly open after a same-position click
+// toggled its own state off, since the hover rule alone kept it showing).
+// A click always unconditionally flips `pinned` AND forces `hovering` false
+// in the same handler, rather than branching on the current `visible` value
+// -- confirmed via a real touch-emulated Playwright context that a browser
+// synthesizes a full mouseenter/mousedown/mouseup/click sequence for each
+// discrete tap, including a stray leftover `mouseleave` right as the NEXT
+// tap begins (cleanup from the previous tap's synthetic hover). Critically,
+// `onMouseLeave` here only clears `hovering`, never `pinned` -- an earlier
+// version also cleared `pinned` on mouseleave, which meant that stray
+// between-taps mouseleave silently closed a tap-opened tooltip a split
+// second before the second tap's own click handler ran, making a real
+// second tap look like it "reopened" it instead of closing it. Once a
+// click has explicitly pinned it open, only another click should ever
+// close it -- an incidental mouseleave (real or synthetic) shouldn't.
+const FORMAT_INFO: Record<string, string> = {
+  "Standard Bracket":
+    "Every entrant goes straight into one double-elimination bracket. Best for smaller events — works well up to a few hundred entrants, but with a large field, everyone has to wait through many rounds before eliminations really thin out.",
+  "Pools + Bracket":
+    "Entrants are split into smaller pools first, each playing out as its own mini double-elimination bracket. The top 2 finishers from each pool then advance into a final bracket. This gets everyone playing matches faster in a large tournament, and finishes the same way EVO and CEO run big brackets.",
+};
+
+function FormatInfoToggle({ label }: { label: string }) {
+  const [hovering, setHovering] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const visible = hovering || pinned;
+
+  function handleClick() {
+    setPinned(v => !v);
+    setHovering(false);
+  }
+
+  return (
+    <div className="flex flex-col">
+      <button
+        type="button"
+        onClick={handleClick}
+        onMouseEnter={() => setHovering(true)}
+        onMouseLeave={() => setHovering(false)}
+        aria-expanded={visible}
+        aria-label={`What is ${label}?`}
+        className="inline-flex items-center gap-1.5 text-[11px] w-fit"
+        style={{ background: "none", border: "none", padding: 0, color: "var(--text-secondary)", cursor: "pointer" }}
+      >
+        <span
+          className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0"
+          style={{
+            background: visible ? "var(--blue)" : "var(--navy-4)",
+            color: visible ? "white" : "var(--text-muted)",
+            border: "1px solid var(--border-strong)",
+            lineHeight: 1,
+          }}
+        >
+          i
+        </span>
+        {label}
+      </button>
+      {visible && (
+        <p className="text-[11px] leading-relaxed mt-1.5" style={{ color: "var(--text-secondary)" }}>
+          {FORMAT_INFO[label]}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function CreateTournamentButton() {
   const { data: session } = useSession();
   const router = useRouter();
@@ -464,6 +542,10 @@ export function CreateTournamentButton() {
                     <option value="Standard Bracket">Standard Bracket</option>
                     <option value="Pools + Bracket">Pools + Bracket</option>
                   </select>
+                  <div className="flex flex-wrap gap-4 mt-1.5">
+                    <FormatInfoToggle label="Standard Bracket" />
+                    <FormatInfoToggle label="Pools + Bracket" />
+                  </div>
                   {format === "Pools + Bracket" && (
                     <p className="text-[11px] text-[var(--text-secondary)] mt-1.5">
                       Entrants play in pools first — the top 2 per pool advance to a main bracket once every pool finishes. Pick how the pool stage itself works below.
