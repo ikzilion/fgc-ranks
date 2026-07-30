@@ -5,6 +5,7 @@ import "./globals.css";
 import { Navbar } from "@/components/Navbar";
 import { SessionProvider } from "next-auth/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import { Analytics } from "@vercel/analytics/next";
 import { getThemeOrDefault, ThemePalette } from "@/lib/theme";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -90,6 +91,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             real Vercel deployment (nothing in local dev), so it's safe to
             mount unconditionally here rather than gating it per-environment. */}
         <SpeedInsights />
+        {/* Visitor/pageview analytics — distinct from SpeedInsights above
+            (that's performance timing, this is traffic/visitor counts).
+            Same zero-cost-outside-Vercel reasoning, mounted unconditionally. */}
+        <Analytics />
       </body>
     </html>
   );
