@@ -1,9 +1,19 @@
 // scripts/checkFormatInfoTooltip.mjs
 //
 // One-off functional verification for the Format-dropdown info tooltips on
-// CreateTournamentButton (hover on desktop via pure CSS group-hover, tap-to-
-// toggle on touch devices via onClick). Real HTTP login + real headless
-// Chromium session against the actual dev server, not a DOM snapshot guess.
+// CreateTournamentButton (hover on desktop, tap-to-toggle on touch devices).
+// Real HTTP login + real headless Chromium session against the actual dev
+// server, not a DOM snapshot guess.
+//
+// Rewritten after a real bug shipped in commit 6df889c: the original
+// in-flow-content version pushed page content down when opened, and
+// "Pools + Bracket" (the longer explanation) flickered open/closed on
+// hover -- almost certainly the resulting reflow moving content under the
+// cursor. This version's fixed-position-overlay rebuild is checked against
+// BOTH failure modes directly: real bounding-box comparisons of unrelated
+// page elements before/after opening (zero layout shift, not just "looks
+// fine"), and a sustained-visibility poll across a short window (no
+// flicker) rather than a single point-in-time visibility check.
 //
 // Requires `npm run dev` already running on localhost:3000.
 // Run: npx tsx scripts/checkFormatInfoTooltip.mjs
@@ -106,17 +116,69 @@ async function main() {
     const poolsText = page.getByText(POOLS_TEXT, { exact: true });
     assert(!(await standardText.isVisible()) && !(await poolsText.isVisible()), "Neither explanation is visible before any interaction");
 
+    // --- Root-cause check: zero layout shift ---
+    // Landmarks spanning the whole modal: the heading (top), the Standard
+    // Bracket trigger itself (right next to what's opening), the Capacity
+    // field further down the form, and the Create button (bottom). If
+    // opening either tooltip moves ANY of these by even a pixel, the fix
+    // hasn't actually solved the reported bug.
+    const heading = page.getByRole("heading", { name: "Create tournament" });
+    const capacityLabel = page.getByText("Capacity (optional)");
+    const createButton = page.getByRole("button", { name: "Create", exact: true });
+    const before = {
+      heading: await heading.boundingBox(),
+      standardIcon: await standardIcon.boundingBox(),
+      capacityLabel: await capacityLabel.boundingBox(),
+      createButton: await createButton.boundingBox(),
+    };
+
+    await poolsIcon.hover();
+    assert(await poolsText.isVisible(), "Hovering the Pools + Bracket icon (the longer explanation) reveals its exact text");
+
+    const after = {
+      heading: await heading.boundingBox(),
+      standardIcon: await standardIcon.boundingBox(),
+      capacityLabel: await capacityLabel.boundingBox(),
+      createButton: await createButton.boundingBox(),
+    };
+    for (const key of Object.keys(before)) {
+      const b = before[key], a = after[key];
+      const same = b && a && b.x === a.x && b.y === a.y && b.width === a.width && b.height === a.height;
+      assert(same, `Zero layout shift: "${key}"'s bounding box is pixel-identical before/after opening the (longer) Pools + Bracket tooltip (before=${JSON.stringify(b)}, after=${JSON.stringify(a)})`);
+    }
+
+    // --- Root-cause check: no flicker ---
+    // Poll visibility repeatedly across a short window instead of a single
+    // point-in-time check -- the reported bug was specifically a hover
+    // open/close FEEDBACK LOOP, which a single check can't distinguish
+    // from "stayed open the whole time."
+    let staysVisibleThroughout = true;
+    for (let i = 0; i < 6; i++) {
+      if (!(await poolsText.isVisible())) staysVisibleThroughout = false;
+      await page.waitForTimeout(80);
+    }
+    assert(staysVisibleThroughout, "No flicker: the Pools + Bracket tooltip stays continuously visible across a ~500ms polling window while still hovered");
+
     await standardIcon.hover();
     assert(await standardText.isVisible(), "Hovering the Standard Bracket icon reveals its exact explanation text");
     assert(!(await poolsText.isVisible()), "Hovering Standard Bracket does NOT reveal the Pools + Bracket text");
-
-    await poolsIcon.hover();
-    assert(await poolsText.isVisible(), "Hovering the Pools + Bracket icon reveals its exact explanation text");
 
     // Move away from both icons -- hover-only visibility should end (no
     // click ever happened, so nothing should be pinned open).
     await page.mouse.move(10, 10);
     assert(!(await standardText.isVisible()) && !(await poolsText.isVisible()), "Moving the mouse away hides both (neither was click-pinned)");
+
+    // --- Escapes the modal's own overflow:hidden clipping ---
+    // .fgc-card sets overflow:hidden (app/globals.css) -- confirm the
+    // tooltip's actual rendered position (not just DOM presence) via
+    // computed style, proving it isn't silently clipped to zero-size or
+    // display:none by an ancestor.
+    await poolsIcon.hover();
+    const tooltipBox = await poolsText.boundingBox();
+    assert(!!tooltipBox && tooltipBox.width > 0 && tooltipBox.height > 0, `Tooltip actually renders with real, non-zero dimensions (not clipped by an ancestor's overflow:hidden) (got ${JSON.stringify(tooltipBox)})`);
+    const position = await poolsText.evaluate(el => getComputedStyle(el).position);
+    assert(position === "fixed", `Tooltip bubble's computed position is "fixed" (got "${position}")`);
+    await page.mouse.move(10, 10);
 
     console.log("\n=== Mobile (375px): tap-to-toggle works where hover doesn't apply ===");
     await page.setViewportSize({ width: 375, height: 800 });
@@ -135,6 +197,21 @@ async function main() {
 
     await standardIconMobile.click();
     assert(!(await standardTextMobile.isVisible()), "Mobile: tapping the same icon again hides it (toggle, not just reveal)");
+
+    // Horizontal clamping: at a narrow viewport the tooltip's own left
+    // offset is computed from the trigger's real position and clamped to
+    // stay fully on-screen -- confirm it never extends past either edge,
+    // using the Pools + Bracket trigger (further right in the row, so the
+    // more likely one to need clamping).
+    const poolsIconMobile = page.getByRole("button", { name: "What is Pools + Bracket?" });
+    const poolsTextMobile = page.getByText(POOLS_TEXT, { exact: true });
+    await poolsIconMobile.click();
+    const mobileTooltipBox = await poolsTextMobile.boundingBox();
+    assert(
+      !!mobileTooltipBox && mobileTooltipBox.x >= 0 && mobileTooltipBox.x + mobileTooltipBox.width <= 375,
+      `Mobile (375px): tooltip stays fully within the viewport, not clipped/overflowing past either edge (got ${JSON.stringify(mobileTooltipBox)})`
+    );
+    await poolsIconMobile.click();
 
     // A narrow viewport with .click() still dispatches real (non-touch)
     // mouse events -- rule out any touch-specific quirk (e.g. a mobile

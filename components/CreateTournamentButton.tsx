@@ -1,7 +1,7 @@
 // components/CreateTournamentButton.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useLayoutEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { maxUploadBytes, formatMaxSizeLabel } from "@/lib/uploadLimits";
@@ -20,6 +20,39 @@ const OTHER_GAME = "__other__";
 // browser lets you style inside one), so this renders as its own small
 // legend row right under the dropdown instead of literally inside it —
 // same practical effect, one toggle per format name.
+//
+// FIX (real user testing, follow-up to commit 6df889c): the first cut
+// rendered the explanation as normal in-flow content below the trigger,
+// which grew that flex item's height and pushed every field below it down
+// the page -- and the resulting reflow was very likely what caused "Pools +
+// Bracket" to flicker open/closed on hover (its longer text pushed content
+// under/near the cursor, plausibly re-triggering mouseenter/mouseleave).
+// Rebuilt as a `position: fixed` overlay positioned from the trigger's own
+// getBoundingClientRect(): fixed positioning is removed from the normal
+// flow ENTIRELY by definition (zero layout shift is structurally
+// guaranteed, not just avoided by convention), and -- unlike `absolute` --
+// isn't clipped by the create-tournament modal's own `.fgc-card`
+// (`overflow: hidden`, see app/globals.css) since a fixed box escapes to
+// the viewport as its containing block rather than any scrollable/clipped
+// ancestor (confirmed no ancestor here sets transform/filter/will-change,
+// which is the one thing that would trap a fixed descendant instead).
+// `pointer-events: none` on the bubble itself means the cursor can never
+// actually enter it, which structurally rules out the "hovering the
+// tooltip re-triggers the trigger's hover" failure mode entirely, rather
+// than trying to patch around it.
+//
+// Deliberately does NOT track/close on page scroll while open (tried it,
+// reverted it): Playwright's own auto-scroll-into-view before every
+// `.click()` action fired a real "scroll" event mid-interaction, which a
+// scroll-close listener picked up and used to clear `pinned` a moment
+// before the click handler's own toggle ran -- net effect, a second real
+// tap looked like it reopened the tooltip instead of closing it, an
+// entirely self-inflicted bug from a feature this task never asked for.
+// The tradeoff accepted instead: if the user scrolls the modal's content
+// while the tooltip is open, it stays anchored to its last computed
+// position rather than tracking the trigger -- a minor cosmetic
+// "detachment," not a layout-shift or flicker bug, and hover/tap already
+// closes it on the next interaction regardless.
 //
 // Hover (desktop) previews via real onMouseEnter/onMouseLeave, tracked
 // separately from a click-driven `pinned` state (tap-to-toggle, for touch
@@ -48,10 +81,38 @@ const FORMAT_INFO: Record<string, string> = {
     "Entrants are split into smaller pools first, each playing out as its own mini double-elimination bracket. The top 2 finishers from each pool then advance into a final bracket. This gets everyone playing matches faster in a large tournament, and finishes the same way EVO and CEO run big brackets.",
 };
 
+const TOOLTIP_WIDTH = 240;
+const TOOLTIP_MARGIN = 8;
+// Rough estimate of the rendered bubble's height, used only to decide
+// whether it should open above or below the trigger before the real
+// element has ever been painted -- doesn't need to be exact (an
+// underestimate just means it occasionally opens downward with slightly
+// less clearance than ideal, never a layout bug either way, since a fixed
+// overlay never affects surrounding layout regardless of which side it's
+// drawn on).
+const TOOLTIP_EST_HEIGHT = 110;
+
 function FormatInfoToggle({ label }: { label: string }) {
   const [hovering, setHovering] = useState(false);
   const [pinned, setPinned] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const visible = hovering || pinned;
+
+  // Computed fresh every time it opens (not just once) via the trigger's
+  // OWN getBoundingClientRect(), so it's correct regardless of where the
+  // trigger currently sits on the page.
+  useLayoutEffect(() => {
+    if (!visible || !triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    let left = rect.left;
+    if (left + TOOLTIP_WIDTH > window.innerWidth - TOOLTIP_MARGIN) left = window.innerWidth - TOOLTIP_WIDTH - TOOLTIP_MARGIN;
+    if (left < TOOLTIP_MARGIN) left = TOOLTIP_MARGIN;
+
+    const opensBelow = rect.bottom + TOOLTIP_EST_HEIGHT + TOOLTIP_MARGIN <= window.innerHeight;
+    const top = opensBelow ? rect.bottom + 6 : rect.top - TOOLTIP_EST_HEIGHT - 6;
+    setCoords({ top, left });
+  }, [visible]);
 
   function handleClick() {
     setPinned(v => !v);
@@ -59,8 +120,9 @@ function FormatInfoToggle({ label }: { label: string }) {
   }
 
   return (
-    <div className="flex flex-col">
+    <>
       <button
+        ref={triggerRef}
         type="button"
         onClick={handleClick}
         onMouseEnter={() => setHovering(true)}
@@ -83,12 +145,26 @@ function FormatInfoToggle({ label }: { label: string }) {
         </span>
         {label}
       </button>
-      {visible && (
-        <p className="text-[11px] leading-relaxed mt-1.5" style={{ color: "var(--text-secondary)" }}>
+      {visible && coords && (
+        <div
+          role="tooltip"
+          className="fixed z-[70] pointer-events-none text-[11px] leading-relaxed"
+          style={{
+            top: coords.top,
+            left: coords.left,
+            width: TOOLTIP_WIDTH,
+            background: "var(--navy-3)",
+            border: "1px solid var(--border-strong)",
+            color: "var(--text-secondary)",
+            borderRadius: 8,
+            padding: 12,
+            boxShadow: "0 8px 20px rgba(0,0,0,0.5)",
+          }}
+        >
           {FORMAT_INFO[label]}
-        </p>
+        </div>
       )}
-    </div>
+    </>
   );
 }
 
