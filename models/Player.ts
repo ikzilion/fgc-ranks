@@ -69,6 +69,30 @@ const PlayerSchema = new Schema(
     // infrastructure to force a periodic recompute (see lib/ranking.ts's
     // original header comment on why live computation was chosen).
     rankingPoints: { type: Number, default: 0 },
+    // Cached PER-GAME ranking points (settled July 30, 2026 — mirrors
+    // rankingPoints above; see lib/ranking.ts's recomputeAndCachePlayerPoints).
+    // Deliberately does NOT cache rank itself, for the same reason the
+    // combined leaderboard work avoided it: a single write can shift many
+    // OTHER players' rank in that game, expensive to keep in sync across all
+    // of them. Rank is computed at read time instead — a count of how many
+    // OTHER players have a higher cached points value for that same game
+    // (+1) — see the Player.gameRankings field resolver, and this field's
+    // compound multikey index below that makes that count query fast. Only
+    // ever holds an entry for a game the player currently has at least one
+    // qualifying (ended, in-window, unrestricted) result in — an entry is
+    // removed entirely (not left at 0) once that's no longer true, same as
+    // the old live computation never listing a game the player had aged/
+    // cancelled/deleted out of.
+    gameRankingPoints: {
+      type: [
+        {
+          _id: false,
+          game: { type: String, required: true },
+          points: { type: Number, required: true },
+        },
+      ],
+      default: [],
+    },
   },
   { timestamps: true }
 );
@@ -104,5 +128,13 @@ PlayerSchema.index({ isDeleted: 1 });
 // and this app's MongoDB Atlas tier has no full-text/autocomplete search
 // index product available) scales to 100k+ players.
 PlayerSchema.index({ tag: 1 }, { name: "tag_prefix_ci", collation: { locale: "en", strength: 2 } });
+// Multikey compound index over the array-of-subdocuments field above — lets
+// Player.gameRankings' rank-by-count query (countDocuments with $elemMatch
+// on {game, points}) hit a real index for a specific game's point range
+// instead of scanning every player. $elemMatch (not two separate top-level
+// conditions) is load-bearing here: it's what guarantees "game" and "points"
+// in the query are matched against the SAME array element, which is also
+// exactly what lets MongoDB use this as one compound index range scan.
+PlayerSchema.index({ "gameRankingPoints.game": 1, "gameRankingPoints.points": -1 });
 
 export const Player = models.Player || model("Player", PlayerSchema);

@@ -35,7 +35,7 @@ import { verifyTurnstileToken } from "@/lib/turnstile";
 import { buildDoubleEliminationBracket, resolveSeedOrder, validateManualSlotAssignment, advanceBracketMatch, nextPowerOfTwo, computeMainBracketSeedOrder, shuffle, SeedingMethod, undoMatchEffects, MODEL_B_MIN_ENTRANTS, computeModelBInitialPoolCount, computeNextRepooledRound, buildFinalsCutoffBracket, extractPoolSurvivors, PoolSurvivors } from "@/lib/bracket";
 import { buildRoundRobinMatches, computeRoundRobinStandings } from "@/lib/roundRobin";
 import { getNextSequence } from "@/lib/counter";
-import { computeGameRankingsForPlayer, computeGameLeaderboard, recomputeAndCachePlayerPoints } from "@/lib/ranking";
+import { computeGameLeaderboard, recomputeAndCachePlayerPoints } from "@/lib/ranking";
 import { formatPlayerNumber } from "@/lib/playerId";
 import { extractTwitchUsername } from "@/lib/twitch";
 import { getBlobStorageUsageBytes } from "@/lib/blobStorage";
@@ -1470,7 +1470,7 @@ export const resolvers = {
       // status: "ENDED" tournaments) -- e.g. reopening an ENDED tournament
       // back to LIVE, or ending it, both change every entrant's total.
       const allEntrants = await Entrant.find({ tournamentId: id });
-      await recomputeAndCachePlayerPoints(allEntrants.map((e: any) => e.playerId.toString()));
+      await recomputeAndCachePlayerPoints(allEntrants.map((e: any) => e.playerId.toString()), tournament.game);
 
       // Notify all entrants when a tournament goes live or ends
       if (status === "LIVE" || status === "ENDED") {
@@ -1515,7 +1515,7 @@ export const resolvers = {
 
       // Cancelling can only ever REDUCE points (a previously-ENDED tournament
       // stops counting), same reasoning as updateTournamentStatus above.
-      await recomputeAndCachePlayerPoints(entrants.map((e: any) => e.playerId.toString()));
+      await recomputeAndCachePlayerPoints(entrants.map((e: any) => e.playerId.toString()), tournament.game);
 
       return updated;
     },
@@ -1907,7 +1907,7 @@ export const resolvers = {
       // cheap (bounded by tournament size) and correct regardless of how a
       // placement change might interact with anyone else's best-10 cap.
       const allEntrantIds = await Entrant.find({ tournamentId: entrant.tournamentId }).distinct("playerId");
-      await recomputeAndCachePlayerPoints(allEntrantIds.map((id: any) => id.toString()));
+      await recomputeAndCachePlayerPoints(allEntrantIds.map((id: any) => id.toString()), tournament.game);
       return updated;
     },
 
@@ -1936,7 +1936,7 @@ export const resolvers = {
       // reclaimed automatically like every other entrant.
       const updated = await Entrant.findByIdAndUpdate(entrantId, { placement: null, placementSetManually: false }, { new: true });
       const allEntrantIds = await Entrant.find({ tournamentId: entrant.tournamentId }).distinct("playerId");
-      await recomputeAndCachePlayerPoints(allEntrantIds.map((id: any) => id.toString()));
+      await recomputeAndCachePlayerPoints(allEntrantIds.map((id: any) => id.toString()), tournament.game);
       return updated;
     },
 
@@ -2571,7 +2571,7 @@ export const resolvers = {
       // more fragile than just recomputing this (bounded, tournament-sized)
       // set every time.
       const allEntrantIds = await Entrant.find({ tournamentId: match.tournamentId }).distinct("playerId");
-      await recomputeAndCachePlayerPoints(allEntrantIds.map((id: any) => id.toString()));
+      await recomputeAndCachePlayerPoints(allEntrantIds.map((id: any) => id.toString()), tournament.game);
 
       return updated;
     },
@@ -2647,7 +2647,7 @@ export const resolvers = {
       // Same whole-tournament recompute reportResult does above — a
       // correction can re-trigger the same downstream auto-placement cascade.
       const allEntrantIds = await Entrant.find({ tournamentId: match.tournamentId }).distinct("playerId");
-      await recomputeAndCachePlayerPoints(allEntrantIds.map((id: any) => id.toString()));
+      await recomputeAndCachePlayerPoints(allEntrantIds.map((id: any) => id.toString()), tournament.game);
 
       return updated;
     },
@@ -2691,7 +2691,7 @@ export const resolvers = {
       // Same whole-tournament recompute reportResult/editMatchResult use --
       // undoMatchEffects can unwind an auto-placement cascade too.
       const allEntrantIds = await Entrant.find({ tournamentId: match.tournamentId }).distinct("playerId");
-      await recomputeAndCachePlayerPoints(allEntrantIds.map((id: any) => id.toString()));
+      await recomputeAndCachePlayerPoints(allEntrantIds.map((id: any) => id.toString()), tournament.game);
 
       return updated;
     },
@@ -2725,7 +2725,7 @@ export const resolvers = {
       await Entrant.deleteMany({ tournamentId: id });
       const result = await Tournament.findByIdAndDelete(id);
 
-      await recomputeAndCachePlayerPoints(affectedPlayerIds.map((id: any) => id.toString()));
+      await recomputeAndCachePlayerPoints(affectedPlayerIds.map((id: any) => id.toString()), tournament.game);
 
       return !!result;
     },
@@ -3243,7 +3243,31 @@ export const resolvers = {
     // place every other Player.points consumer (profile, homepage, etc.)
     // goes through, so they all get the same cached value for free.
     points: (parent: { rankingPoints?: number }) => parent.rankingPoints ?? 0,
-    gameRankings: async (parent: { _id: string }) => await computeGameRankingsForPlayer(parent._id.toString()),
+    // Points come straight from the cached gameRankingPoints field (kept
+    // fresh by recomputeAndCachePlayerPoints, same as Player.points above) --
+    // rank is deliberately NOT cached (a single write can shift many OTHER
+    // players' rank in that game) and is instead computed here at read time:
+    // a count of how many OTHER players have a higher cached points value
+    // for that same game, +1. The gameRankingPoints.game+points compound
+    // index (models/Player.ts) is what keeps this a real indexed count per
+    // game rather than a collection scan. Ties now share the same rank
+    // (competition ranking, e.g. two players tied for 3rd both show rank 3,
+    // the next entry is rank 5) -- a deliberate refinement over the old live
+    // computation's arbitrary stable-sort tiebreak, not a regression.
+    gameRankings: async (parent: { _id: string; gameRankingPoints?: { game: string; points: number }[] }) => {
+      const entries = parent.gameRankingPoints ?? [];
+      if (entries.length === 0) return [];
+      const ranked = await Promise.all(
+        entries.map(async entry => {
+          const higherCount = await Player.countDocuments({
+            _id: { $ne: parent._id },
+            gameRankingPoints: { $elemMatch: { game: entry.game, points: { $gt: entry.points } } },
+          });
+          return { game: entry.game, points: entry.points, rank: higherCount + 1 };
+        })
+      );
+      return ranked.sort((a, b) => b.points - a.points);
+    },
     tournaments: async (parent: { _id: string }) => await Entrant.find({ playerId: parent._id }),
     // Gated at the field level (not just hidden in the profile page's JSX)
     // since displayId is the real Player ID used for QR check-in — anyone

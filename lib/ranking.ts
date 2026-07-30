@@ -140,56 +140,91 @@ export async function computeRankingPoints(playerId: string): Promise<number> {
   return totals.get(playerId) ?? 0;
 }
 
-// Recomputes and persists Player.rankingPoints for the given players —
-// called after any write that can change a player's combined points (match
-// report/edit/undo, placement set/clear, tournament status change/cancel/
-// delete). Bounded by however many players are actually affected by that
-// one write (typically one tournament's entrants, never the whole player
-// base), so this stays cheap regardless of total site-wide player count.
-// See models/Player.ts's rankingPoints field comment for the one disclosed
-// staleness gap (pure calendar-time aging with no intervening write).
-export async function recomputeAndCachePlayerPoints(playerIds: string[]): Promise<void> {
+// Which of the given players currently have at least one qualifying (ended,
+// in-window, unrestricted) entrant in the given game -- used to decide
+// whether to keep/upsert or remove that game's cached gameRankingPoints
+// entry, not just what its points value should be. A player who scored 0
+// points from a real qualifying entrant (e.g. a low placement in a huge
+// field) still keeps their entry at 0; a player with NO qualifying entrant
+// left at all (aged out, tournament cancelled/reverted/deleted) loses the
+// entry entirely, same as the old live computation simply never listing a
+// game they no longer had a real result in.
+async function getPlayersQualifyingForGame(playerIds: string[], game: string): Promise<Set<string>> {
+  await connectToDatabase();
+  const qualifying = new Set<string>();
+  if (playerIds.length === 0) return qualifying;
+
+  const entrants = await Entrant.find({ playerId: { $in: playerIds } }).lean();
+  if (entrants.length === 0) return qualifying;
+
+  const tournamentIds = [...new Set(entrants.map((e: any) => e.tournamentId.toString()))];
+  const tournaments = await Tournament.find({ _id: { $in: tournamentIds }, game, status: "ENDED", isRestricted: { $ne: true } })
+    .select("_id startDate")
+    .lean();
+  const now = Date.now();
+  const qualifyingTournamentIds = new Set(
+    (tournaments as any[]).filter(t => now - new Date(t.startDate).getTime() <= ROLLING_WINDOW_MS).map(t => t._id.toString())
+  );
+
+  for (const e of entrants as any[]) {
+    if (qualifyingTournamentIds.has(e.tournamentId.toString())) qualifying.add(e.playerId.toString());
+  }
+  return qualifying;
+}
+
+// Recomputes and persists Player.rankingPoints (and, when `game` is given,
+// that one game's cached gameRankingPoints entry) for the given players —
+// called after any write that can change them (match report/edit/undo,
+// placement set/clear, tournament status change/cancel/delete). Bounded by
+// however many players are actually affected by that one write (typically
+// one tournament's entrants, never the whole player base) and, for the
+// per-game side, by just the ONE game that tournament belongs to (not every
+// game the player has ever played) -- every existing call site already has
+// both in scope, since they're all tournament-scoped writes. See models/
+// Player.ts's field comments for the one disclosed staleness gap (pure
+// calendar-time aging with no intervening write).
+export async function recomputeAndCachePlayerPoints(playerIds: string[], game?: string): Promise<void> {
   const uniqueIds = [...new Set(playerIds.map(id => id.toString()))];
   if (uniqueIds.length === 0) return;
 
   await connectToDatabase();
   const pointsById = await computeRankingPointsForPlayers(uniqueIds);
+
+  let gamePointsById: Map<string, number> | null = null;
+  let qualifying: Set<string> | null = null;
+  let existingGameArrays = new Map<string, { game: string; points: number }[]>();
+  if (game) {
+    [gamePointsById, qualifying] = await Promise.all([
+      computeRankingPointsForPlayers(uniqueIds, game),
+      getPlayersQualifyingForGame(uniqueIds, game),
+    ]);
+    const players = await Player.find({ _id: { $in: uniqueIds } }).select("gameRankingPoints").lean();
+    existingGameArrays = new Map((players as any[]).map(p => [p._id.toString(), p.gameRankingPoints ?? []]));
+  }
+
   await Player.bulkWrite(
-    uniqueIds.map(id => ({
-      updateOne: { filter: { _id: id }, update: { $set: { rankingPoints: pointsById.get(id) ?? 0 } } },
-    }))
+    uniqueIds.map(id => {
+      const setFields: Record<string, unknown> = { rankingPoints: pointsById.get(id) ?? 0 };
+      if (game && gamePointsById && qualifying) {
+        const withoutThisGame = (existingGameArrays.get(id) ?? []).filter(g => g.game !== game);
+        setFields.gameRankingPoints = qualifying.has(id)
+          ? [...withoutThisGame, { game, points: gamePointsById.get(id) ?? 0 }]
+          : withoutThisGame;
+      }
+      return { updateOne: { filter: { _id: id }, update: { $set: setFields } } };
+    })
   );
 }
 
-// ─── Per-game ranking ─────────────────────────────────────────────────────
+// ─── Per-game leaderboard (/games/[game] page) ────────────────────────────
 //
-// Additive alongside the combined calculation above — same 52-week window,
-// same best-10 cap, same scaledPointsForPlacement formula (all reused via
-// computeRankingPointsForPlayers's `game` param, not reimplemented here).
-// The only genuinely new piece is `rank`: there's no existing "rank"
-// (leaderboard position) concept anywhere in this codebase to reuse — the
-// combined leaderboard has only ever shown raw points, sorted client-side —
-// so this establishes one: 1-indexed position among every OTHER player who
-// has at least one in-window, ended, unrestricted entrant in a tournament
-// of that same game (not among ALL players site-wide, since a rank among
-// people who never played that game would be meaningless). Ties keep
-// Array.sort's stable order, same as the existing players-list resolver's
-// own (also unbroken-tie) sort.
-export interface GameRanking {
-  game: string;
-  points: number;
-  rank: number;
-}
-
-// Every player with an in-window, ended, unrestricted entrant in a
-// tournament of the given game, ranked by their game-specific points —
-// the FULL leaderboard for that game (every real player, not just top N;
-// the caller decides if/how to trim it). This is the one place that
-// discovers "who's actually relevant to this game" and scores them
-// (via computeRankingPointsForPlayers's `game` filter) — both the new
-// /games/[game] leaderboard page and computeGameRankingsForPlayer (below,
-// the per-player profile section) call this directly rather than each
-// re-deriving the relevant-player set and re-scoring it their own way.
+// Unrelated to a specific player's own gameRankings (that's now the cached
+// gameRankingPoints field + a read-time rank-by-count query — see
+// models/Player.ts and the Player.gameRankings resolver). This is the FULL
+// leaderboard for one game (every real player, not just top N; the caller
+// decides if/how to trim it) — same 52-week window, same best-10 cap, same
+// scaledPointsForPlacement formula (all reused via computeRankingPointsFor
+// Players's `game` param, not reimplemented here).
 export async function computeGameLeaderboard(game: string): Promise<{ playerId: string; points: number }[]> {
   await connectToDatabase();
   const now = Date.now();
@@ -210,35 +245,4 @@ export async function computeGameLeaderboard(game: string): Promise<{ playerId: 
   return relevantPlayerIds
     .map(playerId => ({ playerId, points: pointsByPlayer.get(playerId) ?? 0 }))
     .sort((a, b) => b.points - a.points);
-}
-
-// Every game a player has entered — no minimum-tournament threshold, so a
-// game with just 1 counted result still gets a real entry.
-export async function computeGameRankingsForPlayer(playerId: string): Promise<GameRanking[]> {
-  await connectToDatabase();
-
-  const myEntrants = await Entrant.find({ playerId }).lean();
-  if (myEntrants.length === 0) return [];
-
-  const myTournamentIds = [...new Set(myEntrants.map((e: any) => e.tournamentId.toString()))];
-  const myTournaments = await Tournament.find({ _id: { $in: myTournamentIds }, status: "ENDED", isRestricted: { $ne: true } }).lean();
-
-  const now = Date.now();
-  const gamesEntered = new Set<string>();
-  for (const t of myTournaments as any[]) {
-    if (!t.game) continue;
-    if (now - new Date(t.startDate).getTime() > ROLLING_WINDOW_MS) continue; // aged out — same window as the combined calc
-    gamesEntered.add(t.game);
-  }
-  if (gamesEntered.size === 0) return [];
-
-  const results: GameRanking[] = [];
-  for (const game of gamesEntered) {
-    const leaderboard = await computeGameLeaderboard(game);
-    const rank = leaderboard.findIndex(e => e.playerId === playerId) + 1;
-    const points = leaderboard.find(e => e.playerId === playerId)?.points ?? 0;
-    results.push({ game, points, rank });
-  }
-
-  return results.sort((a, b) => b.points - a.points);
 }

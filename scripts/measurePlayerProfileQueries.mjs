@@ -90,11 +90,14 @@ async function run(label, query, variables) {
 }
 
 console.log(`=== GET_PLAYER for playerId=${playerId} ===`);
-// Run once to let Mongoose's one-time-per-process autoIndex createIndex
-// calls settle (they're a connection-warmup cost, not a per-request query a
-// real warm serverless instance repeats -- indexes already exist in the
-// actual database), then measure for real on the second, now-quiet run.
-await run("(warm-up, createIndex noise expected)", GET_PLAYER, { id: playerId });
+// Run a few times to let Mongoose's one-time-per-process autoIndex
+// createIndex calls fully settle (they're a connection-warmup cost, not a
+// per-request query a real warm serverless instance repeats -- indexes
+// already exist in the actual database), then measure for real on the last,
+// now-quiet run.
+await run("(warm-up 1, createIndex noise expected)", GET_PLAYER, { id: playerId });
+await run("(warm-up 2, createIndex noise expected)", GET_PLAYER, { id: playerId });
+await run("(warm-up 3, createIndex noise expected)", GET_PLAYER, { id: playerId });
 await run("player profile query", GET_PLAYER, { id: playerId });
 
 process.exit(0);
