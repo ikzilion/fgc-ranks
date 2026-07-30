@@ -38,6 +38,7 @@ const { connectToDatabase } = await import("../lib/db");
 const { User } = await import("../models/User");
 const { Player } = await import("../models/Player");
 const { Tournament } = await import("../models/Tournament");
+const { Notification } = await import("../models/Notification");
 const { resolvers } = await import("../graphql/resolvers/index");
 
 let failures = 0;
@@ -112,6 +113,7 @@ async function main() {
     console.log(`\n${failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURE(S)`}`);
   } finally {
     console.log("\nCleaning up test data...");
+    await Notification.deleteMany({ link: { $in: createdTournamentIds.map(id => `/tournaments/${id}`) } });
     for (const id of createdTournamentIds) await Tournament.findByIdAndDelete(id);
     const orgPlayers = await Player.find({ tag: { $in: createdPlayerTags } });
     const orgUserIds = orgPlayers.map(p => p.userId).filter(Boolean);
