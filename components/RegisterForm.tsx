@@ -64,8 +64,7 @@ export function RegisterForm({ siteKey }: { siteKey: string }) {
           query: `
             mutation Register($email: String!, $password: String!, $tag: String!, $turnstileToken: String!) {
               register(email: $email, password: $password, tag: $tag, turnstileToken: $turnstileToken) {
-                token
-                user { id email }
+                user { id }
               }
             }
           `,

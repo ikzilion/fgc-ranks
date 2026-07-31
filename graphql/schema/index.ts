@@ -421,7 +421,13 @@ export const typeDefs = `#graphql
   }
 
   type AuthPayload {
-    token: String!
+    # DEPRECATED, always null (July 31, 2026). This used to be a signed JWT
+    # keyed by the NextAuth secret, but nothing ever verified it — real
+    # sessions are entirely NextAuth's — and handing it out leaked an HMAC
+    # oracle over that secret. Kept as a nullable always-null field purely so
+    # an already-deployed client still selecting it keeps parsing. See the
+    # SECURITY note in graphql/resolvers/index.ts.
+    token: String
     user: User!
   }
 

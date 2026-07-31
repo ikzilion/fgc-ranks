@@ -1,5 +1,4 @@
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import { GraphQLError } from "graphql";
 import { randomBytes, createHash } from "crypto";
 import { Types } from "mongoose";
@@ -54,7 +53,29 @@ function rateLimitedError(message: string) {
   return new GraphQLError(message, { extensions: { code: "RATE_LIMITED" } });
 }
 
-const JWT_SECRET = process.env.NEXTAUTH_SECRET || "dev-secret";
+// SECURITY (July 31, 2026): register/login used to sign and hand back a
+// `jsonwebtoken` JWT here, keyed by `process.env.NEXTAUTH_SECRET ||
+// "dev-secret"`. That was removed outright rather than hardened, because:
+//
+//   1. NOTHING ever verified it — there was no jwt.verify anywhere in the
+//      codebase. Sessions are entirely NextAuth's (lib/auth.ts); the token
+//      was dead weight that merely looked authoritative.
+//   2. It handed every caller an HMAC-SHA256 oracle over the SAME secret
+//      NextAuth uses to sign/encrypt real session cookies — a signature over
+//      known plaintext, free to anyone who could register. Against a strong
+//      random secret that's computationally infeasible to attack, but it is
+//      gratuitous exposure of the single most security-critical secret in
+//      the app for zero functionality.
+//   3. The "dev-secret" fallback meant a missing/renamed env var would
+//      silently downgrade to a value published in this repo's public git
+//      history, rather than failing loudly.
+//
+// Verified at removal time that production's NextAuth secret is genuinely
+// set and is NOT the "dev-secret" fallback (checked against the live
+// __Host-authjs.csrf-token HMAC), so this closes a latent landmine rather
+// than an active breach. AuthPayload.token is kept in the schema as a
+// nullable always-null field so any already-deployed client selecting it
+// keeps parsing; see the schema comment.
 
 // SECURITY (July 31, 2026) — shared gate for every personal/account-security
 // field on the User type. `type User` is reachable from the fully PUBLIC
@@ -733,8 +754,8 @@ export const resolvers = {
         throw new Error("We couldn't send your verification email. Please try registering again.");
       }
 
-      const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: "7d" });
-      return { token, user };
+      // Always null — see the SECURITY note near the top of this file.
+      return { token: null, user };
     },
 
     login: async (
@@ -756,8 +777,8 @@ export const resolvers = {
       // `=== false` (not falsy) — grandfathered legacy accounts (field
       // never set) must NOT be blocked here.
       if (user.emailVerified === false) throw new Error("Please verify your email before signing in. Check your inbox for the verification link.");
-      const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: "7d" });
-      return { token, user };
+      // Always null — see the SECURITY note near the top of this file.
+      return { token: null, user };
     },
 
     requestPasswordReset: async (
