@@ -10,7 +10,7 @@ import { recordStreamAssetUpload } from "@/lib/streamAssets";
 import { adjustBlobStorageUsage } from "@/lib/blobStorage";
 import { processAvatarImage } from "@/lib/avatarImage";
 import { processLogoImage } from "@/lib/logoImage";
-import { verifyImageContent, safeUploadFilename } from "@/lib/uploadSecurity";
+import { verifyImageContent, safeUploadFilename, toUploadBody } from "@/lib/uploadSecurity";
 import { uploadRateLimit } from "@/lib/rateLimit";
 
 // SVG is deliberately excluded — it can embed <script> and would execute if
@@ -138,13 +138,48 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // contentType is now ALWAYS passed explicitly (it defaults to the verified
+  // PRODUCTION OUTAGE FIX (July 31, 2026). Every upload 500'd with
+  //   TypeError: ArrayBuffer: SharedArrayBuffer is not allowed
+  // thrown from inside Next's BUNDLED fetch (@edge-runtime/primitives, which
+  // wraps undici's webidl BufferSource conversion). That conversion rejects
+  // any view whose backing store fails `util.types.isSharedArrayBuffer`, and
+  // put() is the only fetch here with a buffer body.
+  //
+  // Root cause was this route's own earlier rewrite: `storedBody` used to
+  // default to the `File` object, which fetch consumes natively as a Blob.
+  // It was changed to `Buffer.from(await file.arrayBuffer())` — and
+  // Buffer.from(ArrayBuffer) creates a VIEW, not a copy, so the body
+  // inherited whatever backing store the runtime allocated for the uploaded
+  // file. On Vercel that is shared memory; on a local Node build it is not,
+  // which is exactly why this passed every local test and only failed in
+  // production.
+  //
+  // Copying into a freshly allocated, exact-size, offset-0 plain ArrayBuffer
+  // makes the body provably non-shared no matter which branch produced it
+  // (raw passthrough, sharp avatar output, or sharp logo output) and no
+  // matter how the runtime allocated the original. new Uint8Array(view)
+  // copies; it does not alias.
+  const uploadBody = toUploadBody(storedBody);
+
+  // contentType is ALWAYS passed explicitly (it defaults to the verified
   // format above) — never omitted, so Blob cannot infer a served
   // Content-Type from the pathname.
-  const blob = await put(filename, storedBody, {
-    access: "public",
-    contentType: storedContentType,
-  });
+  let blob;
+  try {
+    blob = await put(filename, uploadBody, {
+      access: "public",
+      contentType: storedContentType,
+    });
+  } catch (err) {
+    // Previously this threw uncaught, so a Blob failure surfaced as an opaque
+    // 500 and the client's generic "Failed to upload image. Try again." —
+    // which is what made the outage take real log-digging to diagnose.
+    console.error("[upload] Blob put() failed:", err);
+    return NextResponse.json(
+      { error: "Couldn't save that image right now. Please try again." },
+      { status: 502 }
+    );
+  }
 
   // Site-wide running storage total (lib/blobStorage.ts) -- every
   // successful upload through this route increments it, regardless of

@@ -73,6 +73,33 @@ export async function verifyImageContent(buffer: Buffer): Promise<VerifiedImage 
   }
 }
 
+// PRODUCTION OUTAGE FIX (July 31, 2026) — see app/api/upload/route.ts.
+// Next's bundled fetch (@edge-runtime/primitives, wrapping undici's webidl
+// BufferSource conversion) rejects any view whose backing store fails
+// `util.types.isSharedArrayBuffer`, with
+//   TypeError: ArrayBuffer: SharedArrayBuffer is not allowed
+// On Vercel the ArrayBuffer behind an uploaded file's bytes is shared, and
+// `Buffer.from(arrayBuffer)` produces a VIEW over it rather than a copy — so
+// handing that straight to put() 500'd every upload. A local Node build does
+// not use shared memory there, which is why it only ever failed in production.
+//
+// Returns a freshly allocated, exact-size, offset-0, definitively non-shared
+// copy. Safe to call on any branch's body; cost is one memcpy of an
+// already-size-capped payload.
+//
+// allocUnsafeSlow (not Buffer.from / allocUnsafe) is deliberate: those draw
+// from Node's shared 64KB pool, which leaves a non-zero byteOffset and a
+// backing ArrayBuffer much larger than the payload. allocUnsafeSlow gives the
+// Buffer its OWN exact-size ArrayBuffer at offset 0 — the least surprising
+// thing to hand to an HTTP client. "Unsafe" only means uninitialised memory,
+// and set() overwrites every byte immediately below. Returns Buffer (not
+// Uint8Array) because @vercel/blob's PutBody type requires it.
+export function toUploadBody(bytes: Uint8Array): Buffer {
+  const copy = Buffer.allocUnsafeSlow(bytes.byteLength);
+  copy.set(bytes);
+  return copy;
+}
+
 // Reduces a client-supplied filename to a safe basename and forces the
 // verified extension onto it. Strips any directory component (both separators
 // — a Windows client can legitimately send backslashes), so "../" and
