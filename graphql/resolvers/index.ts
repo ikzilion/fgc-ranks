@@ -56,6 +56,34 @@ function rateLimitedError(message: string) {
 
 const JWT_SECRET = process.env.NEXTAUTH_SECRET || "dev-secret";
 
+// SECURITY (July 31, 2026) — shared gate for every personal/account-security
+// field on the User type. `type User` is reachable from the fully PUBLIC
+// players/player/playerByTag queries via Player.user, so field-level session
+// checks here are the only thing standing between an anonymous caller and
+// the whole account table's PII. Owner-or-admin: the account holder
+// themselves, or any ADMIN/SUPER_ADMIN (the admin dashboards genuinely list
+// these fields across all users).
+//
+// context.userId is NextAuth's token.sub, copied onto session.user.id in
+// lib/auth.ts's session callback — i.e. the User document's own _id as a
+// string, which is exactly what parent._id compares against here.
+type UserPrivateParent = {
+  _id?: unknown;
+  email?: string | null;
+  role?: string | null;
+  createdAt?: Date | null;
+  scheduledScrubAt?: Date | null;
+  scrubBackupEmail?: string | null;
+  scrubBackupExpiresAt?: Date | null;
+};
+type UserFieldContext = { userId?: string; role?: string };
+
+function canReadUserPrivateFields(parent: UserPrivateParent, context: UserFieldContext): boolean {
+  if (isAdminOrAbove(context?.role)) return true;
+  if (!context?.userId || parent?._id == null) return false;
+  return String(parent._id) === context.userId;
+}
+
 // Identifies which field a MongoDB E11000 duplicate-key error tripped on
 // (e.g. "email", "tag") so a catch block can blame the right field instead
 // of assuming — used by register, where User.email and Player.tag are both
@@ -383,8 +411,20 @@ export const resolvers = {
     // 2026), which now goes through playersLeaderboard below for real
     // server-side pagination and search. Left as a flat limit/offset list
     // since none of these picker callers need a total count or search term.
-    players: async (_: unknown, { limit = 20, offset = 0 }: { limit?: number; offset?: number }) => {
+    players: async (
+      _: unknown,
+      { limit = 20, offset = 0 }: { limit?: number; offset?: number },
+      { role }: { role?: string }
+    ) => {
       await connectToDatabase();
+      // SECURITY (July 31, 2026) — `limit` was previously passed through to
+      // MongoDB unbounded, so a single request could pull the entire Player
+      // collection. Its sibling playersLeaderboard already clamped pageSize
+      // to 100; this one never did. Admins get a higher ceiling because
+      // /admin/users legitimately lists every account at once (limit: 200).
+      const cap = isAdminOrAbove(role) ? 500 : 100;
+      const safeLimit = Math.min(Math.max(1, limit), cap);
+      const safeOffset = Math.max(0, offset);
       // rankingPoints is a real indexed field now (models/Player.ts), so this
       // is a genuine sorted skip/limit query, not an in-memory sort over the
       // whole collection like before.
@@ -395,8 +435,8 @@ export const resolvers = {
       // two "pages" quietly overlap.
       return Player.find({ isDeleted: { $ne: true } })
         .sort({ rankingPoints: -1, _id: 1 })
-        .skip(offset)
-        .limit(limit);
+        .skip(safeOffset)
+        .limit(safeLimit);
     },
 
     // Real server-side pagination + search (settled July 29, 2026, scales to
@@ -3239,6 +3279,29 @@ export const resolvers = {
     // below — every account created before the TO permission overhaul has
     // `isTO` genuinely absent, not `false`, in its stored document.
     isTO: (parent: { isTO?: boolean }) => parent.isTO ?? false,
+
+    // SECURITY (July 31, 2026) — see the schema comment on `type User`.
+    // Player.user is reachable from the fully public players/player queries,
+    // so every personal/account-security field below MUST re-check the
+    // session here rather than relying on the UI not rendering it. Before
+    // this gating, `{ players(limit: 100000) { user { email role } } }`
+    // returned every registered account's email address and role to an
+    // unauthenticated caller in one request — including flagging which
+    // address held SUPER_ADMIN. Same bug class as the Player.displayId gap
+    // fixed earlier; the displayId gating sat ~15 lines below this object
+    // while the object holding the actual emails stayed wide open.
+    email: (parent: UserPrivateParent, _args: unknown, context: UserFieldContext) =>
+      canReadUserPrivateFields(parent, context) ? parent.email ?? null : null,
+    role: (parent: UserPrivateParent, _args: unknown, context: UserFieldContext) =>
+      canReadUserPrivateFields(parent, context) ? parent.role ?? null : null,
+    createdAt: (parent: UserPrivateParent, _args: unknown, context: UserFieldContext) =>
+      canReadUserPrivateFields(parent, context) ? parent.createdAt ?? null : null,
+    scheduledScrubAt: (parent: UserPrivateParent, _args: unknown, context: UserFieldContext) =>
+      canReadUserPrivateFields(parent, context) ? parent.scheduledScrubAt ?? null : null,
+    scrubBackupEmail: (parent: UserPrivateParent, _args: unknown, context: UserFieldContext) =>
+      canReadUserPrivateFields(parent, context) ? parent.scrubBackupEmail ?? null : null,
+    scrubBackupExpiresAt: (parent: UserPrivateParent, _args: unknown, context: UserFieldContext) =>
+      canReadUserPrivateFields(parent, context) ? parent.scrubBackupExpiresAt ?? null : null,
   },
 
   Player: {

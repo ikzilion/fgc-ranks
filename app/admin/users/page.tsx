@@ -1,13 +1,19 @@
 // app/admin/users/page.tsx
 // Admin-role management — SUPER_ADMIN-only. Search players and grant/revoke
-// ADMIN status. Same admin-gated SSR pattern as app/admin/events/page.tsx:
-// this page's own auth() check is just the notFound() gate (UX), but the
-// `players` query itself doesn't need role-gating (it's public), so unlike
-// admin/events there's no ADMIN-only query here needing the session cookie
-// forwarded — grantAdmin/revokeAdmin (the real enforcement) run as browser
-// mutations from AdminUserManager, which carry the session cookie
-// automatically the normal way.
+// ADMIN status. Same admin-gated SSR pattern as app/admin/events/page.tsx,
+// INCLUDING the session-cookie forwarding: this page's own auth() check is
+// just the notFound() gate (UX), while grantAdmin/revokeAdmin (the real
+// enforcement) run as browser mutations from AdminUserManager.
+//
+// The cookie header below is NOT optional (corrected July 31, 2026). This
+// page reads `user { role }` and `displayId`, both of which are now
+// session-gated in the resolver — a plain server-side fetch() carries no
+// cookies, so without it the GraphQL context sees an anonymous caller and
+// every role/displayId here comes back null. (displayId was in fact already
+// silently null on this page for exactly that reason, the same latent bug
+// class hit twice before on the profile and tournament pages.)
 import { notFound } from "next/navigation";
+import { cookies } from "next/headers";
 import { auth } from "@/lib/auth";
 import { isSuperAdmin } from "@/lib/roles";
 import { AdminUserManager } from "@/components/AdminUserManager";
@@ -34,7 +40,7 @@ async function getPlayers() {
   try {
     const res = await fetch(`${baseUrl}/api/graphql`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", cookie: (await cookies()).toString() },
       body: JSON.stringify({ query: GET_PLAYERS_FOR_ADMIN }),
       cache: "no-store",
     });

@@ -33,16 +33,28 @@ export const typeDefs = `#graphql
     TO_STATUS_GRANTED
   }
 
+  # SECURITY (July 31, 2026): every field on this type that carries personal
+  # or account-security information is gated owner-or-admin in the resolver
+  # (see graphql/resolvers/index.ts's User field resolvers), NOT merely
+  # hidden by the UI. Player.user is reachable from the fully public
+  # players/player queries, so before this gating an unauthenticated caller
+  # could read every registered account's email and role straight off
+  # /api/graphql in a single request — same bug class as the Player.displayId
+  # gap. These fields are therefore NULLABLE: a non-null field returning null
+  # for an unauthorized caller would error the whole query instead of just
+  # omitting the value. Only id and isTO stay public (the TO badge on
+  # player cards genuinely needs them).
   type User {
     id: ID!
-    email: String!
-    role: UserRole!
+    email: String
+    role: UserRole
     # Tournament Organizer trust flag — see models/User.ts. Independent of
     # role; grants only the ability to create a "full" (non-restricted)
-    # tournament, nothing else ADMIN/SUPER_ADMIN can do.
+    # tournament, nothing else ADMIN/SUPER_ADMIN can do. Public: drives the
+    # gold "TO" badge on public player cards.
     isTO: Boolean!
     player: Player
-    createdAt: Date!
+    createdAt: Date
     # Grace-period account deletion (settled July 28, 2026) — non-null means
     # this account is pending deletion, scheduled to be scrubbed on this
     # date unless cancelled first. See models/User.ts and
