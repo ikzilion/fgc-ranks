@@ -4,7 +4,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import nextDynamic from "next/dynamic";
-import { cookies } from "next/headers";
 import { auth } from "@/lib/auth";
 import { isAdminOrAbove } from "@/lib/roles";
 import { JoinTournamentButton } from "@/components/JoinTournamentButton";
@@ -109,7 +108,6 @@ const GET_TOURNAMENT = `
           tag
           avatarUrl
           characters
-          displayId
         }
       }
       bracket {
@@ -168,17 +166,9 @@ const GET_TOURNAMENT = `
 async function getTournament(id: string, playerId?: string) {
   try {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-    // Cookie forwarding is load-bearing now, not just a nice-to-have: since
-    // Player.displayId (now selected below, for the CSV export) is gated
-    // server-side on the requesting viewer (owner/Admin/TO — see that
-    // resolver), a plain fetch() without the session cookie makes the
-    // GraphQL context see no session at all, so the resolver treats EVERY
-    // caller as anonymous and always nulls displayId out regardless of who's
-    // actually logged in — same f2eb432-class gap already fixed on the
-    // player profile page.
     const res = await fetch(`${baseUrl}/api/graphql`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", cookie: (await cookies()).toString() },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query: GET_TOURNAMENT, variables: { id, playerId } }),
       cache: "no-store",
     });

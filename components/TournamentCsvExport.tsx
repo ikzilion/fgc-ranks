@@ -13,13 +13,21 @@
 // row's Round column gets a "Pool N - " prefix to disambiguate; the main/
 // standard bracket's rows are left unprefixed since there's only ever one
 // of those per tournament.
+//
+// Player ID (Player.displayId) is deliberately NOT included in Final
+// Standings, even though it was in the first cut of this feature (removed
+// July 30, 2026) -- displayId is gated everywhere else on the site to the
+// profile owner, Admin, or TO (see that resolver), and a downloaded CSV can
+// end up shared or posted far more broadly than the page it came from, so
+// it shouldn't leak the ID at all regardless of who downloaded it or what
+// their permissions were at the time.
 "use client";
 
 interface ExportEntrant {
   id: string;
   placement: number | null;
   pointsEarned: number;
-  player: { id: string; tag: string; displayId: string | null };
+  player: { id: string; tag: string };
 }
 
 interface ExportMatch {
@@ -92,11 +100,11 @@ export function TournamentCsvExport({
       }
     }
 
-    const rows: (string | number)[][] = [["Placement", "Player Tag", "Player ID", "Wins", "Losses", "Points Earned"]];
+    const rows: (string | number)[][] = [["Placement", "Player Tag", "Wins", "Losses", "Points Earned"]];
     const sorted = [...entrants].sort((a, b) => (a.placement ?? Infinity) - (b.placement ?? Infinity));
     for (const e of sorted) {
       const rec = winLoss.get(e.player.id) ?? { wins: 0, losses: 0 };
-      rows.push([e.placement ?? "", e.player.tag, e.player.displayId ?? "", rec.wins, rec.losses, e.pointsEarned]);
+      rows.push([e.placement ?? "", e.player.tag, rec.wins, rec.losses, e.pointsEarned]);
     }
     downloadCsv(`${tournamentName} - Final Standings.csv`, rows);
   }
