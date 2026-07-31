@@ -10,6 +10,8 @@ import { recordStreamAssetUpload } from "@/lib/streamAssets";
 import { adjustBlobStorageUsage } from "@/lib/blobStorage";
 import { processAvatarImage } from "@/lib/avatarImage";
 import { processLogoImage } from "@/lib/logoImage";
+import { verifyImageContent, safeUploadFilename } from "@/lib/uploadSecurity";
+import { uploadRateLimit } from "@/lib/rateLimit";
 
 // SVG is deliberately excluded — it can embed <script> and would execute if
 // the blob URL is ever opened directly rather than used as an <img> source.
@@ -19,6 +21,19 @@ export async function POST(request: NextRequest) {
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: "Not authorized" }, { status: 401 });
+  }
+
+  // SECURITY (July 31, 2026): this route previously had NO rate limit at all,
+  // so any signed-in account could push unlimited 8-15MB files into a Blob
+  // store on a hard 1GB shared quota. Keyed by playerId (an authenticated
+  // action), falling back to the user id for an account with no Player yet.
+  const rateKey = (session.user as any).playerId ?? (session.user as any).id ?? "unknown";
+  const { success } = await uploadRateLimit.limit(String(rateKey));
+  if (!success) {
+    return NextResponse.json(
+      { error: "Too many uploads. Please wait a while and try again." },
+      { status: 429 }
+    );
   }
 
   const form = await request.formData();
@@ -35,30 +50,54 @@ export async function POST(request: NextRequest) {
   // here — this route only checks that someone is signed in, same as avatars.
   const type = (form.get("type") as string) || "avatar";
 
-  // Basic validation — only images, size cap depends on upload type. This is
-  // the real enforcement: the matching client-side check in each upload
-  // component is just for fast feedback and can be bypassed, so this check
-  // has to stand on its own regardless of what the client claims.
-  if (!ALLOWED_TYPES.includes(file.type)) {
-    return NextResponse.json({ error: "File must be a PNG, JPEG, WEBP, or GIF image" }, { status: 400 });
-  }
+  // Size cap first — cheapest check, and it bounds how much we're about to
+  // read into memory for content verification below.
   const maxBytes = maxUploadBytes(type);
   if (file.size > maxBytes) {
     return NextResponse.json({ error: `Image must be under ${formatMaxSizeLabel(maxBytes)}` }, { status: 400 });
   }
+
+  // The client-claimed MIME type is checked only as a fast reject. It is NOT
+  // trusted — `file.type` is supplied by the client and is trivially forged.
+  if (!ALLOWED_TYPES.includes(file.type)) {
+    return NextResponse.json({ error: "File must be a PNG, JPEG, WEBP, or GIF image" }, { status: 400 });
+  }
+
+  // SECURITY (July 31, 2026): the real check. Decide the format from the
+  // actual BYTES, never from the claimed MIME type or the filename. Before
+  // this, stream-bg/sponsor-banner (and the animated-GIF logo passthrough)
+  // stored raw client bytes under a client-chosen filename, and Vercel Blob
+  // inferred the served Content-Type from that extension — so an ordinary
+  // signed-in player could host arbitrary HTML on the Blob domain by sending
+  // "payload.html" with Content-Type: image/png. See lib/uploadSecurity.ts.
+  const originalBuffer = Buffer.from(await file.arrayBuffer());
+  const verified = await verifyImageContent(originalBuffer);
+  if (!verified) {
+    return NextResponse.json(
+      { error: "That file isn't a valid PNG, JPEG, WEBP, or GIF image." },
+      { status: 400 }
+    );
+  }
+  // Every stored filename below is built from this sanitized basename plus
+  // the VERIFIED extension — never the raw client string.
+  const safeName = safeUploadFilename(file.name, verified.extension);
 
   let filename: string;
   // Avatars only: resized + re-encoded server-side (lib/avatarImage.ts) —
   // storedBody/storedBytes/storedContentType track what actually ends up in
   // Blob storage, which is smaller than (and a different format from) the
   // original upload; every other type still stores the file exactly as-is.
-  let storedBody: File | Buffer = file;
-  let storedBytes = file.size;
-  let storedContentType: string | undefined;
+  // storedBody defaults to the already-read verified bytes, not the File —
+  // the body has been consumed by arrayBuffer() above.
+  let storedBody: Buffer = originalBuffer;
+  let storedBytes = originalBuffer.byteLength;
+  // Always set explicitly (never left undefined) so Blob never infers the
+  // served Content-Type from the pathname.
+  let storedContentType: string = verified.contentType;
   if (type === "stream-bg") {
-    filename = `tournament-backgrounds/${Date.now()}-${file.name}`;
+    filename = `tournament-backgrounds/${Date.now()}-${safeName}`;
   } else if (type === "sponsor-banner") {
-    filename = `sponsor-banners/${Date.now()}-${file.name}`;
+    filename = `sponsor-banners/${Date.now()}-${safeName}`;
   } else if (type === "tournament-logo" || type === "event-logo" || type === "game-icon") {
     const folder = type === "tournament-logo" ? "tournament-logos" : type === "event-logo" ? "event-logos" : "game-icons";
     // Resized/re-encoded server-side (lib/logoImage.ts) same as avatars —
@@ -68,14 +107,16 @@ export async function POST(request: NextRequest) {
     // stream-bg/sponsor-banner already get, just decided per-file here
     // instead of per-type).
     try {
-      const result = await processLogoImage(Buffer.from(await file.arrayBuffer()));
+      const result = await processLogoImage(originalBuffer);
       if (result) {
         filename = `${folder}/${Date.now()}.webp`;
         storedBody = result.buffer;
         storedBytes = result.buffer.byteLength;
         storedContentType = result.contentType;
       } else {
-        filename = `${folder}/${Date.now()}-${file.name}`;
+        // Animated-GIF passthrough — sanitized name + verified extension,
+        // same as stream-bg/sponsor-banner above.
+        filename = `${folder}/${Date.now()}-${safeName}`;
       }
     } catch (err) {
       console.error(`[upload] Failed to process ${type} image:`, err);
@@ -87,7 +128,7 @@ export async function POST(request: NextRequest) {
     // always re-encoded to WebP, see lib/avatarImage.ts.
     filename = `avatars/${playerId}-${Date.now()}.webp`;
     try {
-      const { buffer, contentType } = await processAvatarImage(Buffer.from(await file.arrayBuffer()));
+      const { buffer, contentType } = await processAvatarImage(originalBuffer);
       storedBody = buffer;
       storedBytes = buffer.byteLength;
       storedContentType = contentType;
@@ -97,9 +138,12 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // contentType is now ALWAYS passed explicitly (it defaults to the verified
+  // format above) — never omitted, so Blob cannot infer a served
+  // Content-Type from the pathname.
   const blob = await put(filename, storedBody, {
     access: "public",
-    ...(storedContentType ? { contentType: storedContentType } : {}),
+    contentType: storedContentType,
   });
 
   // Site-wide running storage total (lib/blobStorage.ts) -- every

@@ -60,6 +60,20 @@ export const createTournamentRateLimit = new Ratelimit({
   prefix: "ratelimit:create-tournament",
 });
 
+// SECURITY (July 31, 2026) — /api/upload had NO rate limit at all. It only
+// checks that SOMEONE is signed in, so any registered account could push
+// unlimited files (up to 8-15MB each) straight into the Blob store, which is
+// on a hard 1GB Hobby quota shared by the whole site — exhausting it breaks
+// avatar/logo/banner uploads for every real user. Keyed by playerId (an
+// authenticated action) rather than IP, same as createTournamentRateLimit.
+// 30/hour is far above any real editing session (avatar + a few banners)
+// while making bulk storage exhaustion impractical.
+export const uploadRateLimit = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(30, "1 h"),
+  prefix: "ratelimit:upload",
+});
+
 // Next.js 15+ dropped NextRequest#ip — Vercel's edge network sets these headers instead.
 // Accepts any Web-standard Request (NextRequest, or the raw Request NextAuth's authorize() receives).
 export function getClientIp(req: Request): string {
