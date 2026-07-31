@@ -5,9 +5,17 @@ import { resolvers } from "@/graphql/resolvers";
 import { auth } from "@/lib/auth";
 import { createLoaders } from "@/graphql/loaders";
 import { runAccountDeletionMaintenance } from "@/lib/accountDeletion";
+import { createQueryLimitRule } from "@/lib/graphqlLimits";
 import { NextRequest } from "next/server";
 
-const server = new ApolloServer({ typeDefs, resolvers });
+// validationRules (July 31, 2026): the schema is cyclic and had no depth or
+// complexity limit, so one unauthenticated request could nest that cycle
+// arbitrarily deep and multiply the DB work per level. See lib/graphqlLimits.ts.
+const server = new ApolloServer({
+  typeDefs,
+  resolvers,
+  validationRules: [createQueryLimitRule()],
+});
 
 const handler = startServerAndCreateNextHandler<NextRequest>(server, {
   context: async (req) => {

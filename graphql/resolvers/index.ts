@@ -3361,6 +3361,22 @@ export const resolvers = {
       return ranked.sort((a, b) => b.points - a.points);
     },
     tournaments: async (parent: { _id: string }) => await Entrant.find({ playerId: parent._id }),
+    // SECURITY (July 31, 2026) — admin-only, same reasoning as User.email /
+    // User.scrubBackupEmail. This is the ORIGINAL tag of an account that has
+    // already been scrubbed, retained solely so the SUPER_ADMIN "Restore
+    // accounts" tab (Query.restorableDeletedPlayers) can show what it would
+    // be restoring. Ungated it defeated the point of the scrub outright: the
+    // scrub deliberately overwrites `tag` with "deleted-user-xxxx", but this
+    // field sat next to it handing the real identity straight back to any
+    // anonymous caller for the whole 30-day backup window. Soft-deleted
+    // players stay referenced in public entrant lists and match history, so
+    // their ids are discoverable — Query.player/playerByTag deliberately do
+    // NOT filter isDeleted, unlike Query.players.
+    scrubBackupTag: (
+      parent: { scrubBackupTag?: string | null },
+      _args: unknown,
+      context: { role?: string }
+    ) => (isAdminOrAbove(context?.role) ? parent.scrubBackupTag ?? null : null),
     // Gated at the field level (not just hidden in the profile page's JSX)
     // since displayId is the real Player ID used for QR check-in — anyone
     // could otherwise read it straight off the public /api/graphql endpoint

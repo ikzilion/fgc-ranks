@@ -144,6 +144,36 @@ try {
   check("isTO readable anonymously", U.isTO({ isTO: true }, {}, ANON) === true);
   check("isTO defaults false for legacy docs", U.isTO({}, {}, ANON) === false);
 
+  // -- 5b. Player.scrubBackupTag — the deleted-account leak found in the same
+  //        sweep. The scrub deliberately overwrites `tag` with
+  //        "deleted-user-xxxx"; this field held the REAL original tag next to
+  //        it and had no resolver at all, so it came back to anyone.
+  console.log("\n5b. Player.scrubBackupTag (soft-deleted account's real identity)");
+  const scrubbed = await Player.create({
+    tag: `deleted-user-${STAMP}`,
+    isDeleted: true,
+    deletedAt: new Date(),
+    scrubBackupTag: "RealPersonOriginalTag",
+  });
+  const scrubbedDoc = await Player.findById(scrubbed._id);
+  const P = resolvers.Player;
+  check("data really is present in the document", scrubbedDoc.scrubBackupTag === "RealPersonOriginalTag");
+  check("anonymous gets null", P.scrubBackupTag(scrubbedDoc, {}, ANON) === null);
+  check("ordinary logged-in player gets null", P.scrubBackupTag(scrubbedDoc, {}, OTHER_PLAYER) === null);
+  check("ADMIN still reads it (restore tool)", P.scrubBackupTag(scrubbedDoc, {}, ADMIN) === "RealPersonOriginalTag");
+  check("SUPER_ADMIN still reads it", P.scrubBackupTag(scrubbedDoc, {}, SUPER_ADMIN) === "RealPersonOriginalTag");
+  {
+    const res = await fetch(`${BASE_URL}/api/graphql`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: `{ player(id:"${scrubbed._id}") { tag isDeleted scrubBackupTag } }` }),
+    });
+    const j = await res.json();
+    check("real unauthenticated HTTP gets null", j?.data?.player?.scrubBackupTag === null, JSON.stringify(j?.data));
+    check("scrubbed placeholder tag still returned", (j?.data?.player?.tag ?? "").startsWith("deleted-user-"));
+  }
+  await Player.findByIdAndDelete(scrubbed._id);
+
   // -- 6. Query.players limit cap.
   console.log("\n6. Query.players limit cap");
   const anonPage = await resolvers.Query.players(null, { limit: 100000, offset: 0 }, ANON);
