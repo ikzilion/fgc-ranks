@@ -1,7 +1,7 @@
 // components/PoolsSection.tsx
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BracketView } from "./BracketView";
 import { GeneratePoolsButton } from "./GeneratePoolsButton";
 import { GenerateModelBPoolsButton } from "./GenerateModelBPoolsButton";
@@ -415,11 +415,10 @@ export function PoolsSection({
 
   const defaultRoundKey = hasMainBracket ? "main" : roundKeyFor(latestRound);
 
-  // Tab list is stable for the lifetime of one page load — every mutation
-  // that changes it (generatePools, generateMainBracket, advanceModelBRound)
-  // calls router.refresh(), which remounts this component with fresh props,
-  // so plain useState defaults (not recomputed on every render) are enough;
-  // no effect needed to keep them in sync with prop changes mid-session.
+  // Model B round progression (advanceModelBRound) is TO-initiated, not
+  // something a viewer watches narrow in real time the way Top 24/Top 8
+  // below does -- activeRound just needs a sane initial default per page
+  // load, which this still gives it.
   const [activeRound, setActiveRound] = useState<string | undefined>(isModelB ? defaultRoundKey : undefined);
 
   // Model A/C: unchanged shape — "Main Bracket" merged directly into this
@@ -439,6 +438,41 @@ export function PoolsSection({
   const [activeTab, setActiveTab] = useState<string | undefined>(
     isModelB ? firstPoolTabForRound(defaultRoundKey) : tabs[0]?.key
   );
+
+  // Models A/C only -- reportResult (every match played in the main
+  // bracket) calls router.refresh(), NOT a real remount, so this useState's
+  // initial value is the only time activeTab would otherwise get set: a
+  // viewer sitting on "Main Bracket" or "Top 24" while the field keeps
+  // narrowing would never automatically land on "Top 24" or "Top 8" once
+  // those newly become available, since router.refresh() only refreshes
+  // the server-fetched props this component receives, it doesn't remount
+  // the component or reset its state.
+  //
+  // Deliberately narrow: only fires when showTop24/showTop8 THEMSELVES
+  // change (i.e. new data actually arrived), not on every render or every
+  // manual tab click -- activeTab is read via a ref instead of listed as a
+  // dependency so clicking a tab doesn't re-trigger this effect. Skips the
+  // very first run (hasMountedRef) so a fresh page load still lands on
+  // "Main Bracket" by default even if the field has already narrowed to
+  // Top 8 range -- this only auto-follows narrowing that happens WHILE
+  // watching, it doesn't change the initial landing tab. Also never yanks
+  // the viewer off a specific pool tab they clicked into.
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+  const hasMountedTabEffect = useRef(false);
+  useEffect(() => {
+    if (isModelB) return;
+    if (!hasMountedTabEffect.current) {
+      hasMountedTabEffect.current = true;
+      return;
+    }
+    const current = activeTabRef.current;
+    const isOnMetaView = current === "main" || current === "main-top24" || current === "main-top8";
+    if (!isOnMetaView) return;
+    const narrowestAvailable = showTop8 ? "main-top8" : showTop24 ? "main-top24" : "main";
+    if (current !== narrowestAvailable) setActiveTab(narrowestAvailable);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- activeTab read via ref on purpose, see comment above
+  }, [isModelB, showTop24, showTop8]);
 
   function handleSelectRound(key: string) {
     setActiveRound(key);

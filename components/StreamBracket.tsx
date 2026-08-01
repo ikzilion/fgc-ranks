@@ -385,6 +385,34 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
     isModelB ? firstPoolTabForRound(defaultRoundKey) : views[0]?.key
   );
 
+  // Models A/C only -- this view polls for fresh tournament data itself
+  // (the useEffect above), which correctly recomputes showTop24/showTop8
+  // every time, but selectedView's useState above only ever applies its
+  // initial value once, so a viewer sitting on "Main Bracket" or "Top 24"
+  // while the field narrows during a live poll would never automatically
+  // land on "Top 24"/"Top 8" once those newly become available (same root
+  // cause as PoolsSection.tsx's activeTab, just driven by polling instead
+  // of router.refresh()). Same design as there: only fires when showTop24/
+  // showTop8 THEMSELVES change, skips the very first run so a fresh page
+  // load still lands on "Main Bracket" by default, and never yanks the
+  // viewer off a specific pool tab they clicked into.
+  const selectedViewRef = useRef(selectedView);
+  selectedViewRef.current = selectedView;
+  const hasMountedViewEffect = useRef(false);
+  useEffect(() => {
+    if (isModelB) return;
+    if (!hasMountedViewEffect.current) {
+      hasMountedViewEffect.current = true;
+      return;
+    }
+    const current = selectedViewRef.current;
+    const isOnMetaView = current === "main" || current === "main-top24" || current === "main-top8";
+    if (!isOnMetaView) return;
+    const narrowestAvailable = showTop8 ? "main-top8" : showTop24 ? "main-top24" : "main";
+    if (current !== narrowestAvailable) setSelectedView(narrowestAvailable);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedView read via ref on purpose, see comment above
+  }, [isModelB, showTop24, showTop8]);
+
   function handleSelectRound(key: string) {
     setSelectedRound(key);
     setSelectedView(firstPoolTabForRound(key));
