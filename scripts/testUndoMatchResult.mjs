@@ -59,6 +59,7 @@ const { Tournament } = await import("../models/Tournament");
 const { Entrant } = await import("../models/Entrant");
 const { Match } = await import("../models/Match");
 const { resolvers } = await import("../graphql/resolvers/index");
+const { createLoaders } = await import("../graphql/loaders");
 
 let failures = 0;
 function assert(cond, label) {
@@ -131,7 +132,7 @@ async function main() {
     // right now, simultaneously.
     const wbRound1AfterPlay = await Match.find({ _id: { $in: wbRound1.map(m => m._id) } });
     for (const m of wbRound1AfterPlay) {
-      assert(await resolvers.Match.canUndo(m) === true, `WB Round 1 match "${m.round}" is undo-able before its downstream match is played`);
+      assert(await resolvers.Match.canUndo(m, null, { loaders: createLoaders() }) === true, `WB Round 1 match "${m.round}" is undo-able before its downstream match is played`);
     }
 
     // Play ONLY the first WB Round 2 match (consumes 2 of the 4 WB Round 1
@@ -146,13 +147,13 @@ async function main() {
 
     for (const m of feedersOfPlayed) {
       const fresh = await Match.findById(m._id);
-      assert(await resolvers.Match.canUndo(fresh) === false, `WB R1 match feeding the NOW-PLAYED WB R2 match is no longer undo-able`);
-      const attempted = await resolvers.Mutation.undoMatchResult(null, { matchId: fresh._id.toString() }, organizerCtx).then(() => null).catch(e => e);
+      assert(await resolvers.Match.canUndo(fresh, null, { loaders: createLoaders() }) === false, `WB R1 match feeding the NOW-PLAYED WB R2 match is no longer undo-able`);
+      const attempted = await resolvers.Mutation.undoMatchResult(null, { matchId: fresh._id.toString() }, { ...organizerCtx, loaders: createLoaders() }).then(() => null).catch(e => e);
       assert(attempted instanceof Error, `A real undoMatchResult call on it is actually blocked (throws), not silently allowed`);
     }
     for (const m of feedersOfUnplayed) {
       const fresh = await Match.findById(m._id);
-      assert(await resolvers.Match.canUndo(fresh) === true, `WB R1 match feeding the STILL-UNPLAYED WB R2 match remains undo-able`);
+      assert(await resolvers.Match.canUndo(fresh, null, { loaders: createLoaders() }) === true, `WB R1 match feeding the STILL-UNPLAYED WB R2 match remains undo-able`);
     }
 
     // Actually undo one of the still-eligible ones and confirm the real
@@ -162,7 +163,7 @@ async function main() {
     const p1BeforeWins = (await Player.findById(toUndo.player1Id)).wins;
     const p2BeforeLosses = (await Player.findById(toUndo.player2Id)).losses;
 
-    const undone = await resolvers.Mutation.undoMatchResult(null, { matchId: toUndo._id.toString() }, organizerCtx);
+    const undone = await resolvers.Mutation.undoMatchResult(null, { matchId: toUndo._id.toString() }, { ...organizerCtx, loaders: createLoaders() });
     assert(undone.status === "PENDING", `Undone match's real status is PENDING (got ${undone.status})`);
     assert(undone.winnerId == null, "Undone match's real winnerId is cleared");
     assert(undone.player1Score === 0 && undone.player2Score === 0, `Undone match's real score is cleared to 0-0 (got ${undone.player1Score}-${undone.player2Score})`);
@@ -219,7 +220,7 @@ async function main() {
     }
     const gf2Fresh = await Match.findById(gf2._id);
     assert(gf2Fresh.status === "COMPLETED", "Real Grand Final is COMPLETED (no reset — player1/winners-side always wins under this test's convention)");
-    assert(await resolvers.Match.canUndo(gf2Fresh) === true, "A natural (no-reset) completed Grand Final with nothing downstream is undo-able");
+    assert(await resolvers.Match.canUndo(gf2Fresh, null, { loaders: createLoaders() }) === true, "A natural (no-reset) completed Grand Final with nothing downstream is undo-able");
 
     const winnerEntrant = await Entrant.findOne({ tournamentId: tournament2._id, playerId: gf2Fresh.player1Id });
     const winnerPlacementBefore = winnerEntrant.placement;
@@ -228,7 +229,7 @@ async function main() {
     const gfLoserBefore = await Entrant.findById(gfLoserEntrant._id);
     assert(gfLoserBefore.placement === 999 && gfLoserBefore.placementSetManually === true, "Before undo: the manually-set placement (999) and its manual flag are in place");
 
-    await resolvers.Mutation.undoMatchResult(null, { matchId: gf2Fresh._id.toString() }, organizerCtx);
+    await resolvers.Mutation.undoMatchResult(null, { matchId: gf2Fresh._id.toString() }, { ...organizerCtx, loaders: createLoaders() });
 
     const winnerEntrantAfter = await Entrant.findById(winnerEntrant._id);
     assert(winnerEntrantAfter.placement == null, `After undo: the auto-applied Grand Final winner placement is un-applied back to null (got ${winnerEntrantAfter.placement})`);
@@ -272,19 +273,19 @@ async function main() {
 
     const gf3Fresh = await Match.findById(gf3._id);
     assert(gf3Fresh.status === "COMPLETED", "The real Grand Final itself is COMPLETED (game 1's result)");
-    assert(await resolvers.Match.canUndo(gf3Fresh) === false, "The Grand Final is NOT undo-able once a Reset exists, even though it has no nextMatchId of its own");
-    const gfUndoAttempt = await resolvers.Mutation.undoMatchResult(null, { matchId: gf3Fresh._id.toString() }, organizerCtx).then(() => null).catch(e => e);
+    assert(await resolvers.Match.canUndo(gf3Fresh, null, { loaders: createLoaders() }) === false, "The Grand Final is NOT undo-able once a Reset exists, even though it has no nextMatchId of its own");
+    const gfUndoAttempt = await resolvers.Mutation.undoMatchResult(null, { matchId: gf3Fresh._id.toString() }, { ...organizerCtx, loaders: createLoaders() }).then(() => null).catch(e => e);
     assert(gfUndoAttempt instanceof Error, "A real undoMatchResult call on the Grand Final is actually blocked while the Reset exists");
 
-    assert(await resolvers.Match.canUndo(resetMatch) === false, "The Reset match itself is not undo-able yet while still PENDING (nothing to undo)");
+    assert(await resolvers.Match.canUndo(resetMatch, null, { loaders: createLoaders() }) === false, "The Reset match itself is not undo-able yet while still PENDING (nothing to undo)");
 
     await resolvers.Mutation.reportResult(null, { matchId: resetMatch._id.toString(), player1Score: 2, player2Score: 0 }, organizerCtx);
     const resetFreshAfterPlay = await Match.findById(resetMatch._id);
-    assert(await resolvers.Match.canUndo(resetFreshAfterPlay) === true, "Once played, the Reset match IS the real current terminal match and IS undo-able");
+    assert(await resolvers.Match.canUndo(resetFreshAfterPlay, null, { loaders: createLoaders() }) === true, "Once played, the Reset match IS the real current terminal match and IS undo-able");
 
     const resetWinnerId = resetFreshAfterPlay.winnerId;
     const resetWinnerWinsBefore = (await Player.findById(resetWinnerId)).wins;
-    await resolvers.Mutation.undoMatchResult(null, { matchId: resetFreshAfterPlay._id.toString() }, organizerCtx);
+    await resolvers.Mutation.undoMatchResult(null, { matchId: resetFreshAfterPlay._id.toString() }, { ...organizerCtx, loaders: createLoaders() });
     const resetAfterUndo = await Match.findById(resetMatch._id);
     assert(resetAfterUndo.status === "PENDING", "After undo: the real Reset match is back to PENDING");
     const resetWinnerAfter = await Player.findById(resetWinnerId);

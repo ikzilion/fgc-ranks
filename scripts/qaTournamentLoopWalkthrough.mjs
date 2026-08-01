@@ -67,6 +67,7 @@ const { Bracket } = await import("../models/Bracket");
 const { Pool } = await import("../models/Pool");
 const { Notification } = await import("../models/Notification");
 const { resolvers } = await import("../graphql/resolvers/index");
+const { createLoaders } = await import("../graphql/loaders");
 const { scaledPointsForPlacement } = await import("../lib/ranking");
 
 let failures = 0;
@@ -140,7 +141,7 @@ async function playBracketToCompletionWithEditAndUndo(organizerCtx, bracketId, l
   const winsBeforeEdit = (await Player.findById(p1)).wins;
   const lossesBeforeEditP2 = (await Player.findById(p2)).losses;
 
-  const edited = await resolvers.Mutation.editMatchResult(null, { matchId: editTarget._id.toString(), player1Score: 0, player2Score: 2 }, organizerCtx);
+  const edited = await resolvers.Mutation.editMatchResult(null, { matchId: editTarget._id.toString(), player1Score: 0, player2Score: 2 }, { ...organizerCtx, loaders: createLoaders() });
   assert(edited.winnerId.toString() === p2, `${label}: editMatchResult flipped the winner to player2 (${p2})`);
   const p1AfterEdit = await Player.findById(p1);
   const p2AfterEdit = await Player.findById(p2);
@@ -162,7 +163,7 @@ async function playBracketToCompletionWithEditAndUndo(organizerCtx, bracketId, l
   const undoWinsBefore = (await Player.findById(up1)).wins;
   const undoLossesBefore = (await Player.findById(up2)).losses;
 
-  const undone = await resolvers.Mutation.undoMatchResult(null, { matchId: undoTarget._id.toString() }, organizerCtx);
+  const undone = await resolvers.Mutation.undoMatchResult(null, { matchId: undoTarget._id.toString() }, { ...organizerCtx, loaders: createLoaders() });
   assert(undone.status === "PENDING" && undone.winnerId == null, `${label}: undoMatchResult reverted the match to PENDING with no winner`);
   const up1After = await Player.findById(up1);
   const up2After = await Player.findById(up2);

@@ -72,6 +72,7 @@ const { Bracket } = await import("../models/Bracket");
 const { Pool } = await import("../models/Pool");
 const { nextPowerOfTwo, computeModelBInitialPoolCount, MODEL_B_MIN_ENTRANTS } = await import("../lib/bracket");
 const { resolvers } = await import("../graphql/resolvers/index");
+const { createLoaders } = await import("../graphql/loaders");
 
 let failures = 0;
 function assert(cond, label) {
@@ -149,7 +150,7 @@ async function main() {
     assert(poolSizes.every(s => s === 12 || s === 13), `Pool sizes are all 12 or 13 (even split of 200/16) -- got ${poolSizes.join(",")}`);
 
     for (const pool of pools) {
-      const bracket = await resolvers.Pool.bracket(pool);
+      const bracket = await resolvers.Pool.bracket(pool, null, { loaders: createLoaders() });
       assert(!!bracket, `Pool ${pool.poolNumber} has its own Bracket document`);
       const expectedSize = nextPowerOfTwo(pool.entrantIds.length);
       assert(bracket.size === expectedSize, `Pool ${pool.poolNumber} bracket size ${bracket.size} matches ${pool.entrantIds.length} entrants (expected ${expectedSize})`);

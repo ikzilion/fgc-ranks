@@ -55,6 +55,7 @@ const { Entrant } = await import("../models/Entrant");
 const { Match } = await import("../models/Match");
 const { Bracket } = await import("../models/Bracket");
 const { resolvers } = await import("../graphql/resolvers/index");
+const { createLoaders } = await import("../graphql/loaders");
 
 const SIM_PASSWORD = "TestPass123!";
 const NUM_SIM_PLAYERS = 34; // uneven, not a clean multiple of any obvious pool count
@@ -197,7 +198,7 @@ async function main() {
         await resolvers.Mutation.reportResult(null, { matchId: m._id.toString(), player1Score: 2, player2Score: 0 }, organizerCtx);
         // Immediately correct it — flips the winner to player2 — before
         // anything downstream plays off the original result.
-        await resolvers.Mutation.editMatchResult(null, { matchId: m._id.toString(), player1Score: 1, player2Score: 2 }, organizerCtx);
+        await resolvers.Mutation.editMatchResult(null, { matchId: m._id.toString(), player1Score: 1, player2Score: 2 }, { ...organizerCtx, loaders: createLoaders() });
         editDone = true;
         console.log(`  Reported then corrected/edited a result on Pool ${pool.poolNumber} Winners Round 1.`);
       }

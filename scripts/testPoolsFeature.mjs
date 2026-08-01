@@ -53,6 +53,7 @@ const { Match } = await import("../models/Match");
 const { Bracket } = await import("../models/Bracket");
 const { Pool } = await import("../models/Pool");
 const { resolvers } = await import("../graphql/resolvers/index");
+const { createLoaders } = await import("../graphql/loaders");
 
 let failures = 0;
 function assert(cond, label) {
@@ -161,7 +162,7 @@ async function main() {
     for (const pool of pools1) {
       const entrants = await resolvers.Pool.entrants(pool);
       poolSizes.push(entrants.length);
-      const bracket = await resolvers.Pool.bracket(pool);
+      const bracket = await resolvers.Pool.bracket(pool, null, { loaders: createLoaders() });
       assert(!!bracket, `Pool ${pool.poolNumber} has a Bracket`);
       const expectedSize = entrants.length <= 4 ? 4 : entrants.length <= 8 ? 8 : 16;
       assert(bracket.size === expectedSize, `Pool ${pool.poolNumber} bracket size ${bracket.size} matches ${entrants.length} entrants (expected ${expectedSize})`);
@@ -279,7 +280,7 @@ async function main() {
       const corrected = await resolvers.Mutation.editMatchResult(
         null,
         { matchId: m._id.toString(), player1Score: 0, player2Score: 2 },
-        organizerCtx1
+        { ...organizerCtx1, loaders: createLoaders() }
       );
       assert(corrected.player2Score === 2 && corrected.winnerId.toString() === m.player2Id.toString(), "editMatchResult correction re-ran advancement with the corrected winner");
     }

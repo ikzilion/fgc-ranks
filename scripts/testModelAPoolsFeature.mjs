@@ -49,6 +49,7 @@ const { Bracket } = await import("../models/Bracket");
 const { Pool } = await import("../models/Pool");
 const { nextPowerOfTwo } = await import("../lib/bracket");
 const { resolvers } = await import("../graphql/resolvers/index");
+const { createLoaders } = await import("../graphql/loaders");
 
 let failures = 0;
 function assert(cond, label) {
@@ -139,7 +140,7 @@ async function main() {
     assert(sizes[0] === 5 && sizes[1] === 4, `Uneven split of 9 entrants into 5 + 4 (got ${sizes.join(",")})`);
 
     for (const pool of pools) {
-      const bracket = await resolvers.Pool.bracket(pool);
+      const bracket = await resolvers.Pool.bracket(pool, null, { loaders: createLoaders() });
       assert(!bracket, `Pool ${pool.poolNumber} has NO Bracket document (round-robin, not double-elim)`);
       const matches = await resolvers.Pool.matches(pool);
       const expectedMatchCount = (pool.entrantIds.length * (pool.entrantIds.length - 1)) / 2;
@@ -284,7 +285,7 @@ async function main() {
     assert(poolsC.length === 2, "Model C: generatePools still creates 2 pools");
 
     for (const pool of poolsC) {
-      const bracket = await resolvers.Pool.bracket(pool);
+      const bracket = await resolvers.Pool.bracket(pool, null, { loaders: createLoaders() });
       assert(!!bracket, `Model C: Pool ${pool.poolNumber} HAS its own double-elim Bracket (unchanged behavior)`);
       const matches = await resolvers.Pool.matches(pool);
       assert(matches.length === 0, `Model C: Pool ${pool.poolNumber}.matches (round-robin field) is empty — its matches live on the bracket instead`);
