@@ -338,6 +338,13 @@ function filterBracketToTier(bracket: PoolBracket, tierSize: number): PoolBracke
   return { seedingMethod: bracket.seedingMethod, size: tierSize, matches, seedOrder: bracket.seedOrder };
 }
 
+// No lineColor/boxColor/fontColor props here on purpose -- this component
+// only ever renders on the Overview page, which always uses plain theme
+// colors regardless of a tournament's custom bracket colors. Those are
+// Stream-only as of Aug 1, 2026 (reversing the July 29, 2026 "apply
+// uniformly across every view" decision, commit 2826625) -- see
+// components/StreamBracket.tsx's own BracketView calls for where they're
+// still used.
 export function PoolsSection({
   tournamentId,
   pools,
@@ -348,9 +355,6 @@ export function PoolsSection({
   poolModel,
   modelBCurrentRoundComplete,
   canManage,
-  lineColor,
-  boxColor,
-  fontColor,
 }: {
   tournamentId: string;
   pools: PoolData[];
@@ -361,9 +365,6 @@ export function PoolsSection({
   poolModel: string;
   modelBCurrentRoundComplete: boolean;
   canManage: boolean;
-  lineColor?: string;
-  boxColor?: string;
-  fontColor?: string;
 }) {
   const isModelB = poolModel === "B";
   const hasMainBracket = !!mainBracket;
@@ -590,7 +591,7 @@ export function PoolsSection({
               {liveCount} live {liveCount === 1 ? "entrant" : "entrants"} remaining — the complete Main Bracket is always available in its own tab.
             </p>
           )}
-          <BracketView bracket={displayedMainBracket} canManage={canManage} lineColor={lineColor} boxColor={boxColor} fontColor={fontColor} />
+          <BracketView bracket={displayedMainBracket} canManage={canManage} />
         </div>
       )}
 
@@ -607,7 +608,7 @@ export function PoolsSection({
           </div>
           <PoolAdvancementTags pool={activePool} />
           {activePool.bracket ? (
-            <BracketView bracket={activePool.bracket} canManage={canManage} lineColor={lineColor} boxColor={boxColor} fontColor={fontColor} />
+            <BracketView bracket={activePool.bracket} canManage={canManage} />
           ) : activePool.matches.length > 0 ? (
             <PoolStandingsView pool={activePool} canManage={canManage} />
           ) : (

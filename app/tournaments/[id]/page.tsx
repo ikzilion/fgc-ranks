@@ -442,6 +442,15 @@ async function TournamentBody({
             // stacked vertically on one long page. Pools stay viewable
             // via their own tab as history/reference once the main
             // bracket exists, not just during the pool stage.
+            //
+            // Deliberately NOT passed: tournament.bracketLineColor/
+            // bracketBoxColor/bracketFontColor -- those are Stream-only as
+            // of Aug 1, 2026 (reversing the July 29, 2026 "apply uniformly
+            // across every view" decision, commit 2826625). Overview always
+            // renders with plain theme colors regardless of what's set on
+            // the tournament; only components/StreamBracket.tsx's own
+            // BracketView calls still receive these props. See the Notion
+            // writeup for the full reasoning.
             <PoolsSection
               tournamentId={tournament.id}
               pools={tournament.pools}
@@ -452,9 +461,6 @@ async function TournamentBody({
               poolModel={tournament.poolModel}
               modelBCurrentRoundComplete={tournament.modelBCurrentRoundComplete}
               canManage={canManage}
-              lineColor={tournament.bracketLineColor}
-              boxColor={tournament.bracketBoxColor}
-              fontColor={tournament.bracketFontColor}
             />
           ) : (
             // overflow: visible override — .fgc-card's overflow:hidden (for
@@ -481,7 +487,9 @@ async function TournamentBody({
                 )}
               </div>
               {tournament.bracket ? (
-                <BracketView bracket={tournament.bracket} canManage={canManage} lineColor={tournament.bracketLineColor} boxColor={tournament.bracketBoxColor} fontColor={tournament.bracketFontColor} />
+                // No lineColor/boxColor/fontColor here -- Stream-only, see
+                // the PoolsSection comment above for the full reasoning.
+                <BracketView bracket={tournament.bracket} canManage={canManage} />
               ) : (
                 <p className="text-[13px] text-[var(--text-secondary)]">No bracket generated yet.</p>
               )}
