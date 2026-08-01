@@ -201,6 +201,12 @@ export const typeDefs = `#graphql
     isEntered(playerId: ID): Boolean!
     isOrganizer(playerId: ID): Boolean!
     isInvited(playerId: ID): Boolean!
+    # The caller's own Entrant record (id + checkedInAt), not the full list --
+    # for the fast tournament-page summary query, which needs just enough to
+    # drive JoinTournamentButton/SelfCheckInButton without fetching every
+    # entrant. Same cheap Entrant.findOne shape as isEntered, just returning
+    # the doc instead of a boolean.
+    myEntrant(playerId: ID): Entrant
     organizers: [Player!]!
     invitedPlayers: [Player!]!
     entrants: [Entrant!]!

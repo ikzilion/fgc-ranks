@@ -3454,6 +3454,14 @@ export const resolvers = {
       const entrant = await Entrant.findOne({ tournamentId: parent._id, playerId });
       return !!entrant;
     },
+    // Same cheap single-entrant lookup as isEntered above, returning the
+    // doc instead of a boolean -- lets the tournament page's fast summary
+    // query get the caller's own entrantId/checkedInAt without fetching the
+    // full entrants list (loading-state performance work, Aug 1, 2026).
+    myEntrant: async (parent: { _id: string }, { playerId }: { playerId?: string }) => {
+      if (!playerId) return null;
+      return await Entrant.findOne({ tournamentId: parent._id, playerId });
+    },
     organizers: async (parent: { organizers?: string[] }) =>
       parent.organizers ? await Player.find({ _id: { $in: parent.organizers } }) : [],
     isOrganizer: (parent: { organizers?: string[] }, { playerId }: { playerId?: string }) => {

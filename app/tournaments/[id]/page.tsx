@@ -1,6 +1,7 @@
 // app/tournaments/[id]/page.tsx
 // Tournament detail page — shows bracket matches and entrant list.
 
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import nextDynamic from "next/dynamic";
@@ -18,6 +19,7 @@ import { PoolsSection } from "@/components/PoolsSection";
 import { TournamentManageTabs } from "@/components/TournamentManageTabs";
 import { EntrantSearchFilter } from "@/components/EntrantSearchFilter";
 import { TournamentCsvExport } from "@/components/TournamentCsvExport";
+import { TournamentLoadingState } from "@/components/TournamentLoadingState";
 
 // Code-split from the main page bundle (next/dynamic, aliased since this
 // file already has its own `export const dynamic` route-segment config
@@ -50,6 +52,53 @@ const MATCH_FIELDS = `
   nextMatch { id }
   nextLoserMatch { id }
   canUndo
+`;
+
+// Fast/lightweight query for everything the page HEADER needs (name,
+// status, join/manage buttons, Streamer/Tablet Mode entry points) plus
+// pools { id } for the loading-state pool count -- deliberately excludes
+// entrants (full list + player), bracket/pools' own matches, and mainBracket,
+// which is what made the full query slow on a large Pools + Bracket
+// tournament even after the N+1 fixes (see the Aug 1, 2026 perf-fix
+// entries). The header renders immediately from this; the slow/full query
+// below runs behind a Suspense boundary so the rest of the page can stream
+// in once it resolves, with real numbers in the fallback instead of a
+// generic spinner (loading-state work, Aug 1, 2026).
+const GET_TOURNAMENT_SUMMARY = `
+  query GetTournamentSummary($id: ID!, $playerId: ID) {
+    tournament(id: $id) {
+      id
+      name
+      game
+      status
+      cancellationReason
+      visibility
+      entrantCount
+      startDate
+      isEntered(playerId: $playerId)
+      isOrganizer(playerId: $playerId)
+      isInvited(playerId: $playerId)
+      myEntrant(playerId: $playerId) {
+        id
+        checkedInAt
+      }
+      logoUrl
+      isOnlineOnly
+      address
+      twitchUrl
+      format
+      capacity
+      entryFee
+      prizePot
+      event {
+        id
+        name
+      }
+      pools {
+        id
+      }
+    }
+  }
 `;
 
 const GET_TOURNAMENT = `
@@ -163,16 +212,34 @@ const GET_TOURNAMENT = `
   }
 `;
 
+async function graphqlFetch(query: string, variables: Record<string, unknown>) {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const res = await fetch(`${baseUrl}/api/graphql`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, variables }),
+    cache: "no-store",
+  });
+  return res.json();
+}
+
+async function getTournamentSummary(id: string, playerId?: string) {
+  try {
+    const json = await graphqlFetch(GET_TOURNAMENT_SUMMARY, { id, playerId });
+    if (json.errors) {
+      console.error("[tournament/id] Summary GraphQL errors:", json.errors);
+      return null;
+    }
+    return json.data?.tournament ?? null;
+  } catch (err) {
+    console.error("[tournament/id] Summary fetch error:", err);
+    return null;
+  }
+}
+
 async function getTournament(id: string, playerId?: string) {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-    const res = await fetch(`${baseUrl}/api/graphql`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: GET_TOURNAMENT, variables: { id, playerId } }),
-      cache: "no-store",
-    });
-    const json = await res.json();
+    const json = await graphqlFetch(GET_TOURNAMENT, { id, playerId });
     if (json.errors) {
       console.error("[tournament/id] GraphQL errors:", json.errors);
       return { tournament: null, players: [] };
@@ -205,16 +272,29 @@ function statusBadge(status: string) {
   return <span className="badge-ended text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded">Ended</span>;
 }
 
-export default async function TournamentDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const session = await auth();
-  const playerId = (session?.user as any)?.playerId ?? undefined;
-  const role = (session?.user as any)?.role;
-  const { tournament, players } = await getTournament(id, playerId);
-  if (!tournament) notFound();
-
-  const canManage = tournament.isOrganizer || isAdminOrAbove(role);
-  const myEntrant = tournament.entrants.find((e: any) => e.player.id === playerId);
+// The slow part -- runs the full detail query (pools, bracket, mainBracket,
+// entrants+player) and renders everything below the header. Wrapped in a
+// <Suspense> boundary by the page component below, so Next.js can stream
+// the header (already sent to the browser) and swap this in once it
+// resolves, instead of blocking the whole page on it (loading-state work,
+// Aug 1, 2026).
+async function TournamentBody({
+  tournamentId,
+  playerId,
+  canManage,
+}: {
+  tournamentId: string;
+  playerId?: string;
+  canManage: boolean;
+}) {
+  const { tournament, players } = await getTournament(tournamentId, playerId);
+  if (!tournament) {
+    return (
+      <div className="max-w-5xl mx-auto mb-6">
+        <p className="text-[13px] text-[var(--text-secondary)]">This tournament is no longer available.</p>
+      </div>
+    );
+  }
 
   // Pool play + top-cut bracket format — the standard-format branch below is
   // completely untouched; this only adds a second, separate rendering path.
@@ -418,6 +498,76 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   );
 
   return (
+    <>
+      {/* CSV export -- moved here (from the header) since it needs the full
+          match/entrant data this slow query fetches; only relevant once
+          ENDED anyway, so appearing a moment after the rest of this section
+          streams in isn't a real loss (loading-state work, Aug 1, 2026). */}
+      {tournament.status === "ENDED" && (
+        <div className="max-w-5xl mx-auto mb-4 flex justify-end">
+          <TournamentCsvExport
+            tournamentName={tournament.name}
+            entrants={tournament.entrants}
+            matchGroups={csvMatchGroups}
+          />
+        </div>
+      )}
+
+      {/* Tabbed reorganization (settled July 28, 2026) — TournamentManageTabs
+          only ever renders for canManage; everyone else gets overviewContent
+          directly, unwrapped, so a public/non-managing viewer's rendered
+          page is completely unchanged (same DOM, same position, same
+          max-w-[1800px]-or-max-w-5xl container overviewContent already
+          brings with it — see where it's built above). */}
+      {canManage ? (
+        <TournamentManageTabs
+          tournamentId={tournament.id}
+          status={tournament.status}
+          logoUrl={tournament.logoUrl}
+          isOnlineOnly={tournament.isOnlineOnly}
+          address={tournament.address}
+          twitchUrl={tournament.twitchUrl}
+          format={tournament.format}
+          capacity={tournament.capacity}
+          entryFee={tournament.entryFee}
+          prizePot={tournament.prizePot}
+          event={tournament.event}
+          organizers={tournament.organizers}
+          visibility={tournament.visibility}
+          invitedPlayers={tournament.invitedPlayers}
+          entrants={tournament.entrants}
+          allPlayers={players}
+          isRestricted={tournament.isRestricted}
+          streamBackgroundUrl={tournament.streamBackgroundUrl}
+          sponsorBannerUrl={tournament.sponsorBannerUrl}
+          sponsorBannerUrls={tournament.sponsorBannerUrls}
+          sponsorBannerIntervalSeconds={tournament.sponsorBannerIntervalSeconds}
+          bracketLineColor={tournament.bracketLineColor}
+          bracketBoxColor={tournament.bracketBoxColor}
+          bracketFontColor={tournament.bracketFontColor}
+        >
+          {overviewContent}
+        </TournamentManageTabs>
+      ) : (
+        overviewContent
+      )}
+    </>
+  );
+}
+
+export default async function TournamentDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const session = await auth();
+  const playerId = (session?.user as any)?.playerId ?? undefined;
+  const role = (session?.user as any)?.role;
+  const tournament = await getTournamentSummary(id, playerId);
+  if (!tournament) notFound();
+
+  const canManage = tournament.isOrganizer || isAdminOrAbove(role);
+  const isPoolsFormat = tournament.format === "Pools + Bracket";
+  const poolCount = tournament.pools.length;
+
+  return (
     <main className="mx-auto px-4 py-8">
       {/* Header — kept at the site's standard content width. Only the
           bracket section below gets a wider wrapper, since it's the one
@@ -521,17 +671,10 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                     🏆 Top 8 Results
                   </Link>
                 )}
-                {tournament.status === "ENDED" && (
-                  <TournamentCsvExport
-                    tournamentName={tournament.name}
-                    entrants={tournament.entrants}
-                    matchGroups={csvMatchGroups}
-                  />
-                )}
                 <JoinTournamentButton
                   tournamentId={tournament.id}
                   isEntered={tournament.isEntered}
-                  entrantId={myEntrant?.id}
+                  entrantId={tournament.myEntrant?.id}
                   status={tournament.status}
                   visibility={tournament.visibility}
                   isInvited={tournament.isInvited}
@@ -541,11 +684,11 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                     separate control down in the entrant list
                     (CheckInToggleButton) and Tablet/Phone Mode's QR-scan
                     "Check in" mode, both reusing the same mutation. */}
-                {tournament.isEntered && myEntrant && (
+                {tournament.isEntered && tournament.myEntrant && (
                   <SelfCheckInButton
                     tournamentId={tournament.id}
                     playerId={playerId!}
-                    checkedInAt={myEntrant.checkedInAt}
+                    checkedInAt={tournament.myEntrant.checkedInAt}
                     status={tournament.status}
                   />
                 )}
@@ -580,44 +723,23 @@ export default async function TournamentDetailPage({ params }: { params: Promise
         </div>
       </div>
 
-      {/* Tabbed reorganization (settled July 28, 2026) — TournamentManageTabs
-          only ever renders for canManage; everyone else gets overviewContent
-          directly, unwrapped, so a public/non-managing viewer's rendered
-          page is completely unchanged (same DOM, same position, same
-          max-w-[1800px]-or-max-w-5xl container overviewContent already
-          brings with it — see where it's built above). */}
-      {canManage ? (
-        <TournamentManageTabs
-          tournamentId={tournament.id}
-          status={tournament.status}
-          logoUrl={tournament.logoUrl}
-          isOnlineOnly={tournament.isOnlineOnly}
-          address={tournament.address}
-          twitchUrl={tournament.twitchUrl}
-          format={tournament.format}
-          capacity={tournament.capacity}
-          entryFee={tournament.entryFee}
-          prizePot={tournament.prizePot}
-          event={tournament.event}
-          organizers={tournament.organizers}
-          visibility={tournament.visibility}
-          invitedPlayers={tournament.invitedPlayers}
-          entrants={tournament.entrants}
-          allPlayers={players}
-          isRestricted={tournament.isRestricted}
-          streamBackgroundUrl={tournament.streamBackgroundUrl}
-          sponsorBannerUrl={tournament.sponsorBannerUrl}
-          sponsorBannerUrls={tournament.sponsorBannerUrls}
-          sponsorBannerIntervalSeconds={tournament.sponsorBannerIntervalSeconds}
-          bracketLineColor={tournament.bracketLineColor}
-          bracketBoxColor={tournament.bracketBoxColor}
-          bracketFontColor={tournament.bracketFontColor}
-        >
-          {overviewContent}
-        </TournamentManageTabs>
-      ) : (
-        overviewContent
-      )}
+      {/* Bracket/pools/entrants section -- runs the slow full query behind
+          this Suspense boundary, so the header above (already rendered from
+          the fast summary query) can stream to the browser immediately
+          instead of waiting on it. Fallback shows real pool/entrant counts
+          from the summary data, not a generic spinner (loading-state work,
+          Aug 1, 2026). */}
+      <Suspense
+        fallback={
+          <TournamentLoadingState
+            entrantCount={tournament.entrantCount}
+            poolCount={poolCount}
+            isPoolsFormat={isPoolsFormat}
+          />
+        }
+      >
+        <TournamentBody tournamentId={id} playerId={playerId} canManage={canManage} />
+      </Suspense>
 
       <div className="max-w-5xl mx-auto">
         {/* Back link */}
