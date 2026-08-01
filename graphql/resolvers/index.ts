@@ -349,21 +349,31 @@ function resolveMatchOutcome(
 // reset match as a special case: the Grand Final itself has no nextMatchId
 // of its own, so a reset having already been created (meaning a second game
 // was played) wouldn't show up in either of the other two checks.
-async function assertBracketMatchEditable(match: any) {
+// loaders is required (not optional) -- every caller runs inside a GraphQL
+// request, and the Apollo context factory (app/api/graphql/route.ts) always
+// creates a fresh set via createLoaders(), so there's no code path where
+// they're genuinely unavailable. Routing these three lookups through
+// matchLoader/grandFinalResetLoader instead of their own findById/findOne
+// matters most for Match.canUndo's field resolver below (fires once per
+// COMPLETED bracket match in a list -- hundreds on a large pools tournament)
+// but costs nothing extra for the two single-match mutation call sites
+// (editMatchResult, undoMatchResult), since a DataLoader with only one
+// .load() call in flight is just as fast as the direct query it replaces.
+async function assertBracketMatchEditable(match: any, loaders: Loaders) {
   if (match.nextMatchId) {
-    const next = await Match.findById(match.nextMatchId);
-    if (next && next.status === MatchStatus.COMPLETED) {
-      throw new Error(`Can't edit this result — "${next.round}" has already been played. Editing would require reversing that result too, which isn't supported.`);
+    const next = await loaders.matchLoader.load(match.nextMatchId.toString());
+    if (next && (next as any).status === MatchStatus.COMPLETED) {
+      throw new Error(`Can't edit this result — "${(next as any).round}" has already been played. Editing would require reversing that result too, which isn't supported.`);
     }
   }
   if (match.nextLoserMatchId) {
-    const nextLoser = await Match.findById(match.nextLoserMatchId);
-    if (nextLoser && nextLoser.status === MatchStatus.COMPLETED) {
-      throw new Error(`Can't edit this result — "${nextLoser.round}" has already been played. Editing would require reversing that result too, which isn't supported.`);
+    const nextLoser = await loaders.matchLoader.load(match.nextLoserMatchId.toString());
+    if (nextLoser && (nextLoser as any).status === MatchStatus.COMPLETED) {
+      throw new Error(`Can't edit this result — "${(nextLoser as any).round}" has already been played. Editing would require reversing that result too, which isn't supported.`);
     }
   }
   if (match.bracketSide === "GRAND_FINAL") {
-    const reset = await Match.findOne({ bracketId: match.bracketId, bracketSide: "GRAND_FINAL_RESET" });
+    const reset = await loaders.grandFinalResetLoader.load(match.bracketId.toString());
     if (reset) {
       throw new Error("Can't edit this result — the bracket already went to a reset match (a second game was played). Editing would require unwinding that too, which isn't supported.");
     }
@@ -2648,7 +2658,7 @@ export const resolvers = {
     editMatchResult: async (
       _: unknown,
       { matchId, player1Score, player2Score, isForfeit, forfeitingPlayerId }: { matchId: string; player1Score?: number | null; player2Score?: number | null; isForfeit?: boolean | null; forfeitingPlayerId?: string | null },
-      { playerId, role }: { playerId?: string; role?: string }
+      { playerId, role, loaders }: { playerId?: string; role?: string; loaders: Loaders }
     ) => {
       await connectToDatabase();
       const match = await Match.findById(matchId);
@@ -2660,7 +2670,7 @@ export const resolvers = {
       if (match.bracketId) {
         // Allowed only if nothing downstream has been played yet — full
         // cascade-reversal is out of scope. Throws with a specific reason if not.
-        await assertBracketMatchEditable(match);
+        await assertBracketMatchEditable(match, loaders);
       }
 
       if (match.status !== MatchStatus.COMPLETED) {
@@ -2730,7 +2740,7 @@ export const resolvers = {
     // effects reversed (undoMatchEffects, reused from lib/bracket.ts
     // unchanged), and any automatic placement it triggered un-applied
     // (also inside undoMatchEffects) without touching a manual override.
-    undoMatchResult: async (_: unknown, { matchId }: { matchId: string }, { playerId, role }: { playerId?: string; role?: string }) => {
+    undoMatchResult: async (_: unknown, { matchId }: { matchId: string }, { playerId, role, loaders }: { playerId?: string; role?: string; loaders: Loaders }) => {
       await connectToDatabase();
       const match = await Match.findById(matchId);
       if (!match) throw new Error("Match not found");
@@ -2747,7 +2757,7 @@ export const resolvers = {
       // Same "nothing downstream played" gate editMatchResult already uses
       // — throws with a specific reason if this isn't actually the
       // bracket's current terminal match.
-      await assertBracketMatchEditable(match);
+      await assertBracketMatchEditable(match, loaders);
 
       await undoMatchEffects(match);
 
@@ -3639,12 +3649,19 @@ export const resolvers = {
     // with nothing downstream played yet. Reuses assertBracketMatchEditable
     // (the exact same "nothing downstream played" gate editMatchResult
     // already enforces) rather than a second, possibly-drifting definition
-    // of the same structural check.
-    canUndo: async (parent: { bracketId?: string; status?: string }) => {
+    // of the same structural check. This field resolves once per COMPLETED
+    // bracket match in a list -- hundreds on a large pools tournament -- so
+    // assertBracketMatchEditable being routed through matchLoader/
+    // grandFinalResetLoader (graphql/loaders.ts) instead of its own
+    // findById/findOne calls is what actually matters here; found as a
+    // SECOND, separate N+1 while re-verifying the Pool.bracket/Bracket.
+    // matches fix still left the real tournament detail page at ~20s
+    // (85-pool tournament perf investigation, Aug 1, 2026).
+    canUndo: async (parent: { bracketId?: string; status?: string }, _args: unknown, { loaders }: { loaders: Loaders }) => {
       if (!parent.bracketId) return false;
       if (parent.status !== MatchStatus.COMPLETED) return false;
       try {
-        await assertBracketMatchEditable(parent);
+        await assertBracketMatchEditable(parent, loaders);
         return true;
       } catch {
         return false;

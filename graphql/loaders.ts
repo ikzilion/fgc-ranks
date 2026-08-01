@@ -126,6 +126,25 @@ function batchMatchesByBracketId() {
   };
 }
 
+// Batches assertBracketMatchEditable's GRAND_FINAL_RESET lookup (one
+// Match.findOne({bracketId, bracketSide:"GRAND_FINAL_RESET"}) per Grand
+// Final match before this) into a single find({bracketId:{$in:...}}). Found
+// while re-verifying the Pool.bracket/Bracket.matches fix above still left
+// the real tournament detail page at ~20s -- Match.canUndo calls
+// assertBracketMatchEditable for every COMPLETED bracket match (hundreds on
+// an 85-pool tournament), and until now that function always did its own
+// unbatched Match.findById/findOne calls regardless of caller, DataLoader-
+// covered fields or not (85-pool tournament perf investigation, Aug 1,
+// 2026). True 1:1 like batchBracketByPoolId -- a bracket has at most one
+// Grand Final Reset match.
+function batchGrandFinalResetByBracketId() {
+  return async (bracketIds: readonly string[]): Promise<(InstanceType<typeof Match> | null)[]> => {
+    const resets = await Match.find({ bracketId: { $in: bracketIds as string[] }, bracketSide: "GRAND_FINAL_RESET" });
+    const byBracketId = new Map(resets.map(m => [(m.bracketId as { toString(): string }).toString(), m]));
+    return bracketIds.map(id => byBracketId.get(id) ?? null);
+  };
+}
+
 export function createLoaders() {
   return {
     playerLoader: new DataLoader(batchById(Player)),
@@ -146,6 +165,7 @@ export function createLoaders() {
     // the full staggering explanation) -- fixed Aug 1, 2026.
     poolBracketLoader: new DataLoader(batchBracketByPoolId()),
     bracketMatchesLoader: new DataLoader(batchMatchesByBracketId()),
+    grandFinalResetLoader: new DataLoader(batchGrandFinalResetByBracketId()),
     gameTournamentCountLoader: new DataLoader<string, number>(batchGameTournamentCounts()),
     eventTournamentStatsLoader: new DataLoader<string, { tournamentCount: number; gameCount: number }>(
       batchEventTournamentStats()
