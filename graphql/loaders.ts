@@ -17,6 +17,7 @@ import { Player } from "@/models/Player";
 import { Match } from "@/models/Match";
 import { Event } from "@/models/Event";
 import { Tournament } from "@/models/Tournament";
+import { Bracket } from "@/models/Bracket";
 import { getLiveStatuses } from "@/lib/twitch";
 
 // DataLoader requires each batch to return results in the SAME ORDER as the
@@ -78,6 +79,53 @@ function batchEventTournamentStats() {
   };
 }
 
+// Batches Pool.bracket (one Bracket.findOne({ poolId }) per pool before this
+// -- 85 individual round trips on an 85-pool tournament) into a single
+// find({poolId:{$in:...}}). True 1:1 like batchById -- Bracket.poolId has
+// its own partial unique index (models/Bracket.ts), so a pool has at most
+// one bracket.
+function batchBracketByPoolId() {
+  return async (poolIds: readonly string[]): Promise<(InstanceType<typeof Bracket> | null)[]> => {
+    const brackets = await Bracket.find({ poolId: { $in: poolIds as string[] } });
+    const byPoolId = new Map(brackets.map(b => [(b.poolId as { toString(): string }).toString(), b]));
+    return poolIds.map(id => byPoolId.get(id) ?? null);
+  };
+}
+
+// Batches Bracket.matches (one Match.find({ bracketId }) per bracket before
+// this -- another 85 individual round trips, one per pool's own bracket) into
+// a single find({bracketId:{$in:...}}). Unlike the 1:1 loaders above, a
+// bracket has MANY matches, so this groups the single sorted result set back
+// out per bracketId instead of remapping one document per key -- the overall
+// query is sorted once by {bracketRound:1, bracketPosition:1}, and pushing
+// into each bracketId's array in that same order preserves the per-bracket
+// sort without re-sorting each group individually.
+//
+// This is the loader that actually mattered for the 85-pool tournament perf
+// investigation (Aug 1, 2026): Pool.bracket and Bracket.matches being
+// unbatched meant those 170 queries resolved in staggered waves gated by
+// maxPoolSize:5, which in turn fragmented the ALREADY-loader-covered
+// Match.player1/player2/winner/nextMatch/nextLoserMatch batching into ~17
+// waves instead of 1 (each wave of matches arriving together, but different
+// waves landing in different event-loop ticks). Fixing the upstream
+// staggering here is what lets THOSE loaders batch the way they were always
+// supposed to.
+function batchMatchesByBracketId() {
+  return async (bracketIds: readonly string[]): Promise<InstanceType<typeof Match>[][]> => {
+    const matches = await Match.find({ bracketId: { $in: bracketIds as string[] } }).sort({
+      bracketRound: 1,
+      bracketPosition: 1,
+    });
+    const byBracketId = new Map<string, InstanceType<typeof Match>[]>();
+    for (const m of matches) {
+      const key = (m.bracketId as { toString(): string }).toString();
+      if (!byBracketId.has(key)) byBracketId.set(key, []);
+      byBracketId.get(key)!.push(m);
+    }
+    return bracketIds.map(id => byBracketId.get(id) ?? []);
+  };
+}
+
 export function createLoaders() {
   return {
     playerLoader: new DataLoader(batchById(Player)),
@@ -94,6 +142,10 @@ export function createLoaders() {
     // three fields requested at once). One loader, shared across all three
     // resolvers, fixes both.
     eventLoader: new DataLoader(batchById(Event)),
+    // Pool.bracket + Bracket.matches (see the two batch functions above for
+    // the full staggering explanation) -- fixed Aug 1, 2026.
+    poolBracketLoader: new DataLoader(batchBracketByPoolId()),
+    bracketMatchesLoader: new DataLoader(batchMatchesByBracketId()),
     gameTournamentCountLoader: new DataLoader<string, number>(batchGameTournamentCounts()),
     eventTournamentStatsLoader: new DataLoader<string, { tournamentCount: number; gameCount: number }>(
       batchEventTournamentStats()

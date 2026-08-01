@@ -1,10 +1,23 @@
-// Before/after query-count measurement for the 4 N+1 fixes made during the
+// Before/after query-count measurement for the N+1 fixes made during the
 // July 29, 2026 performance audit (NewsPost.author, Game.tournamentCount,
-// Event.tournamentCount+gameCount, Tournament.address/logoUrl/twitchUrl).
-// Same methodology as the existing Phase 7 DataLoader fix (mongoose debug
-// hook counting real queries against real production data), executed
-// in-process against the real ApolloServer/typeDefs/resolvers/loaders --
-// not a mock.
+// Event.tournamentCount+gameCount, Tournament.address/logoUrl/twitchUrl) --
+// see a-d below -- PLUS the Aug 1, 2026 Pool.bracket/Bracket.matches fix
+// (see e below). Same methodology as the existing Phase 7 DataLoader fix
+// (mongoose debug hook counting real queries against real production data),
+// executed in-process against the real ApolloServer/typeDefs/resolvers/
+// loaders -- not a mock.
+//
+// IMPORTANT, learned the hard way (Aug 1, 2026): a-d never touched Pool or
+// Bracket at all, so this script reported "42 queries, 4.3s" as if the whole
+// tournament detail page were fixed, while the real page (an 85-pool
+// tournament) was still taking ~23s in production -- a completely separate,
+// unbatched N+1 in Pool.bracket/Bracket.matches that this benchmark's a-d
+// section structurally could not have caught, no matter how carefully it
+// was run. Section e below closes that gap by running the ACTUAL detail-
+// page query against the real largest Pools + Bracket tournament in the DB.
+// Don't trust a query-count/timing benchmark for this page again unless it
+// includes e (or an equivalent real-scale Pool/Bracket check) -- a-d passing
+// is NOT evidence the tournament detail page itself is fast.
 //
 // Run twice: once against the CURRENT (fixed) working tree, and once after
 // `git stash -- graphql/resolvers/index.ts graphql/loaders.ts` (which
@@ -96,6 +109,57 @@ if (anyEventLinked) {
   );
 } else {
   console.log("  (no event-linked tournament found in this DB to test the triple-fetch shape)");
+}
+
+// === e. THE ACTUAL tournament-detail-page query (app/tournaments/[id]/
+// page.tsx's GET_TOURNAMENT, reproduced verbatim below) against the REAL
+// largest Pools + Bracket tournament in this DB -- added Aug 1, 2026 after
+// the earlier a-d measurements above gave a false "fixed" signal (42
+// queries, 4.3s) that never actually exercised Pool.bracket/Bracket.matches
+// at all, while the real production tournament page for an 85-pool
+// tournament was still taking ~23s. Finding the tournament with the MOST
+// pools (rather than a hardcoded id that a later test-data cleanup could
+// delete) keeps this benchmark meaningful as real data changes -- the whole
+// point is catching this class of gap at real scale, not just re-confirming
+// a small/empty case works.
+const { Pool } = await import("../models/Pool");
+const poolCounts = await Pool.aggregate([
+  { $group: { _id: "$tournamentId", poolCount: { $sum: 1 } } },
+  { $sort: { poolCount: -1 } },
+  { $limit: 1 },
+]);
+if (poolCounts.length > 0) {
+  const { _id: biggestPoolsTournamentId, poolCount } = poolCounts[0];
+  const MATCH_FIELDS = `
+    id round status bracketSide bracketRound bracketPosition player1Score
+    player2Score isForfeit player1 { id tag } player2 { id tag }
+    winner { id tag } nextMatch { id } nextLoserMatch { id } canUndo
+  `;
+  console.log(`\n=== e. FULL GetTournament detail-page query against the largest real Pools + Bracket tournament (${poolCount} pools, id ${biggestPoolsTournamentId}) ===`);
+  await run(
+    `tournament(id) { ...full detail-page shape, ${poolCount} pools }`,
+    `query($id: ID!) {
+      tournament(id: $id) {
+        id name entrantCount
+        entrants { id seed placement checkedInAt pointsEarned player { id tag avatarUrl characters } }
+        bracket { id seedingMethod size matches { ${MATCH_FIELDS} } }
+        pools {
+          id poolNumber roundNumber isFinalsCutoff
+          entrants { id player { id tag avatarUrl } }
+          bracket { id seedingMethod size matches { ${MATCH_FIELDS} } }
+          matches { ${MATCH_FIELDS} }
+          standings { rank matchWins matchLosses gamesWon gamesLost entrant { id player { id tag avatarUrl } } }
+        }
+        mainBracket { id seedingMethod size seedOrder { id } matches { ${MATCH_FIELDS} } }
+        allPoolsComplete modelBCurrentRoundComplete
+      }
+      players(limit: 200) { id tag }
+    }`,
+    { id: biggestPoolsTournamentId.toString() }
+  );
+} else {
+  console.log("\n=== e. FULL GetTournament detail-page query (Pools + Bracket) ===");
+  console.log("  (no Pools + Bracket tournament with any pools found in this DB -- this benchmark needs one to actually catch a Pool/Bracket-scoped N+1 regression; create one via scripts/seedPoolsSimulation.js or similar before trusting a-d's numbers as representative of the tournament detail page)");
 }
 
 process.exit(0);

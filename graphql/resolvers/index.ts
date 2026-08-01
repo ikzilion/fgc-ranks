@@ -3520,7 +3520,14 @@ export const resolvers = {
   Pool: {
     entrants: async (parent: { entrantIds?: string[] }) =>
       parent.entrantIds ? await Entrant.find({ _id: { $in: parent.entrantIds } }) : [],
-    bracket: async (parent: { _id: string }) => await Bracket.findOne({ poolId: parent._id }),
+    // Batched via poolBracketLoader (graphql/loaders.ts) instead of its own
+    // Bracket.findOne per pool -- 85 individual round trips on an 85-pool
+    // tournament, staggered behind maxPoolSize:5, which in turn fragmented
+    // Bracket.matches' downstream player1/player2/winner/nextMatch/
+    // nextLoserMatch DataLoader batching into ~17 waves instead of 1
+    // (85-pool tournament perf investigation, Aug 1, 2026).
+    bracket: async (parent: { _id: string }, _args: unknown, { loaders }: { loaders: Loaders }) =>
+      await loaders.poolBracketLoader.load(parent._id.toString()),
     // Model A (round-robin) only — empty for a Model B/C pool (its matches
     // live under bracket.matches instead).
     matches: async (parent: { _id: string }) => await Match.find({ poolId: parent._id }).sort({ createdAt: 1 }),
@@ -3664,7 +3671,14 @@ export const resolvers = {
       const byId = new Map(players.map((p: any) => [p._id.toString(), p]));
       return parent.seedOrder.map((id: any) => byId.get(id.toString())).filter(Boolean);
     },
-    matches: async (parent: { _id: string }) =>
-      await Match.find({ bracketId: parent._id }).sort({ bracketRound: 1, bracketPosition: 1 }),
+    // Batched via bracketMatchesLoader (graphql/loaders.ts) instead of its
+    // own Match.find per bracket -- this fired once per pool's own bracket
+    // (85 individual round trips on an 85-pool tournament), which combined
+    // with Pool.bracket's own unbatched N+1 above was the actual root cause
+    // of the ~19s gap between the earlier DataLoader benchmark and real
+    // production load time (85-pool tournament perf investigation, Aug 1,
+    // 2026) -- see graphql/loaders.ts's batchMatchesByBracketId comment.
+    matches: async (parent: { _id: string }, _args: unknown, { loaders }: { loaders: Loaders }) =>
+      await loaders.bracketMatchesLoader.load(parent._id.toString()),
   },
 };
