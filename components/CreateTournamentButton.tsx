@@ -648,14 +648,14 @@ export function CreateTournamentButton() {
                           description: "Every entrant plays every other pool member once. Fair and simple, but a pool loss carries no consequence into the main bracket — everyone gets a clean restart. Best for smaller or faster-moving events.",
                         },
                         {
-                          value: "C" as const,
-                          label: "Model C — Double-elim pools (default)",
-                          description: "Each pool is its own mini double-elimination bracket, so pools have real stakes — a 2nd loss eliminates you from the pool. Still a clean slate once you reach the main bracket.",
-                        },
-                        {
                           value: "B" as const,
                           label: "Model B — Continuous carry-over",
                           description: "EVO's massive-scale system: pool results carry over into fresh, re-grouped pools across several rounds instead of resetting once. Needs at least 128 entrants — for anything smaller, Model A or C already give you the same result more simply.",
+                        },
+                        {
+                          value: "C" as const,
+                          label: "Model C — Double-elim pools (default)",
+                          description: "Each pool is its own mini double-elimination bracket, so pools have real stakes — a 2nd loss eliminates you from the pool. Still a clean slate once you reach the main bracket.",
                         },
                       ]
                     ).map(option => (
