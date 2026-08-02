@@ -226,6 +226,7 @@ function MatchCard({
   boxColor,
   fontColor,
   marginTop,
+  highlightedPlayerIds,
 }: {
   match: BracketMatch;
   canManage: boolean;
@@ -238,14 +239,27 @@ function MatchCard({
   // centerById computation. Undefined/0 behaves exactly like the old plain
   // stacked layout.
   marginTop?: number;
+  // Player-search highlighting (Aug 1, 2026) — empty/undefined means
+  // nothing highlighted.
+  highlightedPlayerIds?: Set<string>;
 }) {
   const ready = !!match.player1 && !!match.player2;
+  const highlighted =
+    (!!match.player1 && !!highlightedPlayerIds?.has(match.player1.id)) ||
+    (!!match.player2 && !!highlightedPlayerIds?.has(match.player2.id));
 
   return (
     <div
       ref={el => registerRef(match.id, el)}
       className="fgc-card p-3 w-56 flex-shrink-0"
-      style={{ ...(boxColor ? { background: boxColor } : undefined), ...(marginTop ? { marginTop } : undefined) }}
+      style={{
+        ...(boxColor ? { background: boxColor } : undefined),
+        ...(marginTop ? { marginTop } : undefined),
+        // outline (not border) deliberately -- doesn't affect the box's
+        // measured dimensions/position, which the connector-line drawing
+        // (registerRef above) depends on being pixel-exact.
+        ...(highlighted ? { outline: "2px solid var(--gold)", outlineOffset: "1px" } : undefined),
+      }}
     >
       {/* Round label on its own full-width row, action buttons (canManage
           only) on a second row below — was previously squeezed onto one
@@ -305,6 +319,7 @@ function ByeCard({
   player,
   boxColor,
   fontColor,
+  highlightedPlayerIds,
 }: {
   cardHeight: number;
   marginTop?: number;
@@ -319,13 +334,19 @@ function ByeCard({
   // match card would, rather than being exempted from it.
   boxColor?: string;
   fontColor?: string;
+  // Player-search highlighting (Aug 1, 2026) -- a bye is a genuine
+  // appearance (they're skipping the round, not absent from it), so this
+  // gets the same treatment as a real match card.
+  highlightedPlayerIds?: Set<string>;
 }) {
+  const highlighted = !!player && !!highlightedPlayerIds?.has(player.id);
   return (
     <div
       ref={el => registerByeRef(byeId, el)}
       className="fgc-card w-56 flex-shrink-0 flex flex-col items-center justify-center gap-1 px-3"
       style={{
         height: cardHeight,
+        ...(highlighted ? { outline: "2px solid var(--gold)", outlineOffset: "1px" } : undefined),
         // Smooths the one real, unavoidable transition every bracket goes
         // through: measuredCardHeight starts at DEFAULT_CARD_HEIGHT (a
         // guess, before any card has actually been measured) and corrects
@@ -399,6 +420,7 @@ const BracketSideSection = memo(function BracketSideSection({
   accentColor,
   boxColor,
   fontColor,
+  highlightedPlayerIds,
 }: {
   side: string;
   matches: BracketMatch[];
@@ -439,6 +461,9 @@ const BracketSideSection = memo(function BracketSideSection({
   // through to every MatchCard in this section.
   boxColor?: string;
   fontColor?: string;
+  // Player-search highlighting (Aug 1, 2026) — passed straight through to
+  // every MatchCard/ByeCard in this section.
+  highlightedPlayerIds?: Set<string>;
 }) {
   const roundSpacing = cardHeight + CARD_GAP;
   const byeByRoundPos = new Map<string, ByeSlot>();
@@ -625,6 +650,7 @@ const BracketSideSection = memo(function BracketSideSection({
                       marginTop={marginTop}
                       boxColor={boxColor}
                       fontColor={fontColor}
+                      highlightedPlayerIds={highlightedPlayerIds}
                     />
                   );
                 }
@@ -637,6 +663,7 @@ const BracketSideSection = memo(function BracketSideSection({
                     boxColor={boxColor}
                     fontColor={fontColor}
                     marginTop={marginTop}
+                    highlightedPlayerIds={highlightedPlayerIds}
                   />
                 );
               })}
@@ -654,6 +681,7 @@ export function BracketView({
   lineColor,
   boxColor,
   fontColor,
+  highlightedPlayerIds,
 }: {
   bracket: { seedingMethod: string; size: number; matches: BracketMatch[] };
   canManage: boolean;
@@ -664,6 +692,12 @@ export function BracketView({
   // var(--text-primary)) apply exactly as before this feature existed.
   boxColor?: string;
   fontColor?: string;
+  // Player-search highlighting (Aug 1, 2026) — Overview-only feature (no
+  // caller in components/StreamBracket.tsx passes this), undefined/omitted
+  // behaves exactly like before this feature existed. Expected to be a
+  // referentially-stable (useMemo'd) Set from the caller so it doesn't
+  // defeat BracketSideSection's memo() below on every unrelated re-render.
+  highlightedPlayerIds?: Set<string>;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cardEls = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -1021,8 +1055,8 @@ export function BracketView({
           {/* Winners Bracket stacked above Losers Bracket, both reading
               left-to-right by round. */}
           <div className="flex flex-col">
-            {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} bracketSize={bracket.size} byeSlots={winnersByeSlots} registerByeRef={registerByeRef} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
-            {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} bracketSize={bracket.size} byeSlots={losersByeSlots} registerByeRef={registerByeRef} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized dividerAbove={bySide.WINNERS.length > 0} accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
+            {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} bracketSize={bracket.size} byeSlots={winnersByeSlots} registerByeRef={registerByeRef} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} highlightedPlayerIds={highlightedPlayerIds} />}
+            {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} bracketSize={bracket.size} byeSlots={losersByeSlots} registerByeRef={registerByeRef} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized dividerAbove={bySide.WINNERS.length > 0} accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} highlightedPlayerIds={highlightedPlayerIds} />}
           </div>
           {/* Grand Finals is its own final column to the right of both
               brackets — not interleaved — vertically centered between them,
@@ -1030,8 +1064,8 @@ export function BracketView({
               winners) actually land. */}
           {(bySide.GRAND_FINAL.length > 0 || bySide.GRAND_FINAL_RESET.length > 0) && (
             <div className="flex flex-col justify-center">
-              {bySide.GRAND_FINAL.length > 0 && <BracketSideSection side="GRAND_FINAL" matches={bySide.GRAND_FINAL} bracketSize={bracket.size} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
-              {bySide.GRAND_FINAL_RESET.length > 0 && <BracketSideSection side="GRAND_FINAL_RESET" matches={bySide.GRAND_FINAL_RESET} bracketSize={bracket.size} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} />}
+              {bySide.GRAND_FINAL.length > 0 && <BracketSideSection side="GRAND_FINAL" matches={bySide.GRAND_FINAL} bracketSize={bracket.size} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} highlightedPlayerIds={highlightedPlayerIds} />}
+              {bySide.GRAND_FINAL_RESET.length > 0 && <BracketSideSection side="GRAND_FINAL_RESET" matches={bySide.GRAND_FINAL_RESET} bracketSize={bracket.size} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} highlightedPlayerIds={highlightedPlayerIds} />}
             </div>
           )}
         </div>

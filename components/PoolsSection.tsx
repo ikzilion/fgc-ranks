@@ -152,7 +152,15 @@ function PoolAdvancementTags({ pool }: { pool: PoolData }) {
 // tiebreak order already resolved server-side) plus the individual match
 // list, in place of BracketView's bracket rendering (there's no bracket to
 // draw for a round-robin pool).
-function PoolStandingsView({ pool, canManage }: { pool: PoolData; canManage: boolean }) {
+function PoolStandingsView({
+  pool,
+  canManage,
+  highlightedPlayerIds,
+}: {
+  pool: PoolData;
+  canManage: boolean;
+  highlightedPlayerIds: Set<string>;
+}) {
   const standings = pool.standings ?? [];
   return (
     <div>
@@ -167,53 +175,74 @@ function PoolStandingsView({ pool, canManage }: { pool: PoolData; canManage: boo
             </tr>
           </thead>
           <tbody>
-            {standings.map(row => (
-              <tr key={row.entrant.id} style={row.rank <= 2 ? { background: "rgba(74,222,128,0.08)" } : undefined}>
-                <td className="py-2 pr-3 font-rajdhani font-bold text-[var(--text-primary)]">{row.rank}</td>
-                <td className="py-2 pr-3 text-[var(--text-primary)]">
-                  {row.entrant.player.tag}
-                  {row.rank <= 2 && (
-                    <span className="ml-2 text-[10px] font-bold" style={{ color: "var(--green)" }}>
-                      ADVANCING
-                    </span>
-                  )}
-                </td>
-                <td className="py-2 pr-3 text-right text-[var(--text-secondary)]">
-                  {row.matchWins}-{row.matchLosses}
-                </td>
-                <td className="py-2 text-right text-[var(--text-secondary)]">
-                  {row.gamesWon}-{row.gamesLost}
-                </td>
-              </tr>
-            ))}
+            {standings.map(row => {
+              const highlighted = highlightedPlayerIds.has(row.entrant.player.id);
+              return (
+                <tr
+                  key={row.entrant.id}
+                  style={
+                    highlighted
+                      ? { background: "rgba(240,180,41,0.16)", outline: "1px solid var(--gold)" }
+                      : row.rank <= 2
+                        ? { background: "rgba(74,222,128,0.08)" }
+                        : undefined
+                  }
+                >
+                  <td className="py-2 pr-3 font-rajdhani font-bold text-[var(--text-primary)]">{row.rank}</td>
+                  <td className="py-2 pr-3 text-[var(--text-primary)]">
+                    {row.entrant.player.tag}
+                    {row.rank <= 2 && (
+                      <span className="ml-2 text-[10px] font-bold" style={{ color: "var(--green)" }}>
+                        ADVANCING
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-2 pr-3 text-right text-[var(--text-secondary)]">
+                    {row.matchWins}-{row.matchLosses}
+                  </td>
+                  <td className="py-2 text-right text-[var(--text-secondary)]">
+                    {row.gamesWon}-{row.gamesLost}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
 
       <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Matches</p>
       <div className="flex flex-col gap-2">
-        {pool.matches.map(match => (
-          <div
-            key={match.id}
-            className="flex items-center justify-between gap-3 flex-wrap px-3 py-2 rounded"
-            style={{ background: "var(--navy-3)", border: "1px solid var(--border)" }}
-          >
-            <div className="text-[13px] text-[var(--text-primary)]">
-              {match.player1?.tag} <span className="text-[var(--text-muted)]">vs</span> {match.player2?.tag}
+        {pool.matches.map(match => {
+          const highlighted =
+            (!!match.player1 && highlightedPlayerIds.has(match.player1.id)) ||
+            (!!match.player2 && highlightedPlayerIds.has(match.player2.id));
+          return (
+            <div
+              key={match.id}
+              className="flex items-center justify-between gap-3 flex-wrap px-3 py-2 rounded"
+              style={
+                highlighted
+                  ? { background: "rgba(240,180,41,0.1)", border: "1px solid var(--gold)" }
+                  : { background: "var(--navy-3)", border: "1px solid var(--border)" }
+              }
+            >
+              <div className="text-[13px] text-[var(--text-primary)]">
+                {match.player1?.tag} <span className="text-[var(--text-muted)]">vs</span> {match.player2?.tag}
+              </div>
+              <div className="flex items-center gap-3">
+                {match.status === "COMPLETED" ? (
+                  <span className="text-[12px] font-semibold text-[var(--text-secondary)]">
+                    {match.isForfeit ? "FF" : `${match.player1Score}-${match.player2Score}`}
+                    {match.winner && <span className="ml-1" style={{ color: "var(--green)" }}>({match.winner.tag} won)</span>}
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-[var(--text-muted)]">Pending</span>
+                )}
+                <ReportMatchButton match={match as any} canManage={canManage} />
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              {match.status === "COMPLETED" ? (
-                <span className="text-[12px] font-semibold text-[var(--text-secondary)]">
-                  {match.isForfeit ? "FF" : `${match.player1Score}-${match.player2Score}`}
-                  {match.winner && <span className="ml-1" style={{ color: "var(--green)" }}>({match.winner.tag} won)</span>}
-                </span>
-              ) : (
-                <span className="text-[11px] text-[var(--text-muted)]">Pending</span>
-              )}
-              <ReportMatchButton match={match as any} canManage={canManage} />
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -229,7 +258,7 @@ function TabBar({
   activeKey,
   onSelect,
 }: {
-  tabs: { key: string; label: string }[];
+  tabs: { key: string; label: string; hasHighlight?: boolean }[];
   activeKey: string;
   onSelect: (key: string) => void;
 }) {
@@ -241,7 +270,7 @@ function TabBar({
           <button
             key={tab.key}
             onClick={() => onSelect(tab.key)}
-            className="font-rajdhani text-[13px] font-bold tracking-wide px-3 py-1.5 rounded"
+            className="relative font-rajdhani text-[13px] font-bold tracking-wide px-3 py-1.5 rounded"
             style={
               active
                 ? { background: "var(--blue)", color: "white", border: "none", cursor: "pointer" }
@@ -249,6 +278,16 @@ function TabBar({
             }
           >
             {tab.label}
+            {/* Marks "the searched player appears somewhere in here" --
+                deliberately a separate visual (small corner dot) from the
+                active/inactive background above, so a tab can be both
+                active AND flagged at once without the two states colliding. */}
+            {tab.hasHighlight && (
+              <span
+                className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full"
+                style={{ background: "var(--gold)", border: "1.5px solid var(--navy)" }}
+              />
+            )}
           </button>
         );
       })}
@@ -355,6 +394,7 @@ export function PoolsSection({
   poolModel,
   modelBCurrentRoundComplete,
   canManage,
+  highlightedPlayerIds,
 }: {
   tournamentId: string;
   pools: PoolData[];
@@ -365,6 +405,12 @@ export function PoolsSection({
   poolModel: string;
   modelBCurrentRoundComplete: boolean;
   canManage: boolean;
+  // Player-search highlighting (Aug 1, 2026) — empty Set means nothing
+  // highlighted, same as no search query entered. Every tab already has
+  // this pool/bracket's full entrant list in props regardless of which tab
+  // is currently active, so "does this tab contain the searched player" is
+  // just a plain array check here, no extra data needed.
+  highlightedPlayerIds: Set<string>;
 }) {
   const isModelB = poolModel === "B";
   const hasMainBracket = !!mainBracket;
@@ -380,6 +426,14 @@ export function PoolsSection({
   const liveCount = !isModelB && mainBracket ? computeLiveEntrantCount(mainBracket) : 0;
   const showTop24 = !isModelB && hasMainBracket && mainStartCount >= 48 && liveCount <= 24;
   const showTop8 = !isModelB && hasMainBracket && mainStartCount >= 16 && liveCount <= 8;
+
+  // Player-search tab badging (Aug 1, 2026) — a pool/the main bracket
+  // "contains" the searched player if any of its own entrants match, which
+  // is already sitting in props for every pool regardless of which tab is
+  // currently active (this is what makes badging a HIDDEN tab possible at
+  // all — its match cards aren't in the DOM, but its entrant list still is).
+  const poolHasHighlight = (pool: PoolData) => pool.entrants.some(e => highlightedPlayerIds.has(e.player.id));
+  const mainBracketHasHighlight = !!mainBracket?.seedOrder?.some(p => highlightedPlayerIds.has(p.id));
 
   // Model B only — every round that has at least one pool so far, in order.
   // Model A/C never have more than one pool round, so this stays empty for
@@ -403,8 +457,12 @@ export function PoolsSection({
   // just elevated to this tier instead of sitting alongside pool tabs).
   const roundTabs = isModelB
     ? [
-        ...roundNumbers.map(r => ({ key: roundKeyFor(r), label: roundLabel(r) })),
-        ...(hasMainBracket ? [{ key: "main", label: "Finals" }] : []),
+        ...roundNumbers.map(r => ({
+          key: roundKeyFor(r),
+          label: roundLabel(r),
+          hasHighlight: pools.some(p => (p.roundNumber ?? 1) === r && poolHasHighlight(p)),
+        })),
+        ...(hasMainBracket ? [{ key: "main", label: "Finals", hasHighlight: mainBracketHasHighlight }] : []),
       ]
     : [];
 
@@ -429,12 +487,14 @@ export function PoolsSection({
   const tabs = isModelB
     ? activeRound === "main"
       ? []
-      : pools.filter(p => roundKeyFor(p.roundNumber ?? 1) === activeRound).map(p => ({ key: `pool-${p.id}`, label: `Pool ${p.poolNumber}` }))
+      : pools
+          .filter(p => roundKeyFor(p.roundNumber ?? 1) === activeRound)
+          .map(p => ({ key: `pool-${p.id}`, label: `Pool ${p.poolNumber}`, hasHighlight: poolHasHighlight(p) }))
     : [
-        ...(hasMainBracket ? [{ key: "main", label: "Main Bracket" }] : []),
-        ...(showTop24 ? [{ key: "main-top24", label: "Top 24" }] : []),
-        ...(showTop8 ? [{ key: "main-top8", label: "Top 8" }] : []),
-        ...pools.map(p => ({ key: `pool-${p.id}`, label: `Pool ${p.poolNumber}` })),
+        ...(hasMainBracket ? [{ key: "main", label: "Main Bracket", hasHighlight: mainBracketHasHighlight }] : []),
+        ...(showTop24 ? [{ key: "main-top24", label: "Top 24", hasHighlight: mainBracketHasHighlight }] : []),
+        ...(showTop8 ? [{ key: "main-top8", label: "Top 8", hasHighlight: mainBracketHasHighlight }] : []),
+        ...pools.map(p => ({ key: `pool-${p.id}`, label: `Pool ${p.poolNumber}`, hasHighlight: poolHasHighlight(p) })),
       ];
   const [activeTab, setActiveTab] = useState<string | undefined>(
     isModelB ? firstPoolTabForRound(defaultRoundKey) : tabs[0]?.key
@@ -591,7 +651,7 @@ export function PoolsSection({
               {liveCount} live {liveCount === 1 ? "entrant" : "entrants"} remaining — the complete Main Bracket is always available in its own tab.
             </p>
           )}
-          <BracketView bracket={displayedMainBracket} canManage={canManage} />
+          <BracketView bracket={displayedMainBracket} canManage={canManage} highlightedPlayerIds={highlightedPlayerIds} />
         </div>
       )}
 
@@ -608,9 +668,9 @@ export function PoolsSection({
           </div>
           <PoolAdvancementTags pool={activePool} />
           {activePool.bracket ? (
-            <BracketView bracket={activePool.bracket} canManage={canManage} />
+            <BracketView bracket={activePool.bracket} canManage={canManage} highlightedPlayerIds={highlightedPlayerIds} />
           ) : activePool.matches.length > 0 ? (
-            <PoolStandingsView pool={activePool} canManage={canManage} />
+            <PoolStandingsView pool={activePool} canManage={canManage} highlightedPlayerIds={highlightedPlayerIds} />
           ) : (
             <p className="text-[13px] text-[var(--text-secondary)]">No matches for this pool yet.</p>
           )}
