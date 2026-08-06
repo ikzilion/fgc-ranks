@@ -7,6 +7,7 @@
 // /games/[game] itself links out to it ("Search {game} tournaments").
 
 import { GameSearchFilter } from "@/components/GameSearchFilter";
+import { AdSlot } from "@/components/AdSlot";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,8 @@ export default async function GamesPage() {
       </div>
 
       <GameSearchFilter games={games} />
+
+      <AdSlot className="mt-6" />
     </main>
   );
 }

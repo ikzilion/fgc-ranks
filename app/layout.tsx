@@ -2,11 +2,21 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import Script from "next/script";
 import { Navbar } from "@/components/Navbar";
 import { SessionProvider } from "next-auth/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Analytics } from "@vercel/analytics/next";
 import { getThemeOrDefault, ThemePalette } from "@/lib/theme";
+
+// Google AdSense (settled Aug 2026) -- loaded once, site-wide, same
+// unconditional-mount-when-configured pattern as SpeedInsights/Analytics
+// below. Only the ad-request script itself; NOT the enable_page_level_ads
+// call, which would turn on Auto ads (Google auto-injecting ads anywhere it
+// wants, with no way to suppress them on a specific route) -- see
+// components/AdSlot.tsx for why manual ad units were chosen instead.
+// Renders nothing when the Publisher ID env var isn't set yet.
+const ADSENSE_CLIENT_ID = process.env.NEXT_PUBLIC_ADSENSE_CLIENT_ID;
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -95,6 +105,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             (that's performance timing, this is traffic/visitor counts).
             Same zero-cost-outside-Vercel reasoning, mounted unconditionally. */}
         <Analytics />
+        {ADSENSE_CLIENT_ID && (
+          <Script
+            async
+            strategy="afterInteractive"
+            src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT_ID}`}
+            crossOrigin="anonymous"
+          />
+        )}
       </body>
     </html>
   );

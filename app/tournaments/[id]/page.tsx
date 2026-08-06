@@ -17,6 +17,7 @@ import { TournamentManageTabs } from "@/components/TournamentManageTabs";
 import { TournamentBracketSection } from "@/components/TournamentBracketSection";
 import { TournamentCsvExport } from "@/components/TournamentCsvExport";
 import { TournamentLoadingState } from "@/components/TournamentLoadingState";
+import { AdSlot } from "@/components/AdSlot";
 
 // Code-split from the main page bundle (next/dynamic, aliased since this
 // file already has its own `export const dynamic` route-segment config
@@ -653,6 +654,16 @@ export default async function TournamentDetailPage({ params }: { params: Promise
       </Suspense>
 
       <div className="max-w-5xl mx-auto">
+        {/* Ad slot — deliberately gated on !canManage, not rendered at all
+            for this tournament's organizer or an Admin/Super Admin viewing
+            it, since for them this page IS their active management
+            interface (Overview tab's inline management controls,
+            TournamentManageTabs' Manage/Stream tabs). Same viewer sees ads
+            normally everywhere else on the site — this suppression is
+            scoped to "managing this specific tournament", not a blanket
+            ad-free status for TOs/Admins (settled scope, Aug 2026). */}
+        {!canManage && <AdSlot className="mt-6" />}
+
         {/* Back link */}
         <div className="mt-6">
           <Link href="/tournaments" className="text-[13px] text-[var(--text-secondary)] hover:text-[var(--blue)]">

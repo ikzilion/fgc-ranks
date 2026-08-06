@@ -14,6 +14,7 @@ import { NewsPostForm } from "@/components/NewsPostForm";
 import { DeleteNewsPostButton } from "@/components/DeleteNewsPostButton";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { SocialLinks } from "@/components/SocialLinks";
+import { AdSlot } from "@/components/AdSlot";
 
 export const dynamic = "force-dynamic";
 
@@ -338,6 +339,8 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
           ))
         )}
       </div>
+
+      <AdSlot className="mb-6" />
 
       <Link href="/events" className="text-[13px] text-[var(--text-secondary)] hover:text-[var(--blue)]">
         ← Back to events

@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { isAdminOrAbove } from "@/lib/roles";
 import { CreateTournamentButton } from "@/components/CreateTournamentButton";
 import { TournamentSearchFilter } from "@/components/TournamentSearchFilter";
+import { AdSlot } from "@/components/AdSlot";
 
 export const dynamic = "force-dynamic";
 
@@ -74,6 +75,8 @@ export default async function TournamentsPage({ searchParams }: { searchParams: 
       </div>
 
       <TournamentSearchFilter tournaments={withCanManage} initialQuery={game ?? ""} />
+
+      <AdSlot className="mt-6" />
     </main>
   );
 }

@@ -15,6 +15,7 @@ import { HeadToHeadSection } from "@/components/HeadToHeadSection";
 import { ZoomableAvatar } from "@/components/ZoomableAvatar";
 import { RequestTOButton } from "@/components/RequestTOButton";
 import { SocialLinks } from "@/components/SocialLinks";
+import { AdSlot } from "@/components/AdSlot";
 
 export const dynamic = "force-dynamic";
 
@@ -422,6 +423,8 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
           owner against any other player. */}
       <h2 className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3 mt-6">Head-to-head</h2>
       <HeadToHeadSection profilePlayerId={player.id} viewerHeadToHead={viewerHeadToHead} players={pickablePlayers} />
+
+      <AdSlot className="mt-6" />
     </main>
   );
 }

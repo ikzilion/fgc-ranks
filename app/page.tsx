@@ -7,6 +7,7 @@ import { NewsPostForm } from "@/components/NewsPostForm";
 import { DeleteNewsPostButton } from "@/components/DeleteNewsPostButton";
 import { PlayerCard } from "@/components/PlayerCard";
 import { LiveUpcomingTournaments } from "@/components/LiveUpcomingTournaments";
+import { AdSlot } from "@/components/AdSlot";
 
 export const dynamic = "force-dynamic";
 
@@ -137,6 +138,8 @@ export default async function Home() {
           <LiveUpcomingTournaments tournaments={tournaments} viewAllHref="/tournaments" />
         </div>
       </div>
+
+      <AdSlot className="mt-8" />
     </main>
   );
 }

@@ -2,6 +2,7 @@
 import { auth } from "@/lib/auth";
 import { PlayerCard } from "@/components/PlayerCard";
 import { PlayerSearchFilter } from "@/components/PlayerSearchFilter";
+import { AdSlot } from "@/components/AdSlot";
 
 export const dynamic = "force-dynamic";
 
@@ -110,6 +111,8 @@ export default async function PlayersPage() {
           <PlayerSearchFilter initialPlayers={players} initialTotalCount={totalCount} />
         </div>
       </div>
+
+      <AdSlot className="mt-6" />
     </main>
   );
 }
