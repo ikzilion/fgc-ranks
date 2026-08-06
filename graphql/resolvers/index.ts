@@ -9,7 +9,8 @@ import { Player } from "@/models/Player";
 import { softDeletePlayer, logAccountDeletionEvent, DELETION_GRACE_PERIOD_MS } from "@/lib/accountDeletion";
 import { THEMES, getActiveThemeId, setActiveThemeId, listAvailableThemes } from "@/lib/theme";
 import { AccountDeletionAuditAction } from "@/models/AccountDeletionAuditLog";
-import { Tournament, TournamentStatus } from "@/models/Tournament";
+import { Tournament } from "@/models/Tournament";
+import { nonStaleTournamentMatch } from "@/lib/tournamentVisibility";
 import { Entrant } from "@/models/Entrant";
 import { Match, MatchStatus } from "@/models/Match";
 import { Bracket } from "@/models/Bracket";
@@ -549,10 +550,7 @@ export const resolvers = {
     ) => {
       await connectToDatabase();
       const filter: any = status ? { status } : {};
-      const staleZeroEntrantCutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      filter.$nor = [
-        { status: TournamentStatus.UPCOMING, entrantCount: 0, createdAt: { $lt: staleZeroEntrantCutoff } },
-      ];
+      filter.$nor = nonStaleTournamentMatch().$nor;
       return await Tournament.find(filter).sort({ startDate: -1 }).skip(offset).limit(limit);
     },
 

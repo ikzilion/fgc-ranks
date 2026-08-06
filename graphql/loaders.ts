@@ -19,6 +19,7 @@ import { Event } from "@/models/Event";
 import { Tournament } from "@/models/Tournament";
 import { Bracket } from "@/models/Bracket";
 import { getLiveStatuses } from "@/lib/twitch";
+import { nonStaleTournamentMatch } from "@/lib/tournamentVisibility";
 
 // DataLoader requires each batch to return results in the SAME ORDER as the
 // keys it was given (not just the same set) -- both loaders below fetch with
@@ -38,10 +39,15 @@ function batchById<T extends { _id: unknown }>(Model: { find: (filter: Record<st
 // the /games list page requests it for every row) into a single grouped
 // aggregation. Any game name with no matching tournament gets 0, same
 // zero-default re-mapping approach as the count/gameCount loader below.
+// Applies the same nonStaleTournamentMatch filter as Query.tournaments --
+// without it, a stale zero-entrant UPCOMING tournament (hidden from the
+// public listing but never deleted) still inflated this count, so a game
+// could show "1 tournament" on the Games tab with zero actually browsable
+// (COTW bug, Aug 2026).
 function batchGameTournamentCounts() {
   return async (names: readonly string[]): Promise<number[]> => {
     const rows = await Tournament.aggregate([
-      { $match: { game: { $in: names as string[] } } },
+      { $match: { game: { $in: names as string[] }, ...nonStaleTournamentMatch() } },
       { $group: { _id: "$game", count: { $sum: 1 } } },
     ]);
     const countByName = new Map(rows.map((r: { _id: string; count: number }) => [r._id, r.count]));
@@ -56,6 +62,9 @@ function batchGameTournamentCounts() {
 // every event in a single query; both field resolvers share this one
 // loader, since DataLoader already coalesces multiple .load() calls for the
 // same key within a request into one batch.
+// Applies nonStaleTournamentMatch for the same reason batchGameTournamentCounts
+// does above -- otherwise a stale zero-entrant UPCOMING tournament linked to
+// an event would inflate its count past what's actually browsable.
 function batchEventTournamentStats() {
   return async (eventIds: readonly string[]): Promise<{ tournamentCount: number; gameCount: number }[]> => {
     // Tournament.eventId is stored as an ObjectId, but unlike Model.find(),
@@ -66,7 +75,7 @@ function batchEventTournamentStats() {
     // explicitly, same requirement as Mongo's ObjectId comparison rules.
     const objectIds = eventIds.map(id => new Types.ObjectId(id));
     const rows = await Tournament.aggregate([
-      { $match: { eventId: { $in: objectIds } } },
+      { $match: { eventId: { $in: objectIds }, ...nonStaleTournamentMatch() } },
       { $group: { _id: "$eventId", count: { $sum: 1 }, games: { $addToSet: "$game" } } },
     ]);
     const statsById = new Map(
