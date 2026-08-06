@@ -6,7 +6,7 @@
 // existing name/game/address search is untouched and still reachable —
 // /games/[game] itself links out to it ("Search {game} tournaments").
 
-import Link from "next/link";
+import { GameSearchFilter } from "@/components/GameSearchFilter";
 
 export const dynamic = "force-dynamic";
 
@@ -52,38 +52,7 @@ export default async function GamesPage() {
         <p className="text-[12px] text-[var(--text-secondary)]">{games.length} games</p>
       </div>
 
-      {games.length === 0 ? (
-        <div className="fgc-card p-6">
-          <p className="text-[var(--text-secondary)]">No games yet.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-          {games.map((game: any) => (
-            <Link
-              key={game.id}
-              href={`/games/${encodeURIComponent(game.name)}`}
-              className="fgc-card p-5 flex flex-col items-center gap-3 text-center hover:bg-[var(--navy-3)] transition-colors"
-            >
-              <div
-                className="w-14 h-14 rounded-[10px] flex items-center justify-center flex-shrink-0 font-rajdhani text-lg font-bold overflow-hidden"
-                style={{ background: "var(--blue-dim)", border: "1px solid rgba(79,142,247,0.3)", color: "var(--blue)" }}
-              >
-                {game.iconUrl ? (
-                  <img src={game.iconUrl} alt={game.name} className="w-full h-full object-cover" />
-                ) : (
-                  game.name.slice(0, 2).toUpperCase()
-                )}
-              </div>
-              <div>
-                <p className="font-rajdhani text-[15px] font-bold text-[var(--text-primary)] leading-tight">{game.name}</p>
-                <p className="text-[11px] text-[var(--text-muted)]">
-                  {game.tournamentCount} tournament{game.tournamentCount === 1 ? "" : "s"}
-                </p>
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
+      <GameSearchFilter games={games} />
     </main>
   );
 }
