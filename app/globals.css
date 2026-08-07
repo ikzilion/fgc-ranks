@@ -79,6 +79,7 @@
 .badge-live     { background: var(--coral-dim); color: var(--coral);   border: 1px solid rgba(255,77,77,0.25); }
 .badge-upcoming { background: var(--blue-dim);  color: var(--blue);    border: 1px solid rgba(79,142,247,0.25); }
 .badge-ended    { background: var(--navy-4);    color: var(--text-muted); border: 1px solid var(--border); }
+.badge-example  { background: var(--gold-dim);  color: var(--gold);    border: 1px solid rgba(240,180,41,0.25); }
 
 /* Live dot animation */
 .live-dot {

@@ -265,6 +265,11 @@ export const typeDefs = `#graphql
     # the "Advance to next round" action (advanceModelBRound), the Model B
     # analogue of allPoolsComplete/"Generate Main Bracket" above.
     modelBCurrentRoundComplete: Boolean!
+    # Marks this as an illustrative example/demo tournament (e.g. the
+    # showcase tournaments for browsing each bracket format) rather than a
+    # real community competition — display-only, doesn't affect any
+    # behavior. See models/Tournament.ts.
+    isExample: Boolean!
   }
 
   type Pool {

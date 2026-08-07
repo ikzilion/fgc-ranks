@@ -158,6 +158,14 @@ const TournamentSchema = new Schema(
     // document — same situation as isRestricted above, so the Tournament.poolModel
     // field resolver coalesces the same way isRestricted's does.
     poolModel: { type: String, enum: Object.values(PoolModel), default: PoolModel.C },
+    // Marks a tournament as an illustrative example/demo (e.g. the showcase
+    // tournaments seeded to let visitors browse every bracket format) rather
+    // than a real community competition. Purely a display flag — an
+    // isExample tournament is otherwise a completely normal, fully
+    // functional Tournament document (public listing, real bracket data,
+    // etc.), just badged differently. Default false, same
+    // absent-means-false convention as isRestricted for pre-existing docs.
+    isExample: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

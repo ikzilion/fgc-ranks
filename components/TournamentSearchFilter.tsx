@@ -19,6 +19,15 @@ interface Tournament {
   isOnlineOnly: boolean;
   address?: string | null;
   canManage: boolean;
+  isExample: boolean;
+}
+
+// Illustrative example/demo tournament (e.g. the showcase tournaments for
+// browsing each bracket format) — not a real community competition. Same
+// small-badge convention as statusBadge above, gold to stand apart from the
+// 3 status colors (coral/blue/muted-gray).
+function exampleBadge() {
+  return <span className="badge-example text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded">Example</span>;
 }
 
 function statusBadge(status: string) {
@@ -146,6 +155,7 @@ export function TournamentSearchFilter({
               )}
             </Link>
             <div className="flex items-center gap-2 flex-shrink-0">
+              {tournament.isExample && exampleBadge()}
               {statusBadge(tournament.status)}
               {tournament.canManage && tournament.status !== "CANCELLED" && (
                 <CancelTournamentButton tournamentId={tournament.id} canManage={tournament.canManage} />

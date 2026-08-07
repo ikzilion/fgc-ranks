@@ -3469,6 +3469,9 @@ export const resolvers = {
     // field can't return as-is. Coalescing here is what actually makes
     // "existing tournaments unaffected" (full capabilities) true in practice.
     isRestricted: (parent: { isRestricted?: boolean }) => parent.isRestricted ?? false,
+    // Same coalescing as isRestricted above — every tournament created
+    // before this field existed has it genuinely absent, not false.
+    isExample: (parent: { isExample?: boolean }) => parent.isExample ?? false,
     entrants: async (parent: { _id: string }) => await Entrant.find({ tournamentId: parent._id }),
     matches: async (parent: { _id: string }) => await Match.find({ tournamentId: parent._id }),
     isEntered: async (parent: { _id: string }, { playerId }: { playerId?: string }) => {

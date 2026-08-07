@@ -76,6 +76,7 @@ const GET_TOURNAMENT_SUMMARY = `
       isEntered(playerId: $playerId)
       isOrganizer(playerId: $playerId)
       isInvited(playerId: $playerId)
+      isExample
       myEntrant(playerId: $playerId) {
         id
         checkedInAt
@@ -269,6 +270,13 @@ function statusBadge(status: string) {
       </span>
     );
   return <span className="badge-ended text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded">Ended</span>;
+}
+
+// Illustrative example/demo tournament — same badge as the Tournaments list
+// row (TournamentSearchFilter.tsx), gold to stand apart from the 3 status
+// colors (coral/blue/muted-gray).
+function exampleBadge() {
+  return <span className="badge-example text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded">Example</span>;
 }
 
 // The slow part -- runs the full detail query (pools, bracket, mainBracket,
@@ -567,6 +575,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                 </div>
               </div>
               <div className="flex items-center gap-3 flex-wrap">
+                {tournament.isExample && exampleBadge()}
                 {statusBadge(tournament.status)}
                 <TournamentStatusButton tournamentId={tournament.id} status={tournament.status} canManage={canManage} />
                 {/* Post-tournament results screen — distinct from the

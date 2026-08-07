@@ -1,28 +1,18 @@
-// scripts/seedStressTest700ModelC.mjs
+// scripts/seedShowcaseModelC.mjs
 //
-// Visual-inspection test tournament for Pool format Model C (double-elim
-// pools, the format default), at the same 700-entrant real scale as the
-// existing "700-Entrant Stress Test" (standard bracket) and "...Model B"
-// tournaments -- created to let every bracket format the app supports be
-// visually inspected at real scale (Aug 1, 2026). REUSES the 700 real
-// StressPlayer Player docs already in the DB from the earlier stress tests
-// (no new players created) plus the real ikzilion account as
-// organizer+entrant, same convention as those two tournaments (701 real
-// entrants total).
+// Small (24-entrant) showcase tournament for Pool format Model C (double-
+// elim pools, the format default) -- lets a soon-to-be TO browse a real,
+// fully-decided bracket of this format without wading through the existing
+// 701-entrant scale-reference tournament (scripts/seedStressTest700ModelC.mjs,
+// which this script mirrors at a much smaller, human-digestible scale).
+// Marked isExample: true so it's badged on the public Tournaments
+// list/detail page, but otherwise a completely normal, public,
+// fully-playable tournament. Direct-to-Mongo via connectToDatabase(),
+// calling the REAL generatePools/reportResult/generateMainBracket
+// resolvers, reusing the existing StressPlayer Player docs already in the
+// DB (no new players created) plus ikzilion as organizer+entrant.
 //
-// Direct-to-Mongo via connectToDatabase() (capped maxPoolSize: 5, same as
-// every other stress/load-test script), calling the REAL
-// generatePools/reportResult/generateMainBracket resolvers (graphql/
-// resolvers/index.ts) against the real production database -- bypasses
-// register/createTournament entirely (their rate limiters are a
-// non-starter at this scale). Pool-bracket play-to-completion pattern
-// (playRoundAcrossPools-style) reused from scripts/loadTestModelBScale.mjs,
-// but unlike that script (which always deletes its test tournaments after
-// measuring), this one PERSISTS the tournament -- goal is a real,
-// permanently-ENDED tournament a human can actually open and look at, not
-// a timing measurement.
-//
-// Run: npx tsx scripts/seedStressTest700ModelC.mjs
+// Run: npx tsx scripts/seedShowcaseModelC.mjs
 
 import fs from "fs";
 import path from "path";
@@ -46,6 +36,12 @@ function loadEnvLocal() {
 loadEnvLocal();
 if (!process.env.MONGODB_URI) throw new Error("Missing MONGODB_URI (checked .env.local)");
 
+const ENTRANT_COUNT = 24; // 23 StressPlayer + ikzilion -- offset from Model A's
+// slice so the two small showcase tournaments use disjoint StressPlayer
+// accounts, not strictly required (different tournaments) but keeps things
+// tidy and avoids any risk of collisions if these scripts are ever re-run.
+const STRESS_PLAYER_OFFSET = 24;
+
 const { connectToDatabase } = await import("../lib/db");
 const { Player } = await import("../models/Player");
 const { Tournament } = await import("../models/Tournament");
@@ -54,7 +50,6 @@ const { Match } = await import("../models/Match");
 const { Bracket } = await import("../models/Bracket");
 const { Pool } = await import("../models/Pool");
 const { resolvers } = await import("../graphql/resolvers/index");
-const { createLoaders } = await import("../graphql/loaders");
 
 async function mapConcurrent(items, worker, concurrency) {
   const results = new Array(items.length);
@@ -69,12 +64,6 @@ async function mapConcurrent(items, worker, concurrency) {
   return results;
 }
 
-// Deterministic "lower playerId wins" convention (arbitrary but
-// reproducible) -- same rule used across every stress/load-test script in
-// this repo (testModelBAdvanceRound.mjs uses a fixed player1-always-wins
-// rule; this uses a player-ID comparison since round-robin/pool-bracket
-// matches here aren't seeded in a fixed player1/player2 order the way a
-// freshly-generated bracket's Round 1 is).
 async function playRound(organizerCtx, bracketId, bracketSide, bracketRound) {
   const ready = await Match.find({
     bracketId,
@@ -113,6 +102,20 @@ async function playBracketToCompletion(organizerCtx, bracketId) {
     );
     total++;
   }
+  // Defensive: a bracket-reset Grand Final if one was somehow created (the
+  // deterministic lower-ID-wins convention should make this impossible --
+  // see seedShowcaseStandard.mjs's reasoning -- but check rather than
+  // assume, per this project's documented history of this exact mistake).
+  const gfReset = await Match.findOne({ bracketId, bracketSide: "GRAND_FINAL_RESET" });
+  if (gfReset && gfReset.status === "PENDING" && gfReset.player1Id && gfReset.player2Id) {
+    const player1Wins = gfReset.player1Id.toString() < gfReset.player2Id.toString();
+    await resolvers.Mutation.reportResult(
+      null,
+      { matchId: gfReset._id.toString(), player1Score: player1Wins ? 2 : 0, player2Score: player1Wins ? 0 : 2 },
+      organizerCtx
+    );
+    total++;
+  }
   return total;
 }
 
@@ -122,20 +125,23 @@ async function main() {
 
   const organizer = await Player.findOne({ tag: "ikzilion" });
   if (!organizer) throw new Error("Organizer 'ikzilion' not found -- expected to already exist");
-  const stressPlayers = await Player.find({ tag: /^StressPlayer/i }).sort({ tag: 1 });
-  if (stressPlayers.length !== 700) throw new Error(`Expected 700 StressPlayer docs, found ${stressPlayers.length}`);
+  const stressPlayers = await Player.find({ tag: /^StressPlayer/i })
+    .sort({ tag: 1 })
+    .skip(STRESS_PLAYER_OFFSET)
+    .limit(ENTRANT_COUNT - 1);
+  if (stressPlayers.length !== ENTRANT_COUNT - 1) {
+    throw new Error(`Expected ${ENTRANT_COUNT - 1} StressPlayer docs, found ${stressPlayers.length}`);
+  }
   console.log(`Found organizer (${organizer.tag}) and ${stressPlayers.length} StressPlayer accounts.`);
 
   const tournament = await Tournament.create({
-    name: "700-Entrant Stress Test (Pools + Bracket, Model C)",
+    name: "Showcase: Pool Stage Model C",
     game: "Street Fighter 6",
     format: "Pools + Bracket",
     poolModel: "C",
     organizers: [organizer._id],
     startDate: new Date(),
-    entrantCount: 701,
-    // Also serves as the Model C "scale reference" showcase tournament --
-    // see the Aug 6, 2026 showcase-tournaments task.
+    entrantCount: ENTRANT_COUNT,
     isExample: true,
   });
   console.log(`Created tournament ${tournament._id}`);
@@ -150,31 +156,24 @@ async function main() {
   await Tournament.findByIdAndUpdate(tournament._id, { status: "LIVE" });
   const organizerCtx = { playerId: organizer._id.toString(), role: "USER" };
 
-  // ── Generate pools (Model C: each pool gets its own double-elim Bracket) ──
   const pools = await resolvers.Mutation.generatePools(null, { tournamentId: tournament._id.toString() }, organizerCtx);
   console.log(`generatePools: ${pools.length} double-elim pools created.`);
 
   const poolBrackets = await Bracket.find({ tournamentId: tournament._id, poolId: { $in: pools.map(p => p._id) } }).select("_id").lean();
   console.log(`Playing ${poolBrackets.length} pool brackets to completion...`);
-  let poolsPlayed = 0;
   await mapConcurrent(
     poolBrackets,
     async b => {
       await playBracketToCompletion(organizerCtx, b._id);
-      poolsPlayed++;
-      if (poolsPlayed % 20 === 0 || poolsPlayed === poolBrackets.length) {
-        console.log(`  ${poolsPlayed}/${poolBrackets.length} pool brackets decided...`);
-      }
     },
     8
   );
   console.log(`All ${poolBrackets.length} pool brackets decided.`);
 
-  // ── Generate + play the main (top-cut) bracket ──
   const mainBracket = await resolvers.Mutation.generateMainBracket(
     null,
     { tournamentId: tournament._id.toString(), seedingMethod: "RANDOM" },
-    { ...organizerCtx, loaders: createLoaders() }
+    organizerCtx
   );
   console.log(`generateMainBracket: size ${mainBracket.size}, ${pools.length * 2} finalists seeded.`);
 

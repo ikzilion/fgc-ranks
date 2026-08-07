@@ -26,6 +26,7 @@ const GET_TOURNAMENTS = `
       startDate
       isOnlineOnly
       address
+      isExample
       isOrganizer(playerId: $playerId)
     }
   }
