@@ -81,6 +81,7 @@ const { Bracket } = await import("../models/Bracket");
 const { Pool } = await import("../models/Pool");
 const { extractPoolSurvivors } = await import("../lib/bracket");
 const { resolvers } = await import("../graphql/resolvers/index");
+const { createLoaders } = await import("../graphql/loaders");
 
 let failures = 0;
 function assert(cond, label) {
@@ -288,7 +289,7 @@ async function main() {
     }
 
     assert(
-      (await resolvers.Tournament.modelBCurrentRoundComplete({ _id: tournament._id, poolModel: "B", mainBracketId: null })) === true,
+      (await resolvers.Tournament.modelBCurrentRoundComplete({ _id: tournament._id, poolModel: "B", mainBracketId: null }, null, { loaders: createLoaders() })) === true,
       "modelBCurrentRoundComplete is true once every Round 1 pool finishes"
     );
 
@@ -296,7 +297,7 @@ async function main() {
     // new pool's Bracket.seedOrder must match the hand-derived real
     // advancers EXACTLY, in order (winnersSurvivorIds then losersSurvivorIds,
     // per buildNewPoolFromGroup's own construction). ──
-    const round2Pools = await resolvers.Mutation.advanceModelBRound(null, { tournamentId: tournament._id.toString() }, organizerCtx);
+    const round2Pools = await resolvers.Mutation.advanceModelBRound(null, { tournamentId: tournament._id.toString() }, { ...organizerCtx, loaders: createLoaders() });
     assert(round2Pools.length === 4, `Advance #1 creates 4 Round-2 pools (16/4 merge) -- got ${round2Pools.length}`);
     assert(round2Pools.every(p => p.roundNumber === 2), "Every Round-2 pool has roundNumber 2");
     assert(round2Pools.every(p => p.entrantIds.length === 12), "Every Round-2 pool has 12 entrants (4 source pools x 3 real advancers)");
@@ -337,7 +338,7 @@ async function main() {
     // advancers (champion, Winners-Final loser, Losers-bracket champion --
     // always kept, since this stage's losersCount of 5 is well above 2) must
     // be present, with no duplicates and no phantom IDs. ──
-    const advance2 = await resolvers.Mutation.advanceModelBRound(null, { tournamentId: tournament._id.toString() }, organizerCtx);
+    const advance2 = await resolvers.Mutation.advanceModelBRound(null, { tournamentId: tournament._id.toString() }, { ...organizerCtx, loaders: createLoaders() });
     assert(advance2.length === 1, `Advance #2 creates exactly 1 Semifinal pool -- got ${advance2.length}`);
     const semifinalPool = advance2[0];
     assert(semifinalPool.isFinalsCutoff === true, "Semifinal pool is marked isFinalsCutoff");
@@ -374,12 +375,12 @@ async function main() {
 
     await playFinalsCutoffToCompletion(organizerCtx, semifinalBracket._id);
     assert(
-      (await resolvers.Tournament.modelBCurrentRoundComplete({ _id: tournament._id, poolModel: "B", mainBracketId: null })) === true,
+      (await resolvers.Tournament.modelBCurrentRoundComplete({ _id: tournament._id, poolModel: "B", mainBracketId: null }, null, { loaders: createLoaders() })) === true,
       "modelBCurrentRoundComplete is true once the Semifinal-cutoff round's matches all finish"
     );
 
     // ── Advance #3: Semifinal -> the real Finals bracket. ──
-    const advance3 = await resolvers.Mutation.advanceModelBRound(null, { tournamentId: tournament._id.toString() }, organizerCtx);
+    const advance3 = await resolvers.Mutation.advanceModelBRound(null, { tournamentId: tournament._id.toString() }, { ...organizerCtx, loaders: createLoaders() });
     assert(advance3.length === 0, "Advance #3 creates no new Pool -- the real Finals bracket is exposed via Tournament.mainBracket instead");
 
     const finalTournament = await Tournament.findById(tournament._id);
@@ -398,11 +399,11 @@ async function main() {
     assert(!!finalsGF, "The real Finals bracket has a Grand Final match");
 
     assert(
-      (await resolvers.Tournament.modelBCurrentRoundComplete({ _id: tournament._id, poolModel: "B", mainBracketId: finalTournament.mainBracketId })) === false,
+      (await resolvers.Tournament.modelBCurrentRoundComplete({ _id: tournament._id, poolModel: "B", mainBracketId: finalTournament.mainBracketId }, null, { loaders: createLoaders() })) === false,
       "modelBCurrentRoundComplete is false once the Finals bracket exists -- nothing left to advance"
     );
     assert(
-      await throwsAsync(() => resolvers.Mutation.advanceModelBRound(null, { tournamentId: tournament._id.toString() }, organizerCtx)),
+      await throwsAsync(() => resolvers.Mutation.advanceModelBRound(null, { tournamentId: tournament._id.toString() }, { ...organizerCtx, loaders: createLoaders() })),
       "advanceModelBRound itself also rejects once the Finals bracket already exists"
     );
 
@@ -428,11 +429,11 @@ async function main() {
     await resolvers.Mutation.generateModelBPools(null, { tournamentId: tournament2._id.toString() }, organizerCtx2);
 
     assert(
-      (await resolvers.Tournament.modelBCurrentRoundComplete({ _id: tournament2._id, poolModel: "B", mainBracketId: null })) === false,
+      (await resolvers.Tournament.modelBCurrentRoundComplete({ _id: tournament2._id, poolModel: "B", mainBracketId: null }, null, { loaders: createLoaders() })) === false,
       "modelBCurrentRoundComplete is false before any pool has been played"
     );
     assert(
-      await throwsAsync(() => resolvers.Mutation.advanceModelBRound(null, { tournamentId: tournament2._id.toString() }, organizerCtx2)),
+      await throwsAsync(() => resolvers.Mutation.advanceModelBRound(null, { tournamentId: tournament2._id.toString() }, { ...organizerCtx2, loaders: createLoaders() })),
       "Rejects advancing when no pool has been played yet"
     );
 
@@ -443,11 +444,11 @@ async function main() {
     await playBracketToCompletion(organizerCtx2, bracket2._id);
 
     assert(
-      (await resolvers.Tournament.modelBCurrentRoundComplete({ _id: tournament2._id, poolModel: "B", mainBracketId: null })) === false,
+      (await resolvers.Tournament.modelBCurrentRoundComplete({ _id: tournament2._id, poolModel: "B", mainBracketId: null }, null, { loaders: createLoaders() })) === false,
       "modelBCurrentRoundComplete is still false with only 1 of 16 pools finished"
     );
     assert(
-      await throwsAsync(() => resolvers.Mutation.advanceModelBRound(null, { tournamentId: tournament2._id.toString() }, organizerCtx2)),
+      await throwsAsync(() => resolvers.Mutation.advanceModelBRound(null, { tournamentId: tournament2._id.toString() }, { ...organizerCtx2, loaders: createLoaders() })),
       "Rejects advancing when only SOME of the round's pools have finished"
     );
 
@@ -566,14 +567,14 @@ async function main() {
     }
 
     assert(
-      (await resolvers.Tournament.modelBCurrentRoundComplete({ _id: tournament3._id, poolModel: "B", mainBracketId: null })) === true,
+      (await resolvers.Tournament.modelBCurrentRoundComplete({ _id: tournament3._id, poolModel: "B", mainBracketId: null }, null, { loaders: createLoaders() })) === true,
       "TEST 3: modelBCurrentRoundComplete is true once every Round-1 pool (including the rigged one) finishes"
     );
 
     // ── Advance for real, and confirm the rigged pool's contribution to the
     // real, persisted Round-2 pool has no duplicate identity and includes
     // the correctly backfilled 3 distinct real advancers. ──
-    const round2Pools3 = await resolvers.Mutation.advanceModelBRound(null, { tournamentId: tournament3._id.toString() }, organizerCtx3);
+    const round2Pools3 = await resolvers.Mutation.advanceModelBRound(null, { tournamentId: tournament3._id.toString() }, { ...organizerCtx3, loaders: createLoaders() });
     assert(round2Pools3.length === 4, `TEST 3: Advance #1 still creates 4 Round-2 pools despite the forced collision in pool 1 -- got ${round2Pools3.length}`);
 
     const sortedRound2_3 = [...round2Pools3].sort((a, b) => a.poolNumber - b.poolNumber);

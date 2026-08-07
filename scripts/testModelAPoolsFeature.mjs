@@ -142,7 +142,7 @@ async function main() {
     for (const pool of pools) {
       const bracket = await resolvers.Pool.bracket(pool, null, { loaders: createLoaders() });
       assert(!bracket, `Pool ${pool.poolNumber} has NO Bracket document (round-robin, not double-elim)`);
-      const matches = await resolvers.Pool.matches(pool);
+      const matches = await resolvers.Pool.matches(pool, null, { loaders: createLoaders() });
       const expectedMatchCount = (pool.entrantIds.length * (pool.entrantIds.length - 1)) / 2;
       assert(
         matches.length === expectedMatchCount,
@@ -173,7 +173,7 @@ async function main() {
     await reportPoolMatch(organizerCtx, pool5._id, p5, 2, 4, 2, 0);
     await reportPoolMatch(organizerCtx, pool5._id, p5, 3, 4, 2, 0);
 
-    const standings5 = await resolvers.Pool.standings(pool5);
+    const standings5 = await resolvers.Pool.standings(pool5, null, { loaders: createLoaders() });
     const order5 = standings5.map(row => p5.indexOf(row.entrant.playerId.toString()));
     assert(
       JSON.stringify(order5) === JSON.stringify([0, 1, 3, 2, 4]),
@@ -202,7 +202,7 @@ async function main() {
     await reportPoolMatch(organizerCtx, pool4._id, p4, 1, 3, 2, 0);
     await reportPoolMatch(organizerCtx, pool4._id, p4, 2, 3, 2, 0);
 
-    const standings4 = await resolvers.Pool.standings(pool4);
+    const standings4 = await resolvers.Pool.standings(pool4, null, { loaders: createLoaders() });
     const tiedTrioPositions = new Set([0, 1, 2]);
     assert(
       standings4.slice(0, 3).every(row => tiedTrioPositions.has(p4.indexOf(row.entrant.playerId.toString()))),
@@ -218,13 +218,13 @@ async function main() {
     );
 
     // ── allPoolsComplete + generateMainBracket gating ──────────────────
-    const allComplete = await resolvers.Tournament.allPoolsComplete({ _id: tournament._id });
+    const allComplete = await resolvers.Tournament.allPoolsComplete({ _id: tournament._id }, null, { loaders: createLoaders() });
     assert(allComplete === true, "allPoolsComplete is true once every round-robin match has been reported");
 
     const mainBracket = await resolvers.Mutation.generateMainBracket(
       null,
       { tournamentId: tournament._id.toString(), seedingMethod: "AVOID_SAME_POOL" },
-      organizerCtx
+      { ...organizerCtx, loaders: createLoaders() }
     );
     assert(!!mainBracket, "generateMainBracket succeeded from round-robin standings");
     assert(mainBracket.seedOrder.length === 4, `Main bracket has 4 advancers (2x2 pools) — got ${mainBracket.seedOrder.length}`);
@@ -287,9 +287,9 @@ async function main() {
     for (const pool of poolsC) {
       const bracket = await resolvers.Pool.bracket(pool, null, { loaders: createLoaders() });
       assert(!!bracket, `Model C: Pool ${pool.poolNumber} HAS its own double-elim Bracket (unchanged behavior)`);
-      const matches = await resolvers.Pool.matches(pool);
+      const matches = await resolvers.Pool.matches(pool, null, { loaders: createLoaders() });
       assert(matches.length === 0, `Model C: Pool ${pool.poolNumber}.matches (round-robin field) is empty — its matches live on the bracket instead`);
-      const standings = await resolvers.Pool.standings(pool);
+      const standings = await resolvers.Pool.standings(pool, null, { loaders: createLoaders() });
       assert(standings === null, `Model C: Pool ${pool.poolNumber}.standings is null (no round-robin data to rank)`);
 
       // Play the pool's own double-elim bracket to completion via reportResult.
@@ -307,10 +307,10 @@ async function main() {
       }
     }
 
-    const allCompleteC = await resolvers.Tournament.allPoolsComplete({ _id: tournamentC._id });
+    const allCompleteC = await resolvers.Tournament.allPoolsComplete({ _id: tournamentC._id }, null, { loaders: createLoaders() });
     assert(allCompleteC === true, "Model C: allPoolsComplete true once every pool's Grand Final completes (existing behavior)");
 
-    const mainBracketC = await resolvers.Mutation.generateMainBracket(null, { tournamentId: tournamentC._id.toString(), seedingMethod: "RANDOM" }, organizerCtxC);
+    const mainBracketC = await resolvers.Mutation.generateMainBracket(null, { tournamentId: tournamentC._id.toString(), seedingMethod: "RANDOM" }, { ...organizerCtxC, loaders: createLoaders() });
     assert(!!mainBracketC && mainBracketC.seedOrder.length === 4, "Model C: generateMainBracket still works, seeded from Grand Final finalists (unchanged)");
 
     console.log(`\n${failures === 0 ? "ALL TESTS PASSED" : `${failures} FAILURE(S)`}`);

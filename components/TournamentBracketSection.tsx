@@ -11,8 +11,7 @@
 // Stream broadcast view is untouched -- StreamBracket.tsx builds its own
 // BracketView calls directly and never renders this component.
 import { useMemo, useState } from "react";
-import { GenerateBracketButton } from "@/components/GenerateBracketButton";
-import { BracketView } from "@/components/BracketView";
+import { StandardBracketSection } from "@/components/StandardBracketSection";
 import { PoolsSection } from "@/components/PoolsSection";
 import { EntrantSearchFilter } from "@/components/EntrantSearchFilter";
 
@@ -96,37 +95,19 @@ export function TournamentBracketSection({ tournament, canManage, isPoolsFormat 
               highlightedPlayerIds={highlightedPlayerIds}
             />
           ) : (
-            // overflow: visible override — .fgc-card's overflow:hidden (for
-            // rounded-corner clipping elsewhere) becomes BracketView's sticky
-            // scrollbar's containing block otherwise, and since this card never
-            // scrolls internally (the whole page does), the sticky element would
-            // never actually track viewport scroll — a well-known overflow +
-            // position:sticky interaction, not a BracketView-side bug.
-            <div className="fgc-card p-6" style={{ overflow: "visible" }}>
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Bracket</p>
-                  {canManage && (
-                    <p className="text-[11px] text-[var(--text-muted)] mt-0.5">You can report results and manage this bracket.</p>
-                  )}
-                </div>
-                {canManage && (
-                  <GenerateBracketButton
-                    tournamentId={tournament.id}
-                    entrants={tournament.entrants}
-                    canManage={canManage}
-                    hasBracket={!!tournament.bracket}
-                  />
-                )}
-              </div>
-              {tournament.bracket ? (
-                // No lineColor/boxColor/fontColor here -- Stream-only, see
-                // the PoolsSection comment above for the full reasoning.
-                <BracketView bracket={tournament.bracket} canManage={canManage} highlightedPlayerIds={highlightedPlayerIds} />
-              ) : (
-                <p className="text-[13px] text-[var(--text-secondary)]">No bracket generated yet.</p>
-              )}
-            </div>
+            // Standard (non-Pools+Bracket) tournaments — adds the same
+            // live-narrowing Top 24/Top 8 filtered-view tabs Models A/C's
+            // main bracket already has above, via the shared
+            // lib/bracketTierView.tsx logic (see StandardBracketSection.tsx).
+            // No lineColor/boxColor/fontColor here -- Stream-only, see the
+            // PoolsSection comment above for the full reasoning.
+            <StandardBracketSection
+              tournamentId={tournament.id}
+              bracket={tournament.bracket}
+              entrants={tournament.entrants}
+              canManage={canManage}
+              highlightedPlayerIds={highlightedPlayerIds}
+            />
           )}
         </div>
       </div>

@@ -147,10 +147,21 @@ function suggestPoolCount(entrantCount: number): number {
 // Final COMPLETED, so a reader never observes "reset needed but not yet
 // created" as separate states. No reset match at all means the Grand Final
 // itself was a straight, non-reset win.
-async function isBracketDecided(bracketId: any): Promise<boolean> {
-  const resetMatch = await Match.findOne({ bracketId, bracketSide: "GRAND_FINAL_RESET" });
+// Routed through bracketMatchesLoader (graphql/loaders.ts) instead of its
+// own Match.findOne x2 -- called once per pool from isPoolComplete below,
+// which is itself called once per pool from arePoolsComplete, so this was a
+// real N+1 on Tournament.allPoolsComplete/modelBCurrentRoundComplete and the
+// advanceModelBRound/generateMainBracket mutations (85-pool tournament perf
+// investigation, Aug 1, 2026 -- this internal gating path wasn't covered by
+// that investigation's original fix, only the field-resolver render path
+// was). A second .load() call for the same bracketId (e.g. from
+// assertBracketMatchEditable) hits DataLoader's own per-request cache, not a
+// second query.
+async function isBracketDecided(bracketId: any, loaders: Loaders): Promise<boolean> {
+  const matches = await loaders.bracketMatchesLoader.load(bracketId.toString());
+  const resetMatch = (matches as any[]).find(m => m.bracketSide === "GRAND_FINAL_RESET");
   if (resetMatch) return resetMatch.status === "COMPLETED";
-  const grandFinal = await Match.findOne({ bracketId, bracketSide: "GRAND_FINAL" });
+  const grandFinal = (matches as any[]).find(m => m.bracketSide === "GRAND_FINAL");
   return grandFinal?.status === "COMPLETED";
 }
 
@@ -165,22 +176,20 @@ async function isBracketDecided(bracketId: any): Promise<boolean> {
 // has actually been reported. Branching on whether a Bracket exists (rather
 // than looking at Tournament.poolModel) keeps this self-contained: it needs
 // nothing but the Pool doc itself to know which check applies.
-async function isPoolComplete(pool: { _id: any; isFinalsCutoff?: boolean }): Promise<boolean> {
-  const bracket = await Bracket.findOne({ poolId: pool._id });
+async function isPoolComplete(pool: { _id: any; isFinalsCutoff?: boolean }, loaders: Loaders): Promise<boolean> {
+  const bracket = await loaders.poolBracketLoader.load(pool._id.toString());
   if (bracket) {
+    const matches = await loaders.bracketMatchesLoader.load((bracket as any)._id.toString());
     if (pool.isFinalsCutoff) {
-      const total = await Match.countDocuments({ bracketId: bracket._id });
-      if (total === 0) return false;
-      const incomplete = await Match.countDocuments({ bracketId: bracket._id, status: { $ne: "COMPLETED" } });
-      return incomplete === 0;
+      if ((matches as any[]).length === 0) return false;
+      return (matches as any[]).every(m => m.status === "COMPLETED");
     }
-    return await isBracketDecided(bracket._id);
+    return await isBracketDecided((bracket as any)._id, loaders);
   }
 
-  const total = await Match.countDocuments({ poolId: pool._id });
-  if (total === 0) return false; // pool generation failed/hasn't populated matches yet
-  const incomplete = await Match.countDocuments({ poolId: pool._id, status: { $ne: "COMPLETED" } });
-  return incomplete === 0;
+  const matches = await loaders.poolMatchesLoader.load(pool._id.toString());
+  if ((matches as any[]).length === 0) return false; // pool generation failed/hasn't populated matches yet
+  return (matches as any[]).every(m => m.status === "COMPLETED");
 }
 
 // Pool play + top-cut: true only once every Pool for this tournament (or, if
@@ -190,15 +199,24 @@ async function isPoolComplete(pool: { _id: any; isFinalsCutoff?: boolean }): Pro
 // above, for whichever model generated it). False (not an error) when there
 // are no matching pools yet, so it's safe to use directly as a boolean
 // field/gate.
-async function arePoolsComplete(tournamentId: string, roundNumber?: number): Promise<boolean> {
-  const query: Record<string, unknown> = { tournamentId };
-  if (roundNumber !== undefined) query.roundNumber = roundNumber;
-  const pools = await Pool.find(query);
-  if (pools.length === 0) return false;
-  for (const pool of pools) {
-    if (!(await isPoolComplete(pool))) return false;
-  }
-  return true;
+async function arePoolsComplete(tournamentId: string, loaders: Loaders, roundNumber?: number): Promise<boolean> {
+  // .toString() is load-bearing here, not defensive filler: some callers
+  // (e.g. Tournament.allPoolsComplete's parent._id) pass a raw Mongoose
+  // ObjectId rather than a pre-stringified GraphQL arg. DataLoader's cache
+  // keys are compared by value/reference, not coerced -- an ObjectId
+  // instance and its string form are different keys, and this loader's own
+  // batch function re-maps results by string id, so an un-stringified
+  // ObjectId key silently misses the cache and falls back to `[]`.
+  const allPools = await loaders.poolsByTournamentLoader.load(tournamentId.toString());
+  const pools = roundNumber !== undefined ? (allPools as any[]).filter(p => (p.roundNumber ?? 1) === roundNumber) : allPools;
+  if ((pools as any[]).length === 0) return false;
+  // Promise.all (not a sequential for-await loop) so every pool's
+  // poolBracketLoader/bracketMatchesLoader/poolMatchesLoader calls fire
+  // within the same tick -- required for DataLoader to actually batch them
+  // into one query each instead of silently degrading back to one query per
+  // pool.
+  const results = await Promise.all((pools as any[]).map(pool => isPoolComplete(pool, loaders)));
+  return results.every(Boolean);
 }
 
 // Pool format Model B only — persists one repooled round's worth of ONE
@@ -2271,7 +2289,7 @@ export const resolvers = {
     advanceModelBRound: async (
       _: unknown,
       { tournamentId }: { tournamentId: string },
-      { playerId, role }: { playerId?: string; role?: string }
+      { playerId, role, loaders }: { playerId?: string; role?: string; loaders: Loaders }
     ) => {
       await connectToDatabase();
       const tournament = await Tournament.findById(tournamentId);
@@ -2292,12 +2310,14 @@ export const resolvers = {
         .filter((p: any) => (p.roundNumber ?? 1) === currentRound)
         .sort((a: any, b: any) => a.poolNumber - b.poolNumber);
 
-      for (const pool of currentRoundPools) {
-        if (!(await isPoolComplete(pool))) {
-          throw new Error(
-            `Round ${currentRound} isn't complete yet -- every pool must finish (Grand Final, and Reset if played, COMPLETED) before advancing`
-          );
-        }
+      // Promise.all, not sequential -- lets poolBracketLoader/
+      // bracketMatchesLoader actually batch across every pool in this round
+      // into one query each, instead of one query per pool.
+      const completeness = await Promise.all(currentRoundPools.map((pool: any) => isPoolComplete(pool, loaders)));
+      if (completeness.some(c => !c)) {
+        throw new Error(
+          `Round ${currentRound} isn't complete yet -- every pool must finish (Grand Final, and Reset if played, COMPLETED) before advancing`
+        );
       }
 
       // ── Case A: the current round is a Finals-cutoff round -- its own
@@ -2433,7 +2453,7 @@ export const resolvers = {
     generateMainBracket: async (
       _: unknown,
       { tournamentId, seedingMethod, manualSlotAssignment }: { tournamentId: string; seedingMethod: "RANDOM" | "AVOID_SAME_POOL" | "MANUAL_BRACKET"; manualSlotAssignment?: (string | null)[] },
-      { playerId, role }: { playerId?: string; role?: string }
+      { playerId, role, loaders }: { playerId?: string; role?: string; loaders: Loaders }
     ) => {
       await connectToDatabase();
       const tournament = await Tournament.findById(tournamentId);
@@ -2451,29 +2471,33 @@ export const resolvers = {
 
       const pools = await Pool.find({ tournamentId }).sort({ poolNumber: 1 });
       if (pools.length === 0) throw new Error("No pools have been generated yet");
-      if (!(await arePoolsComplete(tournamentId))) {
+      if (!(await arePoolsComplete(tournamentId, loaders))) {
         throw new Error("Every pool must finish before generating the main bracket");
       }
 
-      const winnersFinalistIds: string[] = [];
-      const losersFinalistIds: string[] = [];
-      for (const pool of pools) {
-        const poolBracket = await Bracket.findOne({ poolId: pool._id });
-        if (poolBracket) {
-          const grandFinal = await Match.findOne({ bracketId: poolBracket._id, bracketSide: "GRAND_FINAL" });
-          if (!grandFinal?.player1Id || !grandFinal?.player2Id) {
-            throw new Error(`Pool ${pool.poolNumber} doesn't have a complete Grand Final yet`);
+      // Promise.all so poolBracketLoader/bracketMatchesLoader batch across
+      // every pool into one query each, same reasoning as
+      // arePoolsComplete/advanceModelBRound above -- order is preserved
+      // (Promise.all resolves in input order), so winnersFinalistIds/
+      // losersFinalistIds still line up with pools by index afterward.
+      const finalistResults = await Promise.all(
+        pools.map(async (pool: any) => {
+          const poolBracket = await loaders.poolBracketLoader.load(pool._id.toString());
+          if (poolBracket) {
+            const bracketMatches = await loaders.bracketMatchesLoader.load((poolBracket as any)._id.toString());
+            const grandFinal = (bracketMatches as any[]).find(m => m.bracketSide === "GRAND_FINAL");
+            if (!grandFinal?.player1Id || !grandFinal?.player2Id) {
+              throw new Error(`Pool ${pool.poolNumber} doesn't have a complete Grand Final yet`);
+            }
+            return { first: grandFinal.player1Id.toString(), second: grandFinal.player2Id.toString() };
           }
-          winnersFinalistIds.push(grandFinal.player1Id.toString());
-          losersFinalistIds.push(grandFinal.player2Id.toString());
-        } else {
           // Model A (round-robin) pool — no Bracket, advancers come from
           // standings instead.
-          const { first, second } = await roundRobinAdvancers(pool);
-          winnersFinalistIds.push(first);
-          losersFinalistIds.push(second);
-        }
-      }
+          return roundRobinAdvancers(pool);
+        })
+      );
+      const winnersFinalistIds = finalistResults.map(r => r.first);
+      const losersFinalistIds = finalistResults.map(r => r.second);
 
       const bracketId = new Types.ObjectId();
       let matches: ReturnType<typeof buildDoubleEliminationBracket>["matches"];
@@ -3476,17 +3500,27 @@ export const resolvers = {
     // Pool play + top-cut bracket format fields — empty/false/the plain
     // count-based suggestion for every tournament that isn't using this
     // format (and before generatePools has run for one that is).
-    pools: async (parent: { _id: string }) => await Pool.find({ tournamentId: parent._id }).sort({ poolNumber: 1 }),
+    // Batched via poolsByTournamentLoader (graphql/loaders.ts) instead of its
+    // own Pool.find per tournament -- shared with allPoolsComplete/
+    // modelBCurrentRoundComplete below, which each independently re-ran the
+    // same query before this.
+    pools: async (parent: { _id: string }, _args: unknown, { loaders }: { loaders: Loaders }) =>
+      await loaders.poolsByTournamentLoader.load(parent._id.toString()),
     mainBracket: async (parent: { mainBracketId?: string }) =>
       parent.mainBracketId ? await Bracket.findById(parent.mainBracketId) : null,
-    allPoolsComplete: async (parent: { _id: string }) => await arePoolsComplete(parent._id),
-    modelBCurrentRoundComplete: async (parent: { _id: string; poolModel?: string; mainBracketId?: string }) => {
+    allPoolsComplete: async (parent: { _id: string }, _args: unknown, { loaders }: { loaders: Loaders }) =>
+      await arePoolsComplete(parent._id, loaders),
+    modelBCurrentRoundComplete: async (
+      parent: { _id: string; poolModel?: string; mainBracketId?: string },
+      _args: unknown,
+      { loaders }: { loaders: Loaders }
+    ) => {
       if ((parent.poolModel ?? "C") !== "B") return false;
       if (parent.mainBracketId) return false; // Finals bracket already generated -- nothing left to advance
-      const pools = await Pool.find({ tournamentId: parent._id });
-      if (pools.length === 0) return false;
-      const currentRound = Math.max(...pools.map((p: any) => p.roundNumber ?? 1));
-      return await arePoolsComplete(parent._id, currentRound);
+      const pools = await loaders.poolsByTournamentLoader.load(parent._id.toString());
+      if ((pools as any[]).length === 0) return false;
+      const currentRound = Math.max(...(pools as any[]).map(p => p.roundNumber ?? 1));
+      return await arePoolsComplete(parent._id, loaders, currentRound);
     },
     suggestedPoolCount: (parent: { entrantCount?: number }) => suggestPoolCount(parent.entrantCount ?? 0),
     // Same "schema default doesn't retroactively apply to old documents"
@@ -3534,8 +3568,12 @@ export const resolvers = {
   },
 
   Pool: {
-    entrants: async (parent: { entrantIds?: string[] }) =>
-      parent.entrantIds ? await Entrant.find({ _id: { $in: parent.entrantIds } }) : [],
+    // Batched via entrantLoader (graphql/loaders.ts) instead of its own
+    // Entrant.find per pool.
+    entrants: async (parent: { entrantIds?: string[] }, _args: unknown, { loaders }: { loaders: Loaders }) =>
+      parent.entrantIds
+        ? (await Promise.all(parent.entrantIds.map(id => loaders.entrantLoader.load(id.toString())))).filter(Boolean)
+        : [],
     // Batched via poolBracketLoader (graphql/loaders.ts) instead of its own
     // Bracket.findOne per pool -- 85 individual round trips on an 85-pool
     // tournament, staggered behind maxPoolSize:5, which in turn fragmented
@@ -3545,15 +3583,18 @@ export const resolvers = {
     bracket: async (parent: { _id: string }, _args: unknown, { loaders }: { loaders: Loaders }) =>
       await loaders.poolBracketLoader.load(parent._id.toString()),
     // Model A (round-robin) only — empty for a Model B/C pool (its matches
-    // live under bracket.matches instead).
-    matches: async (parent: { _id: string }) => await Match.find({ poolId: parent._id }).sort({ createdAt: 1 }),
+    // live under bracket.matches instead). Batched via poolMatchesLoader.
+    matches: async (parent: { _id: string }, _args: unknown, { loaders }: { loaders: Loaders }) =>
+      await loaders.poolMatchesLoader.load(parent._id.toString()),
     // Model A (round-robin) only — null for a Model B/C pool, which has no
     // round-robin matches to compute standings from.
-    standings: async (parent: { _id: string; entrantIds?: string[] }) => {
-      const hasRoundRobinMatches = await Match.exists({ poolId: parent._id });
-      if (!hasRoundRobinMatches) return null;
+    standings: async (parent: { _id: string; entrantIds?: string[] }, _args: unknown, { loaders }: { loaders: Loaders }) => {
+      const poolMatches = await loaders.poolMatchesLoader.load(parent._id.toString());
+      if ((poolMatches as any[]).length === 0) return null;
 
-      const entrants = await Entrant.find({ _id: { $in: parent.entrantIds ?? [] } });
+      const entrants = (await Promise.all((parent.entrantIds ?? []).map(id => loaders.entrantLoader.load(id.toString())))).filter(
+        Boolean
+      ) as any[];
       const entrantByPlayerId = new Map(entrants.map((e: any) => [e.playerId.toString(), e]));
       const rows = await computeRoundRobinStandings(
         parent._id,

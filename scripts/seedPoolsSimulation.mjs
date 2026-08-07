@@ -165,7 +165,7 @@ async function main() {
   const pools = await resolvers.Mutation.generatePools(null, { tournamentId: tournament._id.toString() }, organizerCtx);
   console.log(`Generated ${pools.length} pools.`);
   for (const pool of pools) {
-    const entrants = await resolvers.Pool.entrants(pool);
+    const entrants = await resolvers.Pool.entrants(pool, null, { loaders: createLoaders() });
     console.log(`  Pool ${pool.poolNumber}: ${entrants.length} entrants`);
   }
 
@@ -208,14 +208,14 @@ async function main() {
     console.log(`  Pool ${pool.poolNumber} complete.`);
   }
 
-  const allComplete = await resolvers.Tournament.allPoolsComplete({ _id: tournament._id });
+  const allComplete = await resolvers.Tournament.allPoolsComplete({ _id: tournament._id }, null, { loaders: createLoaders() });
   console.log(`All pools complete: ${allComplete}`);
 
   // ── 7. Generate the main bracket — Avoid-same-pool seeding ────────────
   const mainBracket = await resolvers.Mutation.generateMainBracket(
     null,
     { tournamentId: tournament._id.toString(), seedingMethod: "AVOID_SAME_POOL" },
-    organizerCtx
+    { ...organizerCtx, loaders: createLoaders() }
   );
   console.log(`Main bracket generated: ${mainBracket._id}, size ${mainBracket.size}, ${mainBracket.seedOrder.length} advancers.`);
 

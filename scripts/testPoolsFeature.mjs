@@ -160,7 +160,7 @@ async function main() {
 
     const poolSizes = [];
     for (const pool of pools1) {
-      const entrants = await resolvers.Pool.entrants(pool);
+      const entrants = await resolvers.Pool.entrants(pool, null, { loaders: createLoaders() });
       poolSizes.push(entrants.length);
       const bracket = await resolvers.Pool.bracket(pool, null, { loaders: createLoaders() });
       assert(!!bracket, `Pool ${pool.poolNumber} has a Bracket`);
@@ -191,13 +191,13 @@ async function main() {
     assert(!anyPlacementSet, "Pool 1 completing did NOT set tournament-level Entrant.placement (gating fix works)");
 
     // allPoolsComplete should be false — only 2/5 pools played.
-    const allCompleteEarly = await resolvers.Tournament.allPoolsComplete({ _id: tournament1._id });
+    const allCompleteEarly = await resolvers.Tournament.allPoolsComplete({ _id: tournament1._id }, null, { loaders: createLoaders() });
     assert(allCompleteEarly === false, "allPoolsComplete is false with only 2/5 pools finished");
 
     // generateMainBracket should be rejected while pools are incomplete.
     let rejectedEarly = false;
     try {
-      await resolvers.Mutation.generateMainBracket(null, { tournamentId: tournament1._id.toString(), seedingMethod: "RANDOM" }, organizerCtx1);
+      await resolvers.Mutation.generateMainBracket(null, { tournamentId: tournament1._id.toString(), seedingMethod: "RANDOM" }, { ...organizerCtx1, loaders: createLoaders() });
     } catch {
       rejectedEarly = true;
     }
@@ -209,7 +209,7 @@ async function main() {
       await playBracketToCompletion(organizerCtx1, bracket._id);
     }
 
-    const allCompleteNow = await resolvers.Tournament.allPoolsComplete({ _id: tournament1._id });
+    const allCompleteNow = await resolvers.Tournament.allPoolsComplete({ _id: tournament1._id }, null, { loaders: createLoaders() });
     assert(allCompleteNow === true, "allPoolsComplete is true once every pool's Grand Final has completed");
 
     // Collect expected winners/losers-finalists directly from each pool's
@@ -226,7 +226,7 @@ async function main() {
     const mainBracket1 = await resolvers.Mutation.generateMainBracket(
       null,
       { tournamentId: tournament1._id.toString(), seedingMethod: "AVOID_SAME_POOL" },
-      organizerCtx1
+      { ...organizerCtx1, loaders: createLoaders() }
     );
     assert(!!mainBracket1, "generateMainBracket succeeded once all pools finished");
     assert(mainBracket1.seedOrder.length === 10, `Main bracket has 10 advancers (2x5 pools) — got ${mainBracket1.seedOrder.length}`);
@@ -248,7 +248,7 @@ async function main() {
     // Calling generateMainBracket again should be rejected (already generated).
     let rejectedTwice = false;
     try {
-      await resolvers.Mutation.generateMainBracket(null, { tournamentId: tournament1._id.toString(), seedingMethod: "RANDOM" }, organizerCtx1);
+      await resolvers.Mutation.generateMainBracket(null, { tournamentId: tournament1._id.toString(), seedingMethod: "RANDOM" }, { ...organizerCtx1, loaders: createLoaders() });
     } catch {
       rejectedTwice = true;
     }
@@ -335,7 +335,7 @@ async function main() {
     const mainBracket2 = await resolvers.Mutation.generateMainBracket(
       null,
       { tournamentId: tournament2._id.toString(), seedingMethod: "RANDOM" },
-      organizerCtx2
+      { ...organizerCtx2, loaders: createLoaders() }
     );
     assert(mainBracket2.seedOrder.length === 8, `Main bracket has 8 advancers (2x4 pools) — got ${mainBracket2.seedOrder.length}`);
     assert(mainBracket2.size === 8, `Main bracket size is 8 (byes-free, since 2x4 is already a power of 2) — got ${mainBracket2.size}`);
@@ -374,9 +374,9 @@ async function main() {
     const std3Entrants = await Entrant.find({ tournamentId: tournament3._id });
     assert(std3Entrants.some(e => e.placement === 1), "Standard tournament: placements ARE set automatically on its own Grand Final completion (unlike a pool bracket)");
 
-    const poolsFieldStd = await resolvers.Tournament.pools({ _id: tournament3._id });
+    const poolsFieldStd = await resolvers.Tournament.pools({ _id: tournament3._id }, null, { loaders: createLoaders() });
     assert(poolsFieldStd.length === 0, "Standard tournament's Tournament.pools field resolves empty");
-    const allCompleteStd = await resolvers.Tournament.allPoolsComplete({ _id: tournament3._id });
+    const allCompleteStd = await resolvers.Tournament.allPoolsComplete({ _id: tournament3._id }, null, { loaders: createLoaders() });
     assert(allCompleteStd === false, "Standard tournament's Tournament.allPoolsComplete is false (no pools)");
 
     let deleted = await resolvers.Mutation.deleteBracket(null, { tournamentId: tournament3._id.toString() }, organizerCtx3);

@@ -18,6 +18,8 @@ import { Match } from "@/models/Match";
 import { Event } from "@/models/Event";
 import { Tournament } from "@/models/Tournament";
 import { Bracket } from "@/models/Bracket";
+import { Entrant } from "@/models/Entrant";
+import { Pool } from "@/models/Pool";
 import { getLiveStatuses } from "@/lib/twitch";
 import { nonStaleTournamentMatch } from "@/lib/tournamentVisibility";
 
@@ -154,10 +156,57 @@ function batchGrandFinalResetByBracketId() {
   };
 }
 
+// Batches Pool.matches / Pool.standings' round-robin-matches check (one
+// Match.find({poolId})/Match.exists({poolId}) per pool before this -- fires
+// for every pool regardless of poolModel, even though it's only ever
+// non-empty for Model A round-robin pools; Model B/C pools always got an
+// unbatched query that just returned empty). Also used by isPoolComplete's
+// round-robin branch below.
+function batchPoolMatches() {
+  return async (poolIds: readonly string[]): Promise<InstanceType<typeof Match>[][]> => {
+    const matches = await Match.find({ poolId: { $in: poolIds as string[] } }).sort({ createdAt: 1 });
+    const byPoolId = new Map<string, InstanceType<typeof Match>[]>();
+    for (const m of matches) {
+      const key = (m.poolId as { toString(): string }).toString();
+      if (!byPoolId.has(key)) byPoolId.set(key, []);
+      byPoolId.get(key)!.push(m);
+    }
+    return poolIds.map(id => byPoolId.get(id) ?? []);
+  };
+}
+
+// Batches Tournament.pools / Tournament.allPoolsComplete /
+// Tournament.modelBCurrentRoundComplete, which each independently did their
+// own Pool.find({tournamentId}) -- and, via arePoolsComplete's per-pool
+// isPoolComplete loop, effectively re-ran that same query once per pool on
+// nested calls too. Not a scaling N+1 like poolBracketLoader/
+// bracketMatchesLoader above (fixed small count regardless of pool count),
+// but a free win once every caller shares one per-request cache keyed by
+// tournamentId.
+function batchPoolsByTournament() {
+  return async (tournamentIds: readonly string[]): Promise<InstanceType<typeof Pool>[][]> => {
+    const pools = await Pool.find({ tournamentId: { $in: tournamentIds as string[] } }).sort({ poolNumber: 1 });
+    const byTournamentId = new Map<string, InstanceType<typeof Pool>[]>();
+    for (const p of pools) {
+      const key = (p.tournamentId as { toString(): string }).toString();
+      if (!byTournamentId.has(key)) byTournamentId.set(key, []);
+      byTournamentId.get(key)!.push(p);
+    }
+    return tournamentIds.map(id => byTournamentId.get(id) ?? []);
+  };
+}
+
 export function createLoaders() {
   return {
     playerLoader: new DataLoader(batchById(Player)),
     matchLoader: new DataLoader(batchById(Match)),
+    // Pool.entrants + Pool.standings' entrant lookups -- previously their own
+    // Entrant.find({_id:{$in:...}}) per pool.
+    entrantLoader: new DataLoader(batchById(Entrant)),
+    // Model A (round-robin) pools only -- see batchPoolMatches above.
+    poolMatchesLoader: new DataLoader(batchPoolMatches()),
+    // See batchPoolsByTournament above.
+    poolsByTournamentLoader: new DataLoader(batchPoolsByTournament()),
     // Entrant.tournament used to do its own Tournament.findById(parent.tournamentId)
     // right next to Entrant.player above (which WAS already batched) -- an
     // individual findOne per entrant, e.g. one per tournament on a player's

@@ -163,9 +163,9 @@ async function main() {
       assert(!!gf, `Pool ${pool.poolNumber} bracket has a Grand Final match`);
       assert(gf.status === "PENDING", `Pool ${pool.poolNumber} Grand Final is unplayed (PENDING) -- Round 1 is only generated, not simulated`);
 
-      const roundRobinMatches = await resolvers.Pool.matches(pool);
+      const roundRobinMatches = await resolvers.Pool.matches(pool, null, { loaders: createLoaders() });
       assert(roundRobinMatches.length === 0, `Pool ${pool.poolNumber}.matches (round-robin field) is empty -- Model B Round 1 is double-elim, not round-robin`);
-      const standings = await resolvers.Pool.standings(pool);
+      const standings = await resolvers.Pool.standings(pool, null, { loaders: createLoaders() });
       assert(standings === null, `Pool ${pool.poolNumber}.standings is null -- no round-robin data to rank`);
     }
 

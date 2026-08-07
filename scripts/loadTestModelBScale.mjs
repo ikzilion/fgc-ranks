@@ -62,6 +62,7 @@ const { Pool } = await import("../models/Pool");
 const { Notification } = await import("../models/Notification");
 const { computeModelBInitialPoolCount } = await import("../lib/bracket");
 const { resolvers } = await import("../graphql/resolvers/index");
+const { createLoaders } = await import("../graphql/loaders");
 
 const HOBBY_CEILING_MS = 300_000;
 const WARN_THRESHOLD_MS = 150_000;
@@ -335,7 +336,7 @@ async function runFullLifecycle(entrantCount, tagPrefix, { poolConcurrency, matc
 
     const beforeAdvance = await countDocsForTournament(tournament._id);
     t0 = Date.now();
-    const newPools = await resolvers.Mutation.advanceModelBRound(null, { tournamentId: tournament._id.toString() }, organizerCtx);
+    const newPools = await resolvers.Mutation.advanceModelBRound(null, { tournamentId: tournament._id.toString() }, { ...organizerCtx, loaders: createLoaders() });
     const advMs = Date.now() - t0;
     const afterAdvance = await countDocsForTournament(tournament._id);
     const delta = {

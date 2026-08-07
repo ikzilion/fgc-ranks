@@ -52,6 +52,7 @@ const { Entrant } = await import("../models/Entrant");
 const { Match } = await import("../models/Match");
 const { Pool } = await import("../models/Pool");
 const { resolvers } = await import("../graphql/resolvers/index");
+const { createLoaders } = await import("../graphql/loaders");
 
 async function mapConcurrent(items, worker, concurrency) {
   const results = new Array(items.length);
@@ -131,7 +132,7 @@ async function main() {
   const mainBracket = await resolvers.Mutation.generateMainBracket(
     null,
     { tournamentId: tournament._id.toString(), seedingMethod: "RANDOM" },
-    organizerCtx
+    { ...organizerCtx, loaders: createLoaders() }
   );
   console.log(`generateMainBracket: size ${mainBracket.size}, ${pools.length * 2} finalists seeded.`);
 

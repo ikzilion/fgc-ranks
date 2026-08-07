@@ -451,7 +451,7 @@ async function testPoolsAndBracket() {
   assert(!anyPlacementSet, "Pools: pool play correctly did NOT write any tournament-wide Entrant.placement (only the main bracket's Grand Final should)");
 
   // ── Generate + play the main bracket (seeded from each pool's finalists) ──
-  const mainBracket = await resolvers.Mutation.generateMainBracket(null, { tournamentId: tournament._id.toString(), seedingMethod: "RANDOM" }, organizerCtx);
+  const mainBracket = await resolvers.Mutation.generateMainBracket(null, { tournamentId: tournament._id.toString(), seedingMethod: "RANDOM" }, { ...organizerCtx, loaders: createLoaders() });
   const tAfterMain = await Tournament.findById(tournament._id);
   assert(tAfterMain.mainBracketId?.toString() === mainBracket._id.toString(), "Pools: Tournament.mainBracketId correctly points at the newly-generated main bracket");
   assert(mainBracket.seedOrder.length === 8, `Pools: main bracket seeded with the 8 pool finalists (2 per pool x 4 pools) (got ${mainBracket.seedOrder.length})`);
