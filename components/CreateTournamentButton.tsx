@@ -78,7 +78,7 @@ const FORMAT_INFO: Record<string, string> = {
   "Standard Bracket":
     "Every entrant goes straight into one double-elimination bracket. Best for smaller events — works well up to a few hundred entrants, but with a large field, everyone has to wait through many rounds before eliminations really thin out.",
   "Pools + Bracket":
-    "Entrants are split into smaller pools first, each playing out as its own mini double-elimination bracket. The top 2 finishers from each pool then advance into a final bracket. This gets everyone playing matches faster in a large tournament, and finishes the same way EVO and CEO run big brackets.",
+    "Entrants are split into smaller pools first, each playing out as its own mini double-elimination bracket. The top 2 finishers from each pool then advance into a final bracket. This gets everyone playing matches faster in a large tournament, the same way major fighting game tournaments run big brackets.",
 };
 
 const TOOLTIP_WIDTH = 240;
@@ -650,7 +650,7 @@ export function CreateTournamentButton() {
                         {
                           value: "B" as const,
                           label: "Model B — Continuous carry-over",
-                          description: "EVO's massive-scale system: pool results carry over into fresh, re-grouped pools across several rounds instead of resetting once. Needs at least 128 entrants — for anything smaller, Model A or C already give you the same result more simply.",
+                          description: "Massive-scale continuous double-elimination pools: pool results carry over into fresh, re-grouped pools across several rounds instead of resetting once. Needs at least 128 entrants — for anything smaller, Model A or C already give you the same result more simply.",
                         },
                         {
                           value: "C" as const,
