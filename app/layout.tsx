@@ -5,6 +5,7 @@ import "./globals.css";
 import Script from "next/script";
 import { Suspense } from "react";
 import { Navbar } from "@/components/Navbar";
+import { Footer } from "@/components/Footer";
 import TermlyCMP from "@/components/TermlyCMP";
 import { SessionProvider } from "next-auth/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
@@ -105,6 +106,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <SessionProvider>
           <Navbar />
           {children}
+          <Footer />
         </SessionProvider>
         {TERMLY_WEBSITE_UUID && (
           <Suspense fallback={null}>
