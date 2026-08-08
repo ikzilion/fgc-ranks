@@ -399,6 +399,11 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
           : null
       : (selectedPool?.bracket ?? null)
     : tournament.bracket;
+  // Only meaningful when displayedBracket is a pool's own bracket (not the
+  // main/Finals bracket, which mainViewKey selects and never has this
+  // shape) — see BracketView's isFinalsCutoff prop for why a Finals-cutoff
+  // pool bracket needs different round-shape handling than a standard one.
+  const displayedBracketIsFinalsCutoff = isPoolsFormat && !mainViewKey && !!selectedPool?.isFinalsCutoff;
   const noPoolsYet = isModelB ? roundTabs.length === 0 : views.length === 0;
 
   return (
@@ -480,6 +485,7 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
             lineColor={tournament.bracketLineColor ?? undefined}
             boxColor={tournament.bracketBoxColor ?? undefined}
             fontColor={tournament.bracketFontColor ?? undefined}
+            isFinalsCutoff={displayedBracketIsFinalsCutoff}
           />
         ) : (
           <p className="text-[14px]" style={{ color: "rgba(255,255,255,0.7)" }}>

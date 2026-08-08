@@ -79,7 +79,19 @@ const DEFAULT_CARD_HEIGHT = 110; // only an initial guess for the very first pai
 // (halves) and drop-in (unchanged) rounds), since those array lengths are
 // fixed by `size` alone and never change based on which specific positions
 // are byes.
-function getRoundPositionCounts(size: number, side: string): number[] {
+function getRoundPositionCounts(size: number, side: string, isFinalsCutoff?: boolean): number[] {
+  // A Model B Finals-cutoff pool (Pool.isFinalsCutoff) never plays down to a
+  // single final on either side — buildFinalsCutoffBracket (lib/bracket.ts)
+  // deliberately stops Winners after log2(winnersEntrySize/FINALS_HALF)
+  // rounds and Losers right after its last drop-in wave, handing the
+  // survivors off to a separate real Finals bracket instead of continuing.
+  // The `size` stored on this bracket (finalPool.winnersEntrySize) is that
+  // starting Winners-side entry count, not "how many rounds this bracket
+  // actually has" — feeding it through the standard halving formula below
+  // invents rounds/byes this bracket structurally never produces. Same
+  // fallback as GRAND_FINAL/GRAND_FINAL_RESET (empty counts -> the caller
+  // falls back to whatever rounds actually have real matches).
+  if (isFinalsCutoff) return [];
   const m = Math.log2(size);
   if (side === "WINNERS") {
     const counts: number[] = [];
@@ -135,10 +147,10 @@ interface ByeSlot {
   player: { id: string; tag: string } | null;
 }
 
-function computeByeSlots(matches: BracketMatch[], size: number): ByeSlot[] {
+function computeByeSlots(matches: BracketMatch[], size: number, isFinalsCutoff?: boolean): ByeSlot[] {
   const result: ByeSlot[] = [];
   for (const side of ["WINNERS", "LOSERS"]) {
-    const counts = getRoundPositionCounts(size, side);
+    const counts = getRoundPositionCounts(size, side, isFinalsCutoff);
     if (counts.length === 0) continue;
     const byRoundPos = new Map<string, BracketMatch>();
     for (const m of matches) {
@@ -421,6 +433,7 @@ const BracketSideSection = memo(function BracketSideSection({
   boxColor,
   fontColor,
   highlightedPlayerIds,
+  isFinalsCutoff,
 }: {
   side: string;
   matches: BracketMatch[];
@@ -464,6 +477,13 @@ const BracketSideSection = memo(function BracketSideSection({
   // Player-search highlighting (Aug 1, 2026) — passed straight through to
   // every MatchCard/ByeCard in this section.
   highlightedPlayerIds?: Set<string>;
+  // Model B's Finals-cutoff pool (Pool.isFinalsCutoff) — see
+  // getRoundPositionCounts' comment. Forces expectedCounts to the same
+  // empty-fallback path GRAND_FINAL/GRAND_FINAL_RESET already use, so
+  // roundNumbers/columnItems below are driven purely by whatever rounds
+  // this bracket's real matches actually landed in, not an invented
+  // standard-bracket shape.
+  isFinalsCutoff?: boolean;
 }) {
   const roundSpacing = cardHeight + CARD_GAP;
   const byeByRoundPos = new Map<string, ByeSlot>();
@@ -477,7 +497,7 @@ const BracketSideSection = memo(function BracketSideSection({
   // side is SUPPOSED to have, including one that's entirely bye-skipped and
   // so would otherwise have zero real matches and never appear at all —
   // this is the superset roundNumbers must iterate, not just `rounds.keys()`.
-  const expectedCounts = getRoundPositionCounts(bracketSize, side);
+  const expectedCounts = getRoundPositionCounts(bracketSize, side, isFinalsCutoff);
   const roundNumbers =
     expectedCounts.length > 0 ? expectedCounts.map((_, i) => i + 1) : [...rounds.keys()].sort((a, b) => a - b);
 
@@ -682,6 +702,7 @@ export function BracketView({
   boxColor,
   fontColor,
   highlightedPlayerIds,
+  isFinalsCutoff,
 }: {
   bracket: { seedingMethod: string; size: number; matches: BracketMatch[] };
   canManage: boolean;
@@ -698,6 +719,13 @@ export function BracketView({
   // referentially-stable (useMemo'd) Set from the caller so it doesn't
   // defeat BracketSideSection's memo() below on every unrelated re-render.
   highlightedPlayerIds?: Set<string>;
+  // Model B's Finals-cutoff pool (Pool.isFinalsCutoff, see PoolsSection.tsx)
+  // — this bracket's `size` is its Winners-side entry count, not "rounds
+  // played to a final" (buildFinalsCutoffBracket in lib/bracket.ts stops
+  // both sides early and hands survivors to a separate Finals bracket).
+  // Every other caller omits this and gets the exact prior standard-shape
+  // behavior.
+  isFinalsCutoff?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cardEls = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -748,7 +776,10 @@ export function BracketView({
   // that don't actually change the bracket — lets the effect below list it
   // as a real dependency instead of silently reading a fresh-every-render
   // value out of closure.
-  const byeSlots = useMemo(() => computeByeSlots(bracket.matches, bracket.size), [bracket.matches, bracket.size]);
+  const byeSlots = useMemo(
+    () => computeByeSlots(bracket.matches, bracket.size, isFinalsCutoff),
+    [bracket.matches, bracket.size, isFinalsCutoff]
+  );
 
   useEffect(() => {
     const container = containerRef.current;
@@ -1002,7 +1033,14 @@ export function BracketView({
   return (
     <div>
       <p className="text-[12px] mb-1" style={{ color: "var(--text-secondary)" }}>
-        Seeded: {SEEDING_LABELS[bracket.seedingMethod] ?? bracket.seedingMethod} · Bracket size {bracket.size}
+        {/* "Bracket size" reads as "this bracket plays down to a single
+            final of that size" for every other bracket — true there, but
+            NOT for a Finals-cutoff pool, whose stored size is only its
+            Winners-side starting entry count (see the isFinalsCutoff prop's
+            comment above); reusing the same label here would misleadingly
+            imply rounds/a final that this bracket never actually plays. */}
+        Seeded: {SEEDING_LABELS[bracket.seedingMethod] ?? bracket.seedingMethod}
+        {isFinalsCutoff ? ` · Winners-side entry size ${bracket.size}` : ` · Bracket size ${bracket.size}`}
       </p>
       <p className="text-[11px] mb-4" style={{ color: "var(--text-muted)" }}>
         <span style={{ color: "var(--green)" }}>●</span> winner &nbsp;&nbsp;
@@ -1055,8 +1093,8 @@ export function BracketView({
           {/* Winners Bracket stacked above Losers Bracket, both reading
               left-to-right by round. */}
           <div className="flex flex-col">
-            {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} bracketSize={bracket.size} byeSlots={winnersByeSlots} registerByeRef={registerByeRef} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} highlightedPlayerIds={highlightedPlayerIds} />}
-            {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} bracketSize={bracket.size} byeSlots={losersByeSlots} registerByeRef={registerByeRef} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized dividerAbove={bySide.WINNERS.length > 0} accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} highlightedPlayerIds={highlightedPlayerIds} />}
+            {bySide.WINNERS.length > 0 && <BracketSideSection side="WINNERS" matches={bySide.WINNERS} bracketSize={bracket.size} byeSlots={winnersByeSlots} registerByeRef={registerByeRef} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} highlightedPlayerIds={highlightedPlayerIds} isFinalsCutoff={isFinalsCutoff} />}
+            {bySide.LOSERS.length > 0 && <BracketSideSection side="LOSERS" matches={bySide.LOSERS} bracketSize={bracket.size} byeSlots={losersByeSlots} registerByeRef={registerByeRef} canManage={canManage} registerRef={registerRef} cardHeight={measuredCardHeight} emphasized dividerAbove={bySide.WINNERS.length > 0} accentColor={resolvedLineColor} boxColor={resolvedBoxColor} fontColor={resolvedFontColor} highlightedPlayerIds={highlightedPlayerIds} isFinalsCutoff={isFinalsCutoff} />}
           </div>
           {/* Grand Finals is its own final column to the right of both
               brackets — not interleaved — vertically centered between them,

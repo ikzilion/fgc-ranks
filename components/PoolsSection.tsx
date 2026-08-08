@@ -728,7 +728,7 @@ export function PoolsSection({
           )}
           <PoolAdvancementTags pool={activePool} />
           {activePool.bracket ? (
-            <BracketView bracket={activePool.bracket} canManage={canManage} highlightedPlayerIds={highlightedPlayerIds} />
+            <BracketView bracket={activePool.bracket} canManage={canManage} highlightedPlayerIds={highlightedPlayerIds} isFinalsCutoff={activePool.isFinalsCutoff} />
           ) : activePool.matches.length > 0 ? (
             <PoolStandingsView pool={activePool} canManage={canManage} highlightedPlayerIds={highlightedPlayerIds} />
           ) : (
