@@ -4,17 +4,24 @@
 import { useEffect, useRef, useState } from "react";
 import { BracketView } from "./BracketView";
 import {
-  modelBRoundLabel,
   MODEL_B_FINALS_TAB_LABEL,
   finalsCutoffWinnersQualifiedEntrants,
   FinalsCutoffWinnersRoster,
   computeLiveTierGating,
   filterBracketToTier,
   useAutoFollowNarrowestTier,
+  computeModelBRoundTier,
+  ModelBLiveRoster,
 } from "@/lib/bracketTierView";
 import { GET_STREAM_TOURNAMENT } from "@/lib/streamTournamentQuery";
 
 const POLL_INTERVAL_MS = 12000;
+
+// This page has no player-search feature at all (unlike the Overview page's
+// TabBar/ModelBLiveRoster usage) -- a stable empty Set is the "nothing
+// highlighted" state ModelBLiveRoster already expects, same convention as
+// every other highlightedPlayerIds prop in this codebase.
+const NO_HIGHLIGHTED_PLAYERS = new Set<string>();
 
 interface StreamPool {
   id: string;
@@ -173,38 +180,44 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
   // consistency. Model B has its own Semifinal-cutoff/Finals stages already.
   const { liveCount, showTop24, showTop8 } = computeLiveTierGating(!isModelB ? tournament.mainBracket : null);
 
-  // Model B only — same round dimension PoolsSection.tsx's Phase 6 round
-  // selector added for the TO-facing page, re-themed here. Every round that
-  // has at least one pool so far, in order.
-  const roundNumbers = isModelB
-    ? Array.from(new Set(tournament.pools.map(p => p.roundNumber ?? 1))).sort((a, b) => a - b)
-    : [];
-  const latestRound = roundNumbers.length ? roundNumbers[roundNumbers.length - 1] : 1;
-  const roundKeyFor = (r: number) => `round-${r}`;
-
-  // A round is the Semifinal-cutoff round if its one pool says so (a
-  // Finals-cutoff round is always exactly one pool — see advanceModelBRound).
-  // Labeled "Top 24"/"Top 8" for parity with PoolsSection.tsx's TO-facing
-  // page (settled design, Aug 8, 2026) — see lib/bracketTierView.tsx's
-  // modelBRoundLabel/MODEL_B_FINALS_TAB_LABEL for why these are shared
-  // helpers now instead of a second local copy (a second copy is exactly
-  // what let this page's labels silently miss the "Semifinal Cutoff"/
-  // "Finals" -> "Top 24"/"Top 8" rename when it first landed here).
-  const roundLabel = (r: number) => modelBRoundLabel(tournament.pools, r);
+  // Model B only — every round that has at least one pool so far, plus the
+  // mid-round live "Top 24"/"Top 8" roster tier once the current round has
+  // narrowed enough. See lib/bracketTierView.tsx's computeModelBRoundTier
+  // for the full behavior/edge-case reasoning -- previously this page built
+  // only the per-round tabs (roundNumbers) and the Finals tab, never the
+  // live top24/top8 pseudo-tabs PoolsSection.tsx's TO-facing page already
+  // had -- confirmed while unifying this logic (Aug 8, 2026) that Stream
+  // viewers never saw Model B's live-narrowing roster at all, simply
+  // because this page never had a second copy of that logic built for it.
+  // This closes that gap by construction, not by re-deriving it separately.
+  const { roundNumbers, latestRound, roundKeyFor, roundLabel, modelBLiveEntrants, modelBShowTop24, modelBShowTop8 } = isModelB
+    ? computeModelBRoundTier(tournament.pools, hasMainBracket)
+    : {
+        roundNumbers: [] as number[],
+        latestRound: 1,
+        roundKeyFor: (r: number) => `round-${r}`,
+        roundLabel: (r: number) => `Round ${r}`,
+        modelBLiveEntrants: [] as ReturnType<typeof computeModelBRoundTier>["modelBLiveEntrants"],
+        modelBShowTop24: false,
+        modelBShowTop8: false,
+      };
 
   // Model B's round-selector tier — one tab per pool round generated so far,
-  // plus a Finals tab once the real Finals bracket exists (same
-  // Tournament.mainBracket slot Model A/C's "Main Bracket" tab already uses,
-  // just elevated to this tier instead of sitting alongside pool tabs).
+  // the live top24/top8 roster tabs (see above), plus a Finals tab once the
+  // real Finals bracket exists (same Tournament.mainBracket slot Model
+  // A/C's "Main Bracket" tab already uses, just elevated to this tier
+  // instead of sitting alongside pool tabs).
   const roundTabs = isModelB
     ? [
         ...roundNumbers.map(r => ({ key: roundKeyFor(r), label: roundLabel(r) })),
+        ...(modelBShowTop24 ? [{ key: "top24", label: "Top 24" }] : []),
+        ...(modelBShowTop8 ? [{ key: "top8", label: "Top 8" }] : []),
         ...(hasMainBracket ? [{ key: "main", label: MODEL_B_FINALS_TAB_LABEL }] : []),
       ]
     : [];
 
   function firstPoolTabForRound(roundKey: string): string | undefined {
-    if (roundKey === "main") return undefined;
+    if (roundKey === "main" || roundKey === "top24" || roundKey === "top8") return undefined;
     const roundPools = tournament.pools.filter(p => roundKeyFor(p.roundNumber ?? 1) === roundKey);
     return roundPools[0] ? `pool-${roundPools[0].id}` : undefined;
   }
@@ -217,7 +230,7 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
   // whichever round is currently selected above; Finals lives in roundTabs
   // instead, so it's empty while "Finals" is selected.
   const views = isModelB
-    ? selectedRound === "main"
+    ? selectedRound === "main" || selectedRound === "top24" || selectedRound === "top8"
       ? []
       : tournament.pools.filter(p => roundKeyFor(p.roundNumber ?? 1) === selectedRound).map(p => ({ key: `pool-${p.id}`, label: `Pool ${p.poolNumber}` }))
     : isPoolsFormat
@@ -345,7 +358,13 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
           </p>
         )}
 
-        {displayedBracket ? (
+        {isModelB && (selectedRound === "top24" || selectedRound === "top8") ? (
+          <ModelBLiveRoster
+            entrants={modelBLiveEntrants}
+            tierLabel={selectedRound === "top8" ? "Top 8" : "Top 24"}
+            highlightedPlayerIds={NO_HIGHLIGHTED_PLAYERS}
+          />
+        ) : displayedBracket ? (
           <>
             {displayedBracketIsFinalsCutoff && (
               <FinalsCutoffWinnersRoster
