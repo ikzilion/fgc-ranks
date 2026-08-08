@@ -3,74 +3,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { BracketView } from "./BracketView";
-import { modelBRoundLabel, MODEL_B_FINALS_TAB_LABEL } from "@/lib/bracketTierView";
+import {
+  modelBRoundLabel,
+  MODEL_B_FINALS_TAB_LABEL,
+  finalsCutoffWinnersQualifiedEntrants,
+  FinalsCutoffWinnersRoster,
+} from "@/lib/bracketTierView";
+import { GET_STREAM_TOURNAMENT } from "@/lib/streamTournamentQuery";
 
 const POLL_INTERVAL_MS = 12000;
-
-// Shared Match field selection — same convention as the tournament detail
-// page's MATCH_FIELDS (no GraphQL fragments in this codebase — no Apollo
-// Client — so it's just a repeated string).
-const MATCH_FIELDS = `
-  id
-  round
-  status
-  bracketSide
-  bracketRound
-  bracketPosition
-  player1Score
-  player2Score
-  isForfeit
-  player1 { id tag }
-  player2 { id tag }
-  winner { id tag }
-  nextMatch { id }
-  nextLoserMatch { id }
-`;
-
-const GET_STREAM_TOURNAMENT = `
-  query GetStreamTournament($id: ID!) {
-    tournament(id: $id) {
-      id
-      name
-      game
-      status
-      format
-      streamBackgroundUrl
-      sponsorBannerUrl
-      sponsorBannerUrls { url linkUrl }
-      sponsorBannerIntervalSeconds
-      bracketLineColor
-      bracketBoxColor
-      bracketFontColor
-      poolModel
-      bracket {
-        id
-        seedingMethod
-        size
-        matches { ${MATCH_FIELDS} }
-      }
-      pools {
-        id
-        poolNumber
-        roundNumber
-        isFinalsCutoff
-        bracket {
-          id
-          seedingMethod
-          size
-          matches { ${MATCH_FIELDS} }
-        }
-      }
-      mainBracket {
-        id
-        seedingMethod
-        size
-        seedOrder { id }
-        matches { ${MATCH_FIELDS} }
-      }
-    }
-  }
-`;
 
 interface StreamPool {
   id: string;
@@ -79,6 +20,11 @@ interface StreamPool {
   // Pool format Model B only — always 1 / false for Model A/C.
   roundNumber: number;
   isFinalsCutoff: boolean;
+  // Needed for finalsCutoffWinnersQualifiedEntrants (lib/bracketTierView.tsx)
+  // -- a Finals-cutoff pool with 0 real Winners-side matches never mentions
+  // its Winners-side qualifiers anywhere in bracket.matches, so their real
+  // identities can only come from the pool's own entrant list.
+  entrants: { id: string; player: { id: string; tag: string; avatarUrl?: string | null } }[];
 }
 
 interface StreamTournament {
@@ -483,14 +429,22 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
         )}
 
         {displayedBracket ? (
-          <BracketView
-            bracket={displayedBracket}
-            canManage={false}
-            lineColor={tournament.bracketLineColor ?? undefined}
-            boxColor={tournament.bracketBoxColor ?? undefined}
-            fontColor={tournament.bracketFontColor ?? undefined}
-            isFinalsCutoff={displayedBracketIsFinalsCutoff}
-          />
+          <>
+            {displayedBracketIsFinalsCutoff && (
+              <FinalsCutoffWinnersRoster
+                entrants={finalsCutoffWinnersQualifiedEntrants(selectedPool?.entrants ?? [], displayedBracket)}
+                accentColor={tournament.bracketLineColor ?? undefined}
+              />
+            )}
+            <BracketView
+              bracket={displayedBracket}
+              canManage={false}
+              lineColor={tournament.bracketLineColor ?? undefined}
+              boxColor={tournament.bracketBoxColor ?? undefined}
+              fontColor={tournament.bracketFontColor ?? undefined}
+              isFinalsCutoff={displayedBracketIsFinalsCutoff}
+            />
+          </>
         ) : (
           <p className="text-[14px]" style={{ color: "rgba(255,255,255,0.7)" }}>
             {isPoolsFormat && noPoolsYet ? "Pools haven't been generated yet." : "Bracket not yet generated."}

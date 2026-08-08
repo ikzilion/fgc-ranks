@@ -123,6 +123,98 @@ export function modelBRoundLabel(pools: ModelBRoundLabelPool[], r: number): stri
 // the other as a whole function was.
 export const MODEL_B_FINALS_TAB_LABEL = "Top 8";
 
+// A Model B Finals-cutoff pool (Pool.isFinalsCutoff) whose Winners-side
+// entry size already equals FINALS_HALF plays ZERO real Winners-side
+// matches (buildFinalsCutoffBracket's winnersRounds=0 branch, lib/bracket.ts
+// -- see its own big comment) -- those entrants are already-decided Finals
+// qualifiers with nothing left to play this round. Confirmed against real
+// production data (Aug 8, 2026): both existing Model B tournaments' Top 24
+// stage hit exactly this case (0 WINNERS matches, 4 real entrants never
+// appearing in ANY match at all), which is what a viewer sees as "the Top
+// 24 view only shows the Losers side" -- a real UX gap (those 4 real people
+// are never displayed anywhere on the page), not a data or render bug.
+//
+// Only derives a roster when bracket.matches has ZERO real WINNERS-side
+// matches -- if a future tournament's winnersEntrySize ever exceeds
+// FINALS_HALF, real WINNERS matches DO exist and BracketView already
+// renders them normally (its own "Winners Bracket" section), so this
+// deliberately returns nothing there rather than guessing at partial
+// qualification from match data alone: an entrant not yet appearing in a
+// LOSERS match could just be mid-match on a real Winners bracket, not
+// "already advanced" -- only safe to assume the former when there's no
+// Winners bracket being drawn at all.
+export interface FinalsCutoffEntrant {
+  id: string;
+  player: { id: string; tag: string; avatarUrl?: string | null };
+}
+interface FinalsCutoffBracket {
+  matches: { bracketSide: string; player1?: { id: string } | null; player2?: { id: string } | null }[];
+}
+export function finalsCutoffWinnersQualifiedEntrants<E extends FinalsCutoffEntrant>(
+  entrants: E[],
+  bracket: FinalsCutoffBracket | null | undefined
+): E[] {
+  if (!bracket) return [];
+  const hasRealWinnersMatches = bracket.matches.some(m => m.bracketSide === "WINNERS");
+  if (hasRealWinnersMatches) return [];
+  const losersPlayerIds = new Set<string>();
+  for (const m of bracket.matches) {
+    if (m.bracketSide !== "LOSERS") continue;
+    if (m.player1) losersPlayerIds.add(m.player1.id);
+    if (m.player2) losersPlayerIds.add(m.player2.id);
+  }
+  return entrants.filter(e => !losersPlayerIds.has(e.player.id));
+}
+
+// Shared with BracketView's own "Winners Bracket"/"Losers Bracket" heading
+// style (font-rajdhani text-2xl font-bold uppercase tracking-wide) and
+// ModelBLiveRoster's pill-list treatment (PoolsSection.tsx) — rendered
+// directly above BracketView so the two read as one continuous bracket
+// view rather than a bolted-on separate widget. Used on both the
+// TO-facing Overview page and the OBS Stream page (same reasoning as
+// modelBRoundLabel/MODEL_B_FINALS_TAB_LABEL above — one shared component
+// instead of two copies that can silently drift apart).
+export function FinalsCutoffWinnersRoster({
+  entrants,
+  accentColor,
+}: {
+  entrants: FinalsCutoffEntrant[];
+  accentColor?: string;
+}) {
+  if (entrants.length === 0) return null;
+  return (
+    <div className="mb-6">
+      <p className="font-rajdhani text-2xl font-bold uppercase tracking-wide mb-3" style={{ color: accentColor || "var(--green)" }}>
+        Winners Bracket
+      </p>
+      <p className="text-[11px] mb-3" style={{ color: "var(--text-muted)" }}>
+        Already advanced to the Top 8 Finals — this round's Winners-side field was small enough that these entrants qualified directly, with no match to play here.
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {entrants.map(e => (
+          <span
+            key={e.id}
+            className="flex items-center gap-1.5 text-[12px] px-2 py-1 rounded"
+            style={{ background: "rgba(74,222,128,0.12)", color: "var(--green)" }}
+          >
+            <span
+              className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden font-rajdhani text-[9px] font-bold"
+              style={{ background: "var(--blue-dim)", color: "var(--blue)" }}
+            >
+              {e.player.avatarUrl ? (
+                <img src={e.player.avatarUrl} alt={e.player.tag} className="w-full h-full object-cover" />
+              ) : (
+                e.player.tag.slice(0, 2).toUpperCase()
+              )}
+            </span>
+            {e.player.tag}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Small pill-button tab bar — no existing tab component elsewhere in this
 // codebase to reuse, so this follows the site's existing button-styling
 // conventions (blue = active/primary, navy-4 = inactive, same as e.g.

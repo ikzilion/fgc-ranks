@@ -3,7 +3,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { BracketView } from "./BracketView";
-import { computeLiveEntrantCount, filterBracketToTier, TabBar, modelBRoundLabel, MODEL_B_FINALS_TAB_LABEL } from "@/lib/bracketTierView";
+import {
+  computeLiveEntrantCount,
+  filterBracketToTier,
+  TabBar,
+  modelBRoundLabel,
+  MODEL_B_FINALS_TAB_LABEL,
+  finalsCutoffWinnersQualifiedEntrants,
+  FinalsCutoffWinnersRoster,
+} from "@/lib/bracketTierView";
 import { GeneratePoolsButton } from "./GeneratePoolsButton";
 import { GenerateModelBPoolsButton } from "./GenerateModelBPoolsButton";
 import { GenerateMainBracketButton } from "./GenerateMainBracketButton";
@@ -726,7 +734,10 @@ export function PoolsSection({
           )}
           <PoolAdvancementTags pool={activePool} />
           {activePool.bracket ? (
-            <BracketView bracket={activePool.bracket} canManage={canManage} highlightedPlayerIds={highlightedPlayerIds} isFinalsCutoff={activePool.isFinalsCutoff} />
+            <>
+              <FinalsCutoffWinnersRoster entrants={finalsCutoffWinnersQualifiedEntrants(activePool.entrants, activePool.bracket)} />
+              <BracketView bracket={activePool.bracket} canManage={canManage} highlightedPlayerIds={highlightedPlayerIds} isFinalsCutoff={activePool.isFinalsCutoff} />
+            </>
           ) : activePool.matches.length > 0 ? (
             <PoolStandingsView pool={activePool} canManage={canManage} highlightedPlayerIds={highlightedPlayerIds} />
           ) : (
