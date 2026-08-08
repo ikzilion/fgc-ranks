@@ -447,9 +447,13 @@ export function PoolsSection({
 
   // A round is the Semifinal-cutoff round if its one pool says so (a
   // Finals-cutoff round is always exactly one pool — see advanceModelBRound).
+  // Labeled "Top 24" (not "Semifinal Cutoff") for parity with Standard/A/C's
+  // Top 24/Top 8 tabs — this real ~24-entrant bracket IS Model B's Top 24
+  // stage, just reached via a TO-triggered round instead of a live filtered
+  // view (settled design decision, Aug 8, 2026).
   function roundLabel(r: number) {
     const roundPools = pools.filter(p => (p.roundNumber ?? 1) === r);
-    return roundPools.length === 1 && roundPools[0].isFinalsCutoff ? "Semifinal Cutoff" : `Round ${r}`;
+    return roundPools.length === 1 && roundPools[0].isFinalsCutoff ? "Top 24" : `Round ${r}`;
   }
 
   // Model B's own Top 24/Top 8 — deliberately separate from Semifinal
@@ -469,10 +473,13 @@ export function PoolsSection({
   const modelBTop24HasHighlight = modelBLiveEntrants.some(e => highlightedPlayerIds.has(e.playerId));
 
   // Model B's round-selector tier — one tab per pool round generated so far,
-  // Top 24/Top 8 once the current round has narrowed enough (see above),
-  // plus a "Finals" tab once the real Finals bracket exists (same
-  // Tournament.mainBracket slot Model A/C's "Main Bracket" tab already uses,
-  // just elevated to this tier instead of sitting alongside pool tabs).
+  // the mid-round live "Top 24"/"Top 8" roster tabs once the current round
+  // has narrowed enough (see above; these vanish once hasMainBracket, a
+  // separate pre-existing gap, not touched here), plus a "Top 8" tab once
+  // the real Finals bracket exists (same Tournament.mainBracket slot Model
+  // A/C's "Main Bracket" tab already uses, just elevated to this tier
+  // instead of sitting alongside pool tabs; labeled "Top 8" not "Finals" for
+  // the same Standard/A/C parity reasoning as roundLabel() above).
   const roundTabs = isModelB
     ? [
         ...roundNumbers.map(r => ({
@@ -482,7 +489,7 @@ export function PoolsSection({
         })),
         ...(modelBShowTop24 ? [{ key: "top24", label: "Top 24", hasHighlight: modelBTop24HasHighlight }] : []),
         ...(modelBShowTop8 ? [{ key: "top8", label: "Top 8", hasHighlight: modelBTop24HasHighlight }] : []),
-        ...(hasMainBracket ? [{ key: "main", label: "Finals", hasHighlight: mainBracketHasHighlight }] : []),
+        ...(hasMainBracket ? [{ key: "main", label: "Top 8", hasHighlight: mainBracketHasHighlight }] : []),
       ]
     : [];
 
@@ -591,6 +598,15 @@ export function PoolsSection({
 
   const activePool = pools.find(p => `pool-${p.id}` === activeTab);
   const isViewingLatestRound = activeRound === roundKeyFor(latestRound);
+  // The Top 24 round (Semifinal Cutoff) is addressed via an ordinary
+  // round-${r} key, not a dedicated one like "main" -- unlike "main" it
+  // can't be excluded from the pool-sub-tab bar below by key alone, so this
+  // derives "is the currently active round the Top 24 round" the same way
+  // roundLabel() does, to fully unmount that redundant single-pool tab bar
+  // (this round always has exactly one pool) and go straight to its bracket,
+  // matching the Top 8/Finals round's existing clean one-click behavior.
+  const activeRoundPools = isModelB ? pools.filter(p => roundKeyFor(p.roundNumber ?? 1) === activeRound) : [];
+  const activeRoundIsTop24 = activeRoundPools.length === 1 && activeRoundPools[0].isFinalsCutoff;
   // Models A/C: "Main Bracket"/"Top 24"/"Top 8" are three different VIEWS
   // of the exact same mainBracket data (see filterBracketToTier) — the
   // active tab just picks which one to hand to BracketView, unchanged.
@@ -618,7 +634,7 @@ export function PoolsSection({
               <TabBar tabs={roundTabs} activeKey={activeRound ?? roundTabs[0]?.key ?? ""} onSelect={handleSelectRound} />
             </div>
           )}
-          {(!isModelB || activeRound !== "main") && (
+          {(!isModelB || (activeRound !== "main" && !activeRoundIsTop24)) && (
             <TabBar tabs={tabs} activeKey={activeTab ?? tabs[0]?.key ?? ""} onSelect={setActiveTab} />
           )}
           {(!hasMainBracket || isModelB) && (
@@ -691,11 +707,25 @@ export function PoolsSection({
             <p className="font-rajdhani text-lg font-bold text-[var(--text-primary)]">
               Pool {activePool.poolNumber}
               {activePool.isFinalsCutoff && (
-                <span className="ml-2 text-[11px] font-bold" style={{ color: "var(--gold)" }}>SEMIFINAL CUTOFF</span>
+                <span className="ml-2 text-[11px] font-bold" style={{ color: "var(--gold)" }}>TOP 24</span>
               )}
             </p>
             <p className="text-[11px] text-[var(--text-muted)]">{activePool.entrants.length} entrants</p>
           </div>
+          {activePool.isFinalsCutoff && (
+            // Live count for Model B's real Top 24 bracket, reusing the
+            // already-computed (and correctly carried-loss-aware, see
+            // computeModelBRoundLiveEntrants above) modelBLiveEntrants --
+            // NOT lib/bracketTierView.tsx's computeLiveEntrantCount, whose
+            // flat "2 losses" rule silently overcounts survivors here (a
+            // real bug already found and fixed once, 2026-07-31). Different
+            // wording than Standard/A/C's Top 24/Top 8 caption on purpose --
+            // this bracket isn't a filtered slice of a larger complete
+            // bracket sitting in another tab, it's the real, whole thing.
+            <p className="text-[11px] text-[var(--text-muted)] mb-3">
+              {modelBLiveEntrants.length} of {modelBRoundStartCount} entrants remaining — advancing to the Top 8 bracket.
+            </p>
+          )}
           <PoolAdvancementTags pool={activePool} />
           {activePool.bracket ? (
             <BracketView bracket={activePool.bracket} canManage={canManage} highlightedPlayerIds={highlightedPlayerIds} />
