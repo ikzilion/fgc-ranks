@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { BracketView } from "./BracketView";
+import { modelBRoundLabel, MODEL_B_FINALS_TAB_LABEL } from "@/lib/bracketTierView";
 
 const POLL_INTERVAL_MS = 12000;
 
@@ -302,19 +303,22 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
 
   // A round is the Semifinal-cutoff round if its one pool says so (a
   // Finals-cutoff round is always exactly one pool — see advanceModelBRound).
-  function roundLabel(r: number) {
-    const roundPools = tournament.pools.filter(p => (p.roundNumber ?? 1) === r);
-    return roundPools.length === 1 && roundPools[0].isFinalsCutoff ? "Semifinal Cutoff" : `Round ${r}`;
-  }
+  // Labeled "Top 24"/"Top 8" for parity with PoolsSection.tsx's TO-facing
+  // page (settled design, Aug 8, 2026) — see lib/bracketTierView.tsx's
+  // modelBRoundLabel/MODEL_B_FINALS_TAB_LABEL for why these are shared
+  // helpers now instead of a second local copy (a second copy is exactly
+  // what let this page's labels silently miss the "Semifinal Cutoff"/
+  // "Finals" -> "Top 24"/"Top 8" rename when it first landed here).
+  const roundLabel = (r: number) => modelBRoundLabel(tournament.pools, r);
 
   // Model B's round-selector tier — one tab per pool round generated so far,
-  // plus a "Finals" tab once the real Finals bracket exists (same
+  // plus a Finals tab once the real Finals bracket exists (same
   // Tournament.mainBracket slot Model A/C's "Main Bracket" tab already uses,
   // just elevated to this tier instead of sitting alongside pool tabs).
   const roundTabs = isModelB
     ? [
         ...roundNumbers.map(r => ({ key: roundKeyFor(r), label: roundLabel(r) })),
-        ...(hasMainBracket ? [{ key: "main", label: "Finals" }] : []),
+        ...(hasMainBracket ? [{ key: "main", label: MODEL_B_FINALS_TAB_LABEL }] : []),
       ]
     : [];
 

@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { BracketView } from "./BracketView";
-import { computeLiveEntrantCount, filterBracketToTier, TabBar } from "@/lib/bracketTierView";
+import { computeLiveEntrantCount, filterBracketToTier, TabBar, modelBRoundLabel, MODEL_B_FINALS_TAB_LABEL } from "@/lib/bracketTierView";
 import { GeneratePoolsButton } from "./GeneratePoolsButton";
 import { GenerateModelBPoolsButton } from "./GenerateModelBPoolsButton";
 import { GenerateMainBracketButton } from "./GenerateMainBracketButton";
@@ -450,11 +450,9 @@ export function PoolsSection({
   // Labeled "Top 24" (not "Semifinal Cutoff") for parity with Standard/A/C's
   // Top 24/Top 8 tabs — this real ~24-entrant bracket IS Model B's Top 24
   // stage, just reached via a TO-triggered round instead of a live filtered
-  // view (settled design decision, Aug 8, 2026).
-  function roundLabel(r: number) {
-    const roundPools = pools.filter(p => (p.roundNumber ?? 1) === r);
-    return roundPools.length === 1 && roundPools[0].isFinalsCutoff ? "Top 24" : `Round ${r}`;
-  }
+  // view (settled design decision, Aug 8, 2026). See lib/bracketTierView.tsx's
+  // modelBRoundLabel for why this is a shared helper, not a local function.
+  const roundLabel = (r: number) => modelBRoundLabel(pools, r);
 
   // Model B's own Top 24/Top 8 — deliberately separate from Semifinal
   // Cutoff (a real structural round the algorithm always builds once
@@ -489,7 +487,7 @@ export function PoolsSection({
         })),
         ...(modelBShowTop24 ? [{ key: "top24", label: "Top 24", hasHighlight: modelBTop24HasHighlight }] : []),
         ...(modelBShowTop8 ? [{ key: "top8", label: "Top 8", hasHighlight: modelBTop24HasHighlight }] : []),
-        ...(hasMainBracket ? [{ key: "main", label: "Top 8", hasHighlight: mainBracketHasHighlight }] : []),
+        ...(hasMainBracket ? [{ key: "main", label: MODEL_B_FINALS_TAB_LABEL, hasHighlight: mainBracketHasHighlight }] : []),
       ]
     : [];
 

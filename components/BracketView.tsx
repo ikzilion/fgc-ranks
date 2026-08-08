@@ -586,6 +586,67 @@ const BracketSideSection = memo(function BracketSideSection({
   //    bracketPosition formula by construction, so this never collides with
   //    (or duplicates) a real feeder-derived center — no separate collision
   //    pass is needed, and none should be added back.
+  // Model B's Finals-cutoff bracket (isFinalsCutoff) has no reliable
+  // bracket.size-derived shape at all (see getRoundPositionCounts' own
+  // comment) -- but unlike GRAND_FINAL (always <=2 matches total, never
+  // needs real pyramid spacing), this bracket can carry many matches per
+  // round and DOES need correct tapering. A real match's own bracketPosition
+  // can't drive that spacing directly here: a consolidation round assigns
+  // position = i/2 per SLOT PAIR regardless of whether a real match doc was
+  // actually created for that pair (buildMatch in lib/bracket.ts skips
+  // creating a doc whenever either slot is a BYE), so a bye-heavy round's
+  // real matches sit at a SPARSE, wide-spread set of position values --
+  // confirmed via real data: Pool 85's Losers Round 1 has exactly 4 real
+  // matches, at positions 1/5/9/13, not 0-3. Feeding that raw value into the
+  // scale formula below (same one the standard, non-cutoff case already
+  // uses two paragraphs up) opens huge, empty gaps between cards that have
+  // no real match to fill them -- confirmed live: this was the actual
+  // "flat/staircase" bug report (Aug 8, 2026), cards were correctly
+  // ORDERED but spread across far more vertical space than the round's real
+  // match count needs, breaking the taper entirely.
+  //
+  // Fix: derive this bracket's own per-round WIDTH from the highest real
+  // bracketPosition actually seen in that round (+1), not from a raw count
+  // of real matches -- a round's real match COUNT undercounts its true
+  // slot-pair width whenever byes are unevenly distributed (confirmed live:
+  // Round 1's real match count is 4, but its real positions 1/5/9/13 prove
+  // its true width is at least 14 -- using 4 as if it were the width put
+  // Round 2's cards at HALF the spacing they needed, overlapping each other
+  // outright, worse than the original gap bug). Max-position+1 recovers the
+  // true width in every round that isn't itself bye-heavy at its very
+  // highest positions (confirmed: Round 2/3 here have zero byes left by
+  // that point, so their real match count and max-position+1 agree
+  // exactly). Then rank a 0-feeder match by its dense INDEX within its
+  // round's real matches (not its raw sparse bracketPosition) so
+  // consecutive real cards stack directly adjacent instead of leaving gaps
+  // at every bye-skipped position -- exactly the standard formula's own
+  // scale/rank math, just fed real-data-derived widths instead of ones
+  // invented from `size`.
+  //
+  // Round 1 can still UNDERESTIMATE its true width when its own very last
+  // slot-pair(s) are also byes (its real positions can't prove a width the
+  // data never reaches) -- and unlike the standard/GRAND_FINAL cases, this
+  // DOES propagate: every later round's scale divides by Round 1's width,
+  // so an underestimated baseline makes every later round's fallback
+  // spacing slightly TOO TIGHT, not just Round 1's own (confirmed live: a
+  // Round 1 width underestimate of 14 vs the true 16 was enough to land two
+  // Round 2 cards close enough to visually overlap). Rather than chase an
+  // exactly-correct width derivation for every possible bye distribution
+  // this generator can produce, the per-round minimum-gap pass right below
+  // (isFinalsCutoff only) makes overlap structurally impossible regardless
+  // of how far off the width estimate is -- it only ever pushes a card
+  // LATER within its own round, never earlier, so it can't undo a real
+  // feeder's already-correct center, only fix an approximation's shortfall.
+  const finalsCutoffRoundWidths = isFinalsCutoff
+    ? roundNumbers.map(r => Math.max(...sortedByRound.get(r)!.map(m => m.bracketPosition)) + 1)
+    : [];
+  const finalsCutoffRankById = new Map<string, number>();
+  if (isFinalsCutoff) {
+    for (const r of roundNumbers) {
+      sortedByRound.get(r)!.forEach((m, idx) => finalsCutoffRankById.set(m.id, idx));
+    }
+  }
+
   const idsInSide = new Set(matches.map(m => m.id));
   const feedersByTarget = new Map<string, string[]>();
   for (const m of matches) {
@@ -602,11 +663,32 @@ const BracketSideSection = memo(function BracketSideSection({
         centerById.set(m.id, (centerById.get(feeders[0])! + centerById.get(feeders[1])!) / 2);
       } else if (feeders.length === 1) {
         centerById.set(m.id, centerById.get(feeders[0])!);
+      } else if (isFinalsCutoff) {
+        const scale = finalsCutoffRoundWidths[0] / finalsCutoffRoundWidths[r - 1];
+        const rank = finalsCutoffRankById.get(m.id)!;
+        centerById.set(m.id, (rank * scale + (scale - 1) / 2) * roundSpacing + cardHeight / 2);
       } else {
         const scale = expectedCounts.length > 0 ? expectedCounts[0] / expectedCounts[r - 1] : 1;
         centerById.set(m.id, (m.bracketPosition * scale + (scale - 1) / 2) * roundSpacing + cardHeight / 2);
       }
     });
+    // Minimum-gap pass (isFinalsCutoff only, see finalsCutoffRoundWidths'
+    // comment above) — walk this round's own matches in the order their
+    // just-computed centers actually landed and push any card whose center
+    // is closer than roundSpacing to the previous one down to exactly that
+    // minimum. Runs once per round, immediately after that round's centers
+    // are finalized and BEFORE the next round reads them as feeder
+    // centers, so a correction here is what the next round's 2-/1-feeder
+    // averaging sees too — no separate propagation step needed.
+    if (isFinalsCutoff) {
+      const orderedByCenter = [...sortedByRound.get(r)!].sort((a, b) => centerById.get(a.id)! - centerById.get(b.id)!);
+      for (let i = 1; i < orderedByCenter.length; i++) {
+        const minCenter = centerById.get(orderedByCenter[i - 1].id)! + roundSpacing;
+        if (centerById.get(orderedByCenter[i].id)! < minCenter) {
+          centerById.set(orderedByCenter[i].id, minCenter);
+        }
+      }
+    }
   }
 
   return (

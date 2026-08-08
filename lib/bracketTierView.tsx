@@ -95,6 +95,34 @@ export function filterBracketToTier<T extends TierBracket>(bracket: T, tierSize:
   return { ...bracket, size: tierSize, matches };
 }
 
+// Model B pool-round tab label: "Top 24" once a round's own single pool is
+// the real Finals-cutoff round (Pool.isFinalsCutoff — see lib/bracket.ts's
+// buildFinalsCutoffBracket), else "Round {r}". Shared between
+// PoolsSection.tsx (TO-facing Overview page) and StreamBracket.tsx (OBS
+// broadcast page) on purpose — this used to be duplicated verbatim in both,
+// which is exactly how the "Semifinal Cutoff" -> "Top 24" rename (commit
+// 1724d03) landed in PoolsSection.tsx but silently never touched
+// StreamBracket.tsx's own copy (confirmed via a real user report, Aug 8,
+// 2026, the Stream page was still showing "Semifinal Cutoff"/"Finals" after
+// that commit shipped). A single shared source makes that class of bug
+// structurally impossible to reintroduce a third time.
+export interface ModelBRoundLabelPool {
+  roundNumber?: number;
+  isFinalsCutoff: boolean;
+}
+export function modelBRoundLabel(pools: ModelBRoundLabelPool[], r: number): string {
+  const roundPools = pools.filter(p => (p.roundNumber ?? 1) === r);
+  return roundPools.length === 1 && roundPools[0].isFinalsCutoff ? "Top 24" : `Round ${r}`;
+}
+
+// Model B's real Finals bracket tab label, once Tournament.mainBracket
+// exists — same Standard/Model A/C "Top 8" parity naming already used for
+// the equivalent tab elsewhere (settled design, Aug 8, 2026). Shared for the
+// same reason modelBRoundLabel above is — a bare string literal duplicated
+// across two files is exactly as easy to rename in one place and miss in
+// the other as a whole function was.
+export const MODEL_B_FINALS_TAB_LABEL = "Top 8";
+
 // Small pill-button tab bar — no existing tab component elsewhere in this
 // codebase to reuse, so this follows the site's existing button-styling
 // conventions (blue = active/primary, navy-4 = inactive, same as e.g.
