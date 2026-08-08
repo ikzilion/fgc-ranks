@@ -66,6 +66,7 @@ const { Match } = await import("../models/Match");
 const { Bracket } = await import("../models/Bracket");
 const { Pool } = await import("../models/Pool");
 const { resolvers } = await import("../graphql/resolvers/index");
+const { createLoaders } = await import("../graphql/loaders");
 
 async function mapConcurrent(items, worker, concurrency) {
   const results = new Array(items.length);
@@ -223,7 +224,7 @@ async function main() {
     const playedCount = await playRoundAcrossPools(organizerCtx, bracketIds, isFinalsCutoff, 8, 4);
     console.log(`Round ${roundNumber} (${bracketIds.length} pool${isFinalsCutoff ? ", Finals-cutoff" : ""}${bracketIds.length === 1 ? "" : "s"}): ${playedCount} matches played.`);
 
-    const newPools = await resolvers.Mutation.advanceModelBRound(null, { tournamentId: tournament._id.toString() }, organizerCtx);
+    const newPools = await resolvers.Mutation.advanceModelBRound(null, { tournamentId: tournament._id.toString() }, { ...organizerCtx, loaders: createLoaders() });
 
     const freshTournament = await Tournament.findById(tournament._id).select("mainBracketId");
     if (freshTournament.mainBracketId) {

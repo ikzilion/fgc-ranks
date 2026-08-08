@@ -1,6 +1,6 @@
 // scripts/seedShowcaseModelA.mjs
 //
-// Small (24-entrant) showcase tournament for Pool format Model A
+// Small (56-entrant) showcase tournament for Pool format Model A
 // (round-robin pools) -- lets a soon-to-be TO browse a real, fully-decided
 // bracket of this format without wading through the existing 701-entrant
 // scale-reference tournament (scripts/seedStressTest700ModelA.mjs, which
@@ -10,7 +10,9 @@
 // tournament. Direct-to-Mongo via connectToDatabase(), calling the REAL
 // generatePools/reportResult/generateMainBracket resolvers, reusing the
 // existing StressPlayer Player docs already in the DB (no new players
-// created) plus ikzilion as organizer+entrant.
+// created) plus ikzilion as organizer+entrant. Sized at 56 (not the
+// original 24) so the main bracket clears the 16-entrant floor needed for
+// the Top 8 tab to appear -- see ENTRANT_COUNT below.
 //
 // Run: npx tsx scripts/seedShowcaseModelA.mjs
 
@@ -36,7 +38,17 @@ function loadEnvLocal() {
 loadEnvLocal();
 if (!process.env.MONGODB_URI) throw new Error("Missing MONGODB_URI (checked .env.local)");
 
-const ENTRANT_COUNT = 24; // 23 StressPlayer + ikzilion
+// 56, not 24 -- suggestPoolCount(56) = round(56/7) = 8 pools of 7 (the
+// platform's natural pool-size target), advancing 2 finalists/pool = 16 to
+// the main bracket. That clears the >=16-entrant floor lib/bracketTierView.tsx
+// (via PoolsSection.tsx's showTop8) requires before a Top 8 tab can ever
+// appear -- the original 24-entrant size produced only 3 pools / 6
+// finalists, so its main bracket structurally could never reach the
+// threshold no matter how the bracket played out, silently omitting the Top
+// 8 tab from this showcase (found investigating a report that Model C's
+// showcase never displayed one, Aug 7, 2026 -- Model A had the identical
+// gap, confirmed not format-specific).
+const ENTRANT_COUNT = 56; // 55 StressPlayer + ikzilion
 
 const { connectToDatabase } = await import("../lib/db");
 const { Player } = await import("../models/Player");
@@ -45,6 +57,7 @@ const { Entrant } = await import("../models/Entrant");
 const { Match } = await import("../models/Match");
 const { Pool } = await import("../models/Pool");
 const { resolvers } = await import("../graphql/resolvers/index");
+const { createLoaders } = await import("../graphql/loaders");
 
 async function mapConcurrent(items, worker, concurrency) {
   const results = new Array(items.length);
@@ -117,7 +130,7 @@ async function main() {
   const mainBracket = await resolvers.Mutation.generateMainBracket(
     null,
     { tournamentId: tournament._id.toString(), seedingMethod: "RANDOM" },
-    organizerCtx
+    { ...organizerCtx, loaders: createLoaders() }
   );
   console.log(`generateMainBracket: size ${mainBracket.size}, ${pools.length * 2} finalists seeded.`);
 

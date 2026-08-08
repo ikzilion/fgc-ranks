@@ -18,6 +18,22 @@
 //      (lib/bracket.ts) only ever writes these once the bracket is
 //      genuinely decided, so their presence is real evidence of a decided
 //      bracket, not just a status flag.
+//   5. For Models A/C and Standard Bracket only (Model B has its own
+//      separate Top 24/8 mechanism, out of scope here): the Top 8/Top 24
+//      tab gating conditions (components/PoolsSection.tsx /
+//      StandardBracketSection.tsx, mainStartCount>=16/48) are recomputed
+//      here directly from the real bracket.seedOrder/matches and INFO-
+//      logged, not just assumed true because the tournament is small.
+//      Added Aug 7, 2026 after a real gap was found: a fully-decided,
+//      isExample tournament can pass checks 1-4 above while its main
+//      bracket never had enough entrants for the Top 8 tab to ever be able
+//      to appear (Models A/C's main bracket is only the pool ADVANCERS --
+//      2 per pool -- not the tournament's total entrant count, so a small
+//      total entrant count can silently produce a too-small main bracket).
+//      This check doesn't fail verification (a bracket too small for Top 8
+//      isn't broken, e.g. Model B's own tabs use a different mechanism
+//      entirely) -- it exists so this gap is visible in the output instead
+//      of silent, the way it was before.
 //
 // Run: npx tsx scripts/verifyShowcaseTournaments.mjs
 
@@ -50,10 +66,13 @@ const { Match } = await import("../models/Match");
 const { Bracket } = await import("../models/Bracket");
 
 const TOURNAMENT_IDS = [
-  // 4 new small showcase tournaments (this session)
+  // 4 new small showcase tournaments -- Model A/C reseeded at 56 entrants
+  // (not the original 24) Aug 7, 2026 so their main bracket clears the
+  // Top-8-tab threshold; see the ENTRANT_COUNT comment in
+  // scripts/seedShowcaseModelA.mjs / seedShowcaseModelC.mjs.
   { label: "NEW Standard Bracket", id: "6a75538ec78ca6be725fc369" },
-  { label: "NEW Pool Model A", id: "6a7553e662616cb1f0c98818" },
-  { label: "NEW Pool Model C", id: "6a7554174dd2866844588995" },
+  { label: "NEW Pool Model A", id: "6a768a456387808eb083a514" },
+  { label: "NEW Pool Model C", id: "6a768b0a748378a90d48ea25" },
   { label: "NEW Pool Model B", id: "6a755442e33b8991ae1cb9ba" },
   // 4 recreated 701-entrant scale-reference tournaments -- the original
   // IDs referenced in Notion (6a6d069e387ee77102b68fb3, 6a6d10f64991d6d367a265c9,
@@ -112,6 +131,33 @@ async function verifyOne({ label, id }) {
   record(first === 1, `exactly one Entrant.placement === 1 (actual: ${first})`);
   record(second === 1, `exactly one Entrant.placement === 2 (actual: ${second})`);
   result.checks.push(`INFO: ${withPlacement}/${entrants.length} entrants have a non-null placement`);
+
+  // Top 24/Top 8 tab gating, recomputed from real data exactly the way
+  // components/PoolsSection.tsx / StandardBracketSection.tsx do (mirrors
+  // lib/bracketTierView.tsx's computeLiveEntrantCount). INFO-only, not a
+  // pass/fail check -- Model B's Finals bracket is deliberately EXCLUDED
+  // from this gating path entirely (its own separate round-based Top 24/8
+  // mechanism applies instead), and a bracket too small to ever reach the
+  // threshold isn't inherently broken. Logged so this class of gap (see
+  // header comment, item 5) stays visible.
+  if ((tournament.poolModel ?? "C") !== "B") {
+    const seedOrder = (topBracket.seedOrder ?? []).map(pid => pid.toString());
+    const allBracketMatches = await Match.find({ bracketId: topBracket._id }).select("player1Id player2Id winnerId status").lean();
+    const losses = new Map();
+    for (const m of allBracketMatches) {
+      if (m.status !== "COMPLETED" || !m.winnerId) continue;
+      const loserId = m.player1Id?.toString() === m.winnerId.toString() ? m.player2Id?.toString() : m.player1Id?.toString();
+      if (!loserId) continue;
+      losses.set(loserId, (losses.get(loserId) ?? 0) + 1);
+    }
+    const liveCount = seedOrder.filter(pid => (losses.get(pid) ?? 0) < 2).length;
+    const mainStartCount = seedOrder.length;
+    const showTop24 = mainStartCount >= 48 && liveCount <= 24;
+    const showTop8 = mainStartCount >= 16 && liveCount <= 8;
+    result.checks.push(`INFO: main bracket started with ${mainStartCount} entrant(s), liveCount=${liveCount} -> showTop24=${showTop24} showTop8=${showTop8}`);
+  } else {
+    result.checks.push("INFO: Model B -- Top 24/8 gating uses a separate round-based mechanism, not checked here");
+  }
 
   return result;
 }
