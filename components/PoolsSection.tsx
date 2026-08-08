@@ -621,10 +621,12 @@ export function PoolsSection({
           {(!isModelB || activeRound !== "main") && (
             <TabBar tabs={tabs} activeKey={activeTab ?? tabs[0]?.key ?? ""} onSelect={setActiveTab} />
           )}
-          {!hasMainBracket && (
+          {(!hasMainBracket || isModelB) && (
             <p className="text-[11px] font-bold text-[var(--text-secondary)] mt-2">
               {isModelB
-                ? "Each pool's real advancers regroup into fresh pools once the current round finishes, narrowing down to the real Finals bracket."
+                ? hasMainBracket
+                  ? "This tournament's field narrowed through per-round pools down to a ~24-entrant Semifinal Cutoff, then a Top 8 Finals bracket."
+                  : "Each pool's real advancers regroup into fresh pools once the current round finishes, narrowing down to the real Finals bracket."
                 : "Top 2 finishers of each pool advance to the main bracket once every pool finishes."}
             </p>
           )}
