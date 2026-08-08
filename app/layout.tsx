@@ -3,7 +3,9 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Script from "next/script";
+import { Suspense } from "react";
 import { Navbar } from "@/components/Navbar";
+import TermlyCMP from "@/components/TermlyCMP";
 import { SessionProvider } from "next-auth/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Analytics } from "@vercel/analytics/next";
@@ -17,6 +19,13 @@ import { getThemeOrDefault, ThemePalette } from "@/lib/theme";
 // components/AdSlot.tsx for why manual ad units were chosen instead.
 // Renders nothing when the Publisher ID env var isn't set yet.
 const ADSENSE_CLIENT_ID = process.env.NEXT_PUBLIC_ADSENSE_CLIENT_ID;
+
+// Termly Consent Management Platform (cookie consent banner), settled Aug
+// 2026 -- same graceful-no-op-until-configured pattern as ADSENSE_CLIENT_ID
+// above: a public (non-secret) website identifier, kept in an env var
+// rather than hardcoded for the same consistency reasoning, and the whole
+// <Suspense>/<TermlyCMP> block below simply never mounts until it's set.
+const TERMLY_WEBSITE_UUID = process.env.NEXT_PUBLIC_TERMLY_WEBSITE_UUID;
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -92,11 +101,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           so <main> would shrink to its content width instead of filling up
           to its max-width cap (this bit Events' browse-page cards, fixed
           per-page there before the root cause here was found). */}
-      <body className="min-h-full" suppressHydrationWarning>
+      <body className="min-h-full" suppressHydrationWarning={true}>
         <SessionProvider>
           <Navbar />
           {children}
         </SessionProvider>
+        {TERMLY_WEBSITE_UUID && (
+          <Suspense fallback={null}>
+            <TermlyCMP websiteUUID={TERMLY_WEBSITE_UUID} autoBlock={true} />
+          </Suspense>
+        )}
         {/* Real-user performance monitoring — collects zero data outside a
             real Vercel deployment (nothing in local dev), so it's safe to
             mount unconditionally here rather than gating it per-environment. */}
