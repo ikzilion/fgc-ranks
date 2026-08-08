@@ -74,11 +74,23 @@ const OTHER_GAME = "__other__";
 // second tap look like it "reopened" it instead of closing it. Once a
 // click has explicitly pinned it open, only another click should ever
 // close it -- an incidental mouseleave (real or synthetic) shouldn't.
+// Top 24/Top 8 threshold note (Aug 9, 2026) -- a real gate that's existed
+// since the original Top 24/Top 8 design but was never explained anywhere a
+// TO would see it, which caused real confusion when a smaller tournament
+// simply never showed these tabs (looked like a bug, wasn't one). Numbers
+// verified against lib/bracketTierView.tsx's computeLiveTierGating (the
+// single shared gate Standard Bracket and Models A/C's main bracket both
+// call into as of today's Top 24/Top 8 standardization) -- 48/16, not
+// assumed from memory. Model B's own Top 24/Top 8 stage is gated by
+// Pool.isFinalsCutoff (a real structural pool round its merge algorithm
+// always reaches once pool_count<=8) rather than this numeric threshold, so
+// it gets its own, deliberately number-free wording instead of implying a
+// raw entrant-count knob that doesn't actually apply to it.
 const FORMAT_INFO: Record<string, string> = {
   "Standard Bracket":
-    "Every entrant goes straight into one double-elimination bracket. Best for smaller events — works well up to a few hundred entrants, but with a large field, everyone has to wait through many rounds before eliminations really thin out.",
+    "Every entrant goes straight into one double-elimination bracket. Best for smaller events — works well up to a few hundred entrants, but with a large field, everyone has to wait through many rounds before eliminations really thin out. Live \"Top 24\"/\"Top 8\" tracking tabs appear automatically once the field is large enough (48+ entrants for Top 24, 16+ for Top 8) — below that, they simply don't show.",
   "Pools + Bracket":
-    "Entrants are split into smaller pools first, each playing out as its own mini double-elimination bracket. The top 2 finishers from each pool then advance into a final bracket. This gets everyone playing matches faster in a large tournament, the same way major fighting game tournaments run big brackets.",
+    "Entrants are split into smaller pools first, each playing out as its own mini double-elimination bracket. The top 2 finishers from each pool then advance into a final bracket. This gets everyone playing matches faster in a large tournament, the same way major fighting game tournaments run big brackets. For Models A/C, the main bracket gets the same \"Top 24\"/\"Top 8\" tracking tabs once it's large enough (48+ entrants for Top 24, 16+ for Top 8); Model B reaches its own Top 24/Top 8 stage through its pool-merge progression instead of that same threshold.",
 };
 
 const TOOLTIP_WIDTH = 240;
