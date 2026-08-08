@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { BracketView } from "./BracketView";
 import { GenerateBracketButton } from "./GenerateBracketButton";
-import { computeLiveEntrantCount, filterBracketToTier, TabBar } from "@/lib/bracketTierView";
+import { computeLiveTierGating, filterBracketToTier, TabBar } from "@/lib/bracketTierView";
 
 interface EntrantOption {
   id: string;
@@ -66,10 +66,7 @@ export function StandardBracketSection({
   // PoolsSection.tsx: empty Set means nothing highlighted.
   highlightedPlayerIds: Set<string>;
 }) {
-  const mainStartCount = bracket?.seedOrder?.length ?? 0;
-  const liveCount = bracket ? computeLiveEntrantCount(bracket) : 0;
-  const showTop24 = !!bracket && mainStartCount >= 48 && liveCount <= 24;
-  const showTop8 = !!bracket && mainStartCount >= 16 && liveCount <= 8;
+  const { liveCount, showTop24, showTop8 } = computeLiveTierGating(bracket);
   const showTabs = showTop24 || showTop8;
   const bracketHasHighlight = !!bracket?.seedOrder?.some(p => highlightedPlayerIds.has(p.id));
 

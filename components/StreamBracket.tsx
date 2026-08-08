@@ -8,6 +8,9 @@ import {
   MODEL_B_FINALS_TAB_LABEL,
   finalsCutoffWinnersQualifiedEntrants,
   FinalsCutoffWinnersRoster,
+  computeLiveTierGating,
+  filterBracketToTier,
+  useAutoFollowNarrowestTier,
 } from "@/lib/bracketTierView";
 import { GET_STREAM_TOURNAMENT } from "@/lib/streamTournamentQuery";
 
@@ -83,71 +86,6 @@ function ViewTabs({
       })}
     </div>
   );
-}
-
-// Models A/C's main bracket only — "live entrant count" = pool advancers
-// (bracket.seedOrder) minus already-eliminated entrants (2 losses in this
-// bracket; standard double-elim), recomputed from current match results
-// every render. Duplicated from PoolsSection.tsx's identical helper (same
-// "reuse BracketView unchanged" scope, no shared-component layer between
-// the TO-facing page and this broadcast view) rather than imported.
-function computeLiveEntrantCount(bracket: any): number {
-  if (!bracket?.seedOrder) return 0;
-  const losses = new Map<string, number>();
-  for (const m of bracket.matches) {
-    if (m.status !== "COMPLETED" || !m.winner) continue;
-    const loserId = m.player1 && m.winner.id === m.player1.id ? m.player2?.id : m.player1?.id;
-    if (!loserId) continue;
-    losses.set(loserId, (losses.get(loserId) ?? 0) + 1);
-  }
-  return bracket.seedOrder.filter((p: any) => (losses.get(p.id) ?? 0) < 2).length;
-}
-
-// Duplicated from BracketView.tsx's own private getRoundPositionCounts —
-// see PoolsSection.tsx's identical copy for the full explanation of why the
-// trailing K rounds of a bigger bracket are structurally interchangeable
-// with a standalone size-2^K bracket's own round sequence.
-function trailingRoundCounts(size: number, side: "WINNERS" | "LOSERS"): number[] {
-  const m = Math.log2(size);
-  if (side === "WINNERS") {
-    const counts: number[] = [];
-    for (let r = 1; r <= m; r++) counts.push(size / 2 ** r);
-    return counts;
-  }
-  if (m === 1) return [];
-  const counts: number[] = [];
-  let current = size / 4;
-  counts.push(current);
-  for (let j = 1; j <= m - 1; j++) {
-    const isLastDropIn = j === m - 1;
-    counts.push(current);
-    if (!isLastDropIn) {
-      current = current / 2;
-      counts.push(current);
-    }
-  }
-  return counts;
-}
-
-// Models A/C's main bracket only — a live-narrowing PRESENTATION filter,
-// not a new bracket. tierSize=8 for "Top 8"; tierSize=32 (nextPowerOfTwo(24))
-// for "Top 24", since 24 itself isn't a power of two. See PoolsSection.tsx's
-// identical helper for the full structural explanation.
-function filterBracketToTier(bracket: any, tierSize: number) {
-  const wbOffset = Math.max(0, Math.log2(bracket.size) - Math.log2(tierSize));
-  const lbOffset = Math.max(0, trailingRoundCounts(bracket.size, "LOSERS").length - trailingRoundCounts(tierSize, "LOSERS").length);
-  const matches = bracket.matches
-    .filter((m: any) => {
-      if (m.bracketSide === "WINNERS") return m.bracketRound > wbOffset;
-      if (m.bracketSide === "LOSERS") return m.bracketRound > lbOffset;
-      return true;
-    })
-    .map((m: any) => {
-      if (m.bracketSide === "WINNERS") return { ...m, bracketRound: m.bracketRound - wbOffset };
-      if (m.bracketSide === "LOSERS") return { ...m, bracketRound: m.bracketRound - lbOffset };
-      return m;
-    });
-  return { seedingMethod: bracket.seedingMethod, size: tierSize, matches, seedOrder: bracket.seedOrder };
 }
 
 export function StreamBracket({ tournamentId, initialTournament }: { tournamentId: string; initialTournament: StreamTournament }) {
@@ -233,10 +171,7 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
   // Models A/C only (settled design, July 24, 2026) — same live Top 24/
   // Top 8 tiers PoolsSection.tsx's TO-facing page has, re-themed here for
   // consistency. Model B has its own Semifinal-cutoff/Finals stages already.
-  const mainStartCount = !isModelB ? (tournament.mainBracket?.seedOrder?.length ?? 0) : 0;
-  const liveCount = !isModelB && tournament.mainBracket ? computeLiveEntrantCount(tournament.mainBracket) : 0;
-  const showTop24 = !isModelB && hasMainBracket && mainStartCount >= 48 && liveCount <= 24;
-  const showTop8 = !isModelB && hasMainBracket && mainStartCount >= 16 && liveCount <= 8;
+  const { liveCount, showTop24, showTop8 } = computeLiveTierGating(!isModelB ? tournament.mainBracket : null);
 
   // Model B only — same round dimension PoolsSection.tsx's Phase 6 round
   // selector added for the TO-facing page, re-themed here. Every round that
@@ -299,31 +234,13 @@ export function StreamBracket({ tournamentId, initialTournament }: { tournamentI
 
   // Models A/C only -- this view polls for fresh tournament data itself
   // (the useEffect above), which correctly recomputes showTop24/showTop8
-  // every time, but selectedView's useState above only ever applies its
-  // initial value once, so a viewer sitting on "Main Bracket" or "Top 24"
-  // while the field narrows during a live poll would never automatically
-  // land on "Top 24"/"Top 8" once those newly become available (same root
-  // cause as PoolsSection.tsx's activeTab, just driven by polling instead
-  // of router.refresh()). Same design as there: only fires when showTop24/
-  // showTop8 THEMSELVES change, skips the very first run so a fresh page
-  // load still lands on "Main Bracket" by default, and never yanks the
-  // viewer off a specific pool tab they clicked into.
-  const selectedViewRef = useRef(selectedView);
-  selectedViewRef.current = selectedView;
-  const hasMountedViewEffect = useRef(false);
-  useEffect(() => {
-    if (isModelB) return;
-    if (!hasMountedViewEffect.current) {
-      hasMountedViewEffect.current = true;
-      return;
-    }
-    const current = selectedViewRef.current;
-    const isOnMetaView = current === "main" || current === "main-top24" || current === "main-top8";
-    if (!isOnMetaView) return;
-    const narrowestAvailable = showTop8 ? "main-top8" : showTop24 ? "main-top24" : "main";
-    if (current !== narrowestAvailable) setSelectedView(narrowestAvailable);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedView read via ref on purpose, see comment above
-  }, [isModelB, showTop24, showTop8]);
+  // every time, but without this a viewer sitting on "Main Bracket" or
+  // "Top 24" while the field narrows during a live poll would never
+  // automatically land on "Top 24"/"Top 8" once those newly become
+  // available. See lib/bracketTierView.tsx's useAutoFollowNarrowestTier for
+  // the full behavior/edge-case reasoning -- shared with PoolsSection.tsx's
+  // identical need, not a local effect anymore.
+  useAutoFollowNarrowestTier({ enabled: !isModelB, showTop24, showTop8, current: selectedView, setCurrent: setSelectedView });
 
   function handleSelectRound(key: string) {
     setSelectedRound(key);

@@ -1,16 +1,18 @@
-// components/PoolsSection.tsx
+﻿// components/PoolsSection.tsx
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { BracketView } from "./BracketView";
 import {
-  computeLiveEntrantCount,
+  computeLiveTierGating,
   filterBracketToTier,
   TabBar,
-  modelBRoundLabel,
   MODEL_B_FINALS_TAB_LABEL,
   finalsCutoffWinnersQualifiedEntrants,
   FinalsCutoffWinnersRoster,
+  useAutoFollowNarrowestTier,
+  computeModelBRoundTier,
+  ModelBLiveRoster,
 } from "@/lib/bracketTierView";
 import { GeneratePoolsButton } from "./GeneratePoolsButton";
 import { GenerateModelBPoolsButton } from "./GenerateModelBPoolsButton";
@@ -257,135 +259,6 @@ function PoolStandingsView({
   );
 }
 
-// Model B only — its entrants are spread across several independent pool
-// brackets within a round, not one continuous bracket, so there's no single
-// tree to slice into a trailing-rounds view the way Models A/C's
-// filterBracketToTier does. This computes the equivalent "who's still alive
-// right now" concept directly instead: for each of the given round's pools,
-// count real eliminations (see requiredLossesToEliminate below) and return
-// the survivors, tagged with which pool they're still playing in.
-// Deliberately a roster list, not a bracket rendering — there's no single
-// bracket to draw once results span multiple pools. Kept conceptually
-// separate from the Semifinal Cutoff round (which is a real, structural
-// pool round Model B's own algorithm always builds once pool_count<=8,
-// unrelated to this) — this can trigger during ANY round the moment that
-// round's own live count first narrows to <=24, same live/dynamic spirit as
-// Models A/C's tabs.
-//
-// requiredLossesToEliminate: any round 2+ pool (normal merge-stage AND the
-// Finals-cutoff round alike) mixes two populations per source pool it was
-// built from — a winners-champion entering fresh (0 prior losses, needs 2
-// MORE losses here to be out, same as a real double-elim life count) and up
-// to 2 losers-survivors who already carry 1 loss from the round they came
-// from (need only 1 MORE loss here to be truly out). A flat "2 losses
-// within this bracket" rule (correct for Round 1, where every entrant
-// starts fresh) silently overcounts survivors among the carried-over-loss
-// population everywhere else, most visibly on the Finals-cutoff round
-// (found via live verification, 2026-07-31): a player entering there via
-// buildFinalsCutoffBracket's LOSERS side, upon their first loss in that
-// bracket, is actually already eliminated (their real 2nd lifetime loss),
-// but the flat rule kept counting them as still alive until a 2nd loss
-// that's structurally never coming (no further match is ever wired for
-// them). Derived here from data already in the query response rather than
-// a new persisted field: a player who appears in ANY "WINNERS"-side match
-// in this pool's own bracket entered fresh (their bracket-generation
-// functions -- buildDoubleEliminationBracket for Round 1,
-// buildRepooledBracket/buildFinalsCutoffBracket for Round 2+ -- always seed
-// a winners-side survivor into a WINNERS match, never a LOSERS one); anyone
-// who never appears in a WINNERS match already carried a loss in. Round 1
-// is unaffected by this generalization: every Round 1 entrant's own first
-// match is on the Winners side (buildDoubleEliminationBracket), so this
-// still resolves to "needs 2 losses" for everyone there, identical to the
-// original flat rule already verified live at that round.
-function computeModelBRoundLiveEntrants(roundPools: PoolData[]): { playerId: string; tag: string; avatarUrl?: string | null; poolNumber: number }[] {
-  const out: { playerId: string; tag: string; avatarUrl?: string | null; poolNumber: number }[] = [];
-  for (const pool of roundPools) {
-    const losses = new Map<string, number>();
-    const enteredViaWinners = new Set<string>();
-    if (pool.bracket) {
-      for (const m of pool.bracket.matches) {
-        if (m.bracketSide !== "WINNERS") continue;
-        if (m.player1) enteredViaWinners.add(m.player1.id);
-        if (m.player2) enteredViaWinners.add(m.player2.id);
-      }
-      for (const m of pool.bracket.matches) {
-        if (m.status !== "COMPLETED" || !m.winner) continue;
-        const loserId = m.player1 && m.winner.id === m.player1.id ? m.player2?.id : m.player1?.id;
-        if (!loserId) continue;
-        losses.set(loserId, (losses.get(loserId) ?? 0) + 1);
-      }
-    }
-    for (const entrant of pool.entrants) {
-      const requiredLossesToEliminate = enteredViaWinners.has(entrant.player.id) ? 2 : 1;
-      if ((losses.get(entrant.player.id) ?? 0) < requiredLossesToEliminate) {
-        out.push({ playerId: entrant.player.id, tag: entrant.player.tag, avatarUrl: entrant.player.avatarUrl, poolNumber: pool.poolNumber });
-      }
-    }
-  }
-  return out;
-}
-
-// Model B's own roster-list rendering for the Top 24/Top 8 tabs — a simple
-// grouped-by-pool list (avatar, tag, which pool they're still alive in)
-// rather than BracketView, since these entrants span multiple independent
-// pool brackets with no single tree to draw. highlightedPlayerIds follows
-// the same player-search convention as everywhere else in this file.
-function ModelBLiveRoster({
-  entrants,
-  tierLabel,
-  highlightedPlayerIds,
-}: {
-  entrants: { playerId: string; tag: string; avatarUrl?: string | null; poolNumber: number }[];
-  tierLabel: string;
-  highlightedPlayerIds: Set<string>;
-}) {
-  const byPool = new Map<number, typeof entrants>();
-  for (const e of entrants) {
-    if (!byPool.has(e.poolNumber)) byPool.set(e.poolNumber, []);
-    byPool.get(e.poolNumber)!.push(e);
-  }
-  const poolNumbers = [...byPool.keys()].sort((a, b) => a - b);
-  return (
-    <div>
-      <p className="font-rajdhani text-lg font-bold text-[var(--text-primary)] mb-1">{tierLabel}</p>
-      <p className="text-[11px] text-[var(--text-muted)] mb-4">
-        {entrants.length} live entrant{entrants.length === 1 ? "" : "s"} remaining this round, across {poolNumbers.length} pool{poolNumbers.length === 1 ? "" : "s"} — real-time, not final placements.
-      </p>
-      <div className="flex flex-col gap-4">
-        {poolNumbers.map(poolNumber => (
-          <div key={poolNumber}>
-            <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Pool {poolNumber}</p>
-            <div className="flex flex-wrap gap-1.5">
-              {byPool.get(poolNumber)!.map(e => {
-                const highlighted = highlightedPlayerIds.has(e.playerId);
-                return (
-                  <span
-                    key={e.playerId}
-                    className="flex items-center gap-1.5 text-[12px] px-2 py-1 rounded"
-                    style={
-                      highlighted
-                        ? { background: "rgba(240,180,41,0.16)", outline: "1px solid var(--gold)", color: "var(--gold)" }
-                        : { background: "rgba(74,222,128,0.12)", color: "var(--green)" }
-                    }
-                  >
-                    <span
-                      className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden font-rajdhani text-[9px] font-bold"
-                      style={{ background: "var(--blue-dim)", color: "var(--blue)" }}
-                    >
-                      {e.avatarUrl ? <img src={e.avatarUrl} alt={e.tag} className="w-full h-full object-cover" /> : e.tag.slice(0, 2).toUpperCase()}
-                    </span>
-                    {e.tag}
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // No lineColor/boxColor/fontColor props here on purpose -- this component
 // only ever renders on the Overview page, which always uses plain theme
 // colors regardless of a tournament's custom bracket colors. Those are
@@ -431,10 +304,7 @@ export function PoolsSection({
   // thresholds simply never shows the extra tabs. Model B has its own
   // Semifinal-cutoff/Finals presentation stages already — this doesn't
   // apply there.
-  const mainStartCount = !isModelB ? (mainBracket?.seedOrder?.length ?? 0) : 0;
-  const liveCount = !isModelB && mainBracket ? computeLiveEntrantCount(mainBracket) : 0;
-  const showTop24 = !isModelB && hasMainBracket && mainStartCount >= 48 && liveCount <= 24;
-  const showTop8 = !isModelB && hasMainBracket && mainStartCount >= 16 && liveCount <= 8;
+  const { liveCount, showTop24, showTop8 } = computeLiveTierGating(!isModelB ? mainBracket : null);
 
   // Player-search tab badging (Aug 1, 2026) — a pool/the main bracket
   // "contains" the searched player if any of its own entrants match, which
@@ -444,38 +314,27 @@ export function PoolsSection({
   const poolHasHighlight = (pool: PoolData) => pool.entrants.some(e => highlightedPlayerIds.has(e.player.id));
   const mainBracketHasHighlight = !!mainBracket?.seedOrder?.some(p => highlightedPlayerIds.has(p.id));
 
-  // Model B only — every round that has at least one pool so far, in order.
-  // Model A/C never have more than one pool round, so this stays empty for
-  // them and the round-selector tier below never renders.
-  const roundNumbers = isModelB
-    ? Array.from(new Set(pools.map(p => p.roundNumber ?? 1))).sort((a, b) => a - b)
-    : [];
-  const latestRound = roundNumbers.length ? roundNumbers[roundNumbers.length - 1] : 1;
-  const roundKeyFor = (r: number) => `round-${r}`;
-
-  // A round is the Semifinal-cutoff round if its one pool says so (a
-  // Finals-cutoff round is always exactly one pool — see advanceModelBRound).
-  // Labeled "Top 24" (not "Semifinal Cutoff") for parity with Standard/A/C's
-  // Top 24/Top 8 tabs — this real ~24-entrant bracket IS Model B's Top 24
-  // stage, just reached via a TO-triggered round instead of a live filtered
-  // view (settled design decision, Aug 8, 2026). See lib/bracketTierView.tsx's
-  // modelBRoundLabel for why this is a shared helper, not a local function.
-  const roundLabel = (r: number) => modelBRoundLabel(pools, r);
-
-  // Model B's own Top 24/Top 8 — deliberately separate from Semifinal
-  // Cutoff (a real structural round the algorithm always builds once
-  // pool_count<=8, unrelated to this) and from Models A/C's tabs (no single
-  // bracket to slice here, entrants span several pools). Gated the same
-  // spirit as Models A/C: >=48/>=16 entrants for this round to START with,
-  // narrowed to <=24/<=8 STILL ALIVE right now, live/dynamic across
-  // whichever round is currently in progress (not just the Finals-cutoff
-  // round, though that round's own ~24-entrant target often lands here
-  // naturally too).
-  const latestRoundPools = isModelB ? pools.filter(p => (p.roundNumber ?? 1) === latestRound) : [];
-  const modelBRoundStartCount = latestRoundPools.reduce((sum, p) => sum + p.entrants.length, 0);
-  const modelBLiveEntrants = isModelB ? computeModelBRoundLiveEntrants(latestRoundPools) : [];
-  const modelBShowTop24 = isModelB && !hasMainBracket && modelBRoundStartCount >= 48 && modelBLiveEntrants.length <= 24;
-  const modelBShowTop8 = isModelB && !hasMainBracket && modelBRoundStartCount >= 16 && modelBLiveEntrants.length <= 8;
+  // Model B only — every round that has at least one pool so far, in order,
+  // plus the mid-round live "Top 24"/"Top 8" roster tier once the current
+  // round has narrowed enough. Model A/C never have more than one pool
+  // round, so pools.length being isModelB-gated here keeps this at its
+  // all-empty/false default for them, same as before this was promoted into
+  // a shared helper — see lib/bracketTierView.tsx's computeModelBRoundTier
+  // for the full behavior/edge-case reasoning (shared with
+  // StreamBracket.tsx's identical need now, not a local computation).
+  const { roundNumbers, latestRound, roundKeyFor, roundLabel, modelBRoundStartCount, modelBLiveEntrants, modelBShowTop24, modelBShowTop8 } =
+    isModelB
+      ? computeModelBRoundTier(pools, hasMainBracket)
+      : {
+          roundNumbers: [] as number[],
+          latestRound: 1,
+          roundKeyFor: (r: number) => `round-${r}`,
+          roundLabel: (r: number) => `Round ${r}`,
+          modelBRoundStartCount: 0,
+          modelBLiveEntrants: [] as ReturnType<typeof computeModelBRoundTier>["modelBLiveEntrants"],
+          modelBShowTop24: false,
+          modelBShowTop8: false,
+        };
   const modelBTop24HasHighlight = modelBLiveEntrants.some(e => highlightedPlayerIds.has(e.playerId));
 
   // Model B's round-selector tier — one tab per pool round generated so far,
@@ -534,39 +393,14 @@ export function PoolsSection({
   );
 
   // Models A/C only -- reportResult (every match played in the main
-  // bracket) calls router.refresh(), NOT a real remount, so this useState's
-  // initial value is the only time activeTab would otherwise get set: a
+  // bracket) calls router.refresh(), NOT a real remount, so without this a
   // viewer sitting on "Main Bracket" or "Top 24" while the field keeps
   // narrowing would never automatically land on "Top 24" or "Top 8" once
-  // those newly become available, since router.refresh() only refreshes
-  // the server-fetched props this component receives, it doesn't remount
-  // the component or reset its state.
-  //
-  // Deliberately narrow: only fires when showTop24/showTop8 THEMSELVES
-  // change (i.e. new data actually arrived), not on every render or every
-  // manual tab click -- activeTab is read via a ref instead of listed as a
-  // dependency so clicking a tab doesn't re-trigger this effect. Skips the
-  // very first run (hasMountedRef) so a fresh page load still lands on
-  // "Main Bracket" by default even if the field has already narrowed to
-  // Top 8 range -- this only auto-follows narrowing that happens WHILE
-  // watching, it doesn't change the initial landing tab. Also never yanks
-  // the viewer off a specific pool tab they clicked into.
-  const activeTabRef = useRef(activeTab);
-  activeTabRef.current = activeTab;
-  const hasMountedTabEffect = useRef(false);
-  useEffect(() => {
-    if (isModelB) return;
-    if (!hasMountedTabEffect.current) {
-      hasMountedTabEffect.current = true;
-      return;
-    }
-    const current = activeTabRef.current;
-    const isOnMetaView = current === "main" || current === "main-top24" || current === "main-top8";
-    if (!isOnMetaView) return;
-    const narrowestAvailable = showTop8 ? "main-top8" : showTop24 ? "main-top24" : "main";
-    if (current !== narrowestAvailable) setActiveTab(narrowestAvailable);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- activeTab read via ref on purpose, see comment above
-  }, [isModelB, showTop24, showTop8]);
+  // those newly become available. See lib/bracketTierView.tsx's
+  // useAutoFollowNarrowestTier for the full behavior/edge-case reasoning --
+  // shared with StreamBracket.tsx's identical need, not a local effect
+  // anymore.
+  useAutoFollowNarrowestTier({ enabled: !isModelB, showTop24, showTop8, current: activeTab, setCurrent: setActiveTab });
 
   function handleSelectRound(key: string) {
     setActiveRound(key);
